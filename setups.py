@@ -12,8 +12,11 @@ class LightConfig:
         self.name = name
         self.settings: list[LightSetting] = settings
 
+    def __str__(self):
+        return self.name
 
-class __init__(LightConfig):
+
+class SetupBrightnessColors(LightConfig):
     def __init__(self):
         super().__init__(
             "brilho_cores",
@@ -374,7 +377,7 @@ class Setups:
 
     def __init__(self):
         self.list = [
-            __init__(),
+            SetupBrightnessColors(),
             SetupConcentration(),
             SetupFuturistic(),
             SetupRelaxing(),
