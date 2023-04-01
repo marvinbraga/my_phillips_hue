@@ -35,17 +35,18 @@ class SetupBrightnessColors(LightConfig):
 
 class SetupConcentration(LightConfig):
     def __init__(self):
+        color = (255, 244, 229)
         super().__init__(
             "concentration",
             settings=[
-                LightSetting('Lâmpada 1', Color(255, 255, 255, 255)),
-                LightSetting('Lâmpada 2', Color(255, 255, 255, 255)),
-                LightSetting('Lâmpada 4', Color(255, 255, 255, 255)),
-                LightSetting('Hue Iris', Color(255, 255, 255, 130)),
-                LightSetting('Hue Play 1', Color(255, 255, 255, 100)),
-                LightSetting('Hue Play 2', Color(255, 255, 255, 100)),
-                LightSetting('Fita Led', Color(255, 255, 255, 80)),
-                LightSetting('Led cima', Color(255, 255, 255, 40)),
+                LightSetting('Lâmpada 1', Color(*color, 255)),
+                LightSetting('Lâmpada 2', Color(*color, 255)),
+                LightSetting('Lâmpada 4', Color(*color, 255)),
+                LightSetting('Hue Iris', Color(*color, 130)),
+                LightSetting('Hue Play 1', Color(*color, 100)),
+                LightSetting('Hue Play 2', Color(*color, 100)),
+                LightSetting('Fita Led', Color(*color, 40)),
+                LightSetting('Led cima', Color(*color, 40)),
             ]
         )
 
@@ -186,19 +187,36 @@ class GreenTealCalm(LightConfig):
         )
 
 
+class PurpleHome(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "purple_home",
+            settings=[
+                LightSetting('Lâmpada 1', Color(170, 120, 255, 80)),
+                LightSetting('Lâmpada 2', Color(170, 120, 255, 80)),
+                LightSetting('Lâmpada 4', Color(170, 120, 255, 80)),
+                LightSetting('Hue Iris', Color(200, 50, 255, 100)),
+                LightSetting('Hue Play 1', Color(150, 50, 255, 100)),
+                LightSetting('Hue Play 2', Color(150, 50, 255, 100)),
+                LightSetting('Fita Led', Color(100, 0, 255, 70)),
+                LightSetting('Led cima', Color(80, 0, 255, 40)),
+            ]
+        )
+
+
 class PurpleRelaxation(LightConfig):
     def __init__(self):
         super().__init__(
             "purple_relaxation",
             settings=[
-                LightSetting('Lâmpada 1', Color(240, 255, 255, 170)),
-                LightSetting('Lâmpada 2', Color(240, 255, 255, 170)),
-                LightSetting('Lâmpada 4', Color(240, 255, 255, 170)),
-                LightSetting('Hue Iris', Color(140, 255, 230, 130)),
-                LightSetting('Hue Play 1', Color(240, 255, 140, 100)),
-                LightSetting('Hue Play 2', Color(240, 255, 140, 100)),
-                LightSetting('Fita Led', Color(200, 255, 150, 80)),
-                LightSetting('Led cima', Color(255, 244, 229, 40)),
+                LightSetting('Lâmpada 1', Color(200, 150, 255, 100)),
+                LightSetting('Lâmpada 2', Color(200, 150, 255, 100)),
+                LightSetting('Lâmpada 4', Color(200, 150, 255, 100)),
+                LightSetting('Hue Iris', Color(120, 80, 180, 70)),
+                LightSetting('Hue Play 1', Color(150, 100, 200, 80)),
+                LightSetting('Hue Play 2', Color(150, 100, 200, 80)),
+                LightSetting('Fita Led', Color(180, 130, 255, 60)),
+                LightSetting('Led cima', Color(200, 150, 255, 40)),
             ]
         )
 
@@ -441,39 +459,154 @@ class FocusedMorning(LightConfig):
         )
 
 
-class Setups:
-
+class AfternoonDelight(LightConfig):
     def __init__(self):
-        self.list = [
-            SetupBrightnessColors(),
-            SetupConcentration(),
-            SetupFuturistic(),
-            SetupRelaxing(),
-            SetupStudy(),
-            SetupEntertainment(),
-            SoftWhiteConcentration(),
-            CoolBlueEnergy(),
-            CozyWarmOrange(),
-            GreenTealCalm(),
-            PurpleRelaxation(),
-            MultiColorFocus(),
-            VibrantYellowEnergy(),
-            PinkDream(),
-            OceanBlueCalm(),
-            RedHotPassion(),
-            BrightDaylight(),
-            PastelRainbow(),
-            SoftGradientMix(),
-            WarmGlow(),
-            CoolGradientMix(),
-            MorningEyeSoothing(),
-            DawnRelaxation(),
-            MorningMist(),
-            FocusedMorning(),
-        ]
+        super().__init__(
+            "afternoon_delight",
+            settings=[
+                LightSetting('Lâmpada 1', Color(255, 230, 200, 150)),
+                LightSetting('Lâmpada 2', Color(255, 230, 200, 150)),
+                LightSetting('Lâmpada 4', Color(255, 230, 200, 150)),
+                LightSetting('Hue Iris', Color(255, 150, 100, 130)),
+                LightSetting('Hue Play 1', Color(100, 255, 200, 100)),
+                LightSetting('Hue Play 2', Color(100, 255, 200, 100)),
+                LightSetting('Fita Led', Color(255, 215, 120, 80)),
+                LightSetting('Led cima', Color(255, 230, 200, 50)),
+            ]
+        )
 
-    def get(self, name):
-        return [setup for setup in self.list if setup.name == name][0]
 
-    def list_names(self):
-        return [setup.name for setup in self.list]
+class VideoLessonSoftLight(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "video_lesson_soft_light",
+            settings=[
+                LightSetting('Lâmpada 1', Color(255, 244, 229, 170)),
+                LightSetting('Lâmpada 2', Color(255, 244, 229, 170)),
+                LightSetting('Lâmpada 4', Color(255, 244, 229, 170)),
+                LightSetting('Hue Iris', Color(255, 244, 229, 120)),
+                LightSetting('Hue Play 1', Color(255, 244, 229, 100)),
+                LightSetting('Hue Play 2', Color(255, 244, 229, 100)),
+                LightSetting('Fita Led', Color(255, 244, 229, 60)),
+                LightSetting('Led cima', Color(255, 244, 229, 40)),
+            ]
+        )
+
+
+class VideoLessonFocusedLight(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "video_lesson_focused_light",
+            settings=[
+                LightSetting('Lâmpada 1', Color(255, 244, 229, 200)),
+                LightSetting('Lâmpada 2', Color(255, 244, 229, 200)),
+                LightSetting('Lâmpada 4', Color(255, 244, 229, 200)),
+                LightSetting('Hue Iris', Color(255, 200, 150, 120)),
+                LightSetting('Hue Play 1', Color(255, 244, 229, 100)),
+                LightSetting('Hue Play 2', Color(255, 244, 229, 100)),
+                LightSetting('Fita Led', Color(255, 200, 150, 60)),
+                LightSetting('Led cima', Color(255, 244, 229, 40)),
+            ]
+        )
+
+
+class VideoLessonMatrixTheme(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "video_lesson_matrix_theme",
+            settings=[
+                LightSetting('Lâmpada 1', Color(30, 255, 30, 170)),
+                LightSetting('Lâmpada 2', Color(30, 255, 30, 170)),
+                LightSetting('Lâmpada 4', Color(30, 255, 30, 170)),
+                LightSetting('Hue Iris', Color(30, 255, 30, 120)),
+                LightSetting('Hue Play 1', Color(30, 255, 30, 100)),
+                LightSetting('Hue Play 2', Color(30, 255, 30, 100)),
+                LightSetting('Fita Led', Color(30, 255, 30, 60)),
+                LightSetting('Led cima', Color(30, 255, 30, 40)),
+            ]
+        )
+
+
+class VideoLessonMatrixThemeBold(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "video_lesson_matrix_theme_bold",
+            settings=[
+                LightSetting('Lâmpada 1', Color(30, 255, 30, 200)),
+                LightSetting('Lâmpada 2', Color(30, 255, 30, 200)),
+                LightSetting('Lâmpada 4', Color(30, 255, 30, 200)),
+                LightSetting('Hue Iris', Color(30, 255, 30, 180)),
+                LightSetting('Hue Play 1', Color(255, 20, 20, 100)),
+                LightSetting('Hue Play 2', Color(20, 20, 255, 100)),
+                LightSetting('Fita Led', Color(30, 255, 30, 120)),
+                LightSetting('Led cima', Color(255, 255, 255, 60)),
+            ]
+        )
+
+
+class VideoLessonPythonLogoTheme(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "video_lesson_python_logo_theme",
+            settings=[
+                LightSetting('Lâmpada 1', Color(2, 136, 209, 200)),
+                LightSetting('Lâmpada 2', Color(2, 136, 209, 200)),
+                LightSetting('Lâmpada 4', Color(2, 136, 209, 200)),
+                LightSetting('Hue Iris', Color(252, 53, 76, 180)),
+                LightSetting('Hue Play 1', Color(255, 215, 0, 100)),
+                LightSetting('Hue Play 2', Color(2, 136, 209, 100)),
+                LightSetting('Fita Led', Color(255, 215, 0, 120)),
+                LightSetting('Led cima', Color(255, 255, 255, 60)),
+            ]
+        )
+
+
+class CyberpunkNight(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "cyberpunk_night",
+            settings=[
+                LightSetting('Lâmpada 1', Color(153, 0, 255, 180)),
+                LightSetting('Lâmpada 2', Color(153, 0, 255, 180)),
+                LightSetting('Lâmpada 4', Color(153, 0, 255, 180)),
+                LightSetting('Hue Iris', Color(255, 0, 102, 200)),
+                LightSetting('Hue Play 1', Color(0, 255, 255, 100)),
+                LightSetting('Hue Play 2', Color(0, 255, 255, 100)),
+                LightSetting('Fita Led', Color(255, 153, 51, 120)),
+                LightSetting('Led cima', Color(255, 255, 255, 60)),
+            ]
+        )
+
+
+class GalacticAdventure(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "galactic_adventure",
+            settings=[
+                LightSetting('Lâmpada 1', Color(51, 153, 255, 180)),
+                LightSetting('Lâmpada 2', Color(51, 153, 255, 180)),
+                LightSetting('Lâmpada 4', Color(51, 153, 255, 180)),
+                LightSetting('Hue Iris', Color(255, 255, 153, 200)),
+                LightSetting('Hue Play 1', Color(102, 255, 102, 100)),
+                LightSetting('Hue Play 2', Color(102, 255, 102, 100)),
+                LightSetting('Fita Led', Color(255, 51, 153, 120)),
+                LightSetting('Led cima', Color(255, 255, 255, 60)),
+            ]
+        )
+
+
+class ElectricDreams(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "electric_dreams",
+            settings=[
+                LightSetting('Lâmpada 1', Color(255, 51, 153, 180)),
+                LightSetting('Lâmpada 2', Color(255, 51, 153, 180)),
+                LightSetting('Lâmpada 4', Color(255, 51, 153, 180)),
+                LightSetting('Hue Iris', Color(0, 255, 255, 200)),
+                LightSetting('Hue Play 1', Color(255, 255, 102, 100)),
+                LightSetting('Hue Play 2', Color(255, 255, 102, 100)),
+                LightSetting('Fita Led', Color(102, 255, 102, 120)),
+                LightSetting('Led cima', Color(255, 255, 255, 60)),
+            ]
+        )

@@ -2,32 +2,23 @@ from time import sleep
 from decouple import config
 
 from controlles import HueController
-from setups import Setups
+from factories import LightConfigEnum
 
-bridge_ip = config("bridge_ip")
+hue = HueController(config("bridge_ip"))
 
-# Exemplo de uso
-hue = HueController(bridge_ip)
-setups = Setups()
 
-names = setups.list_names()
-print(names)
+def test(config_enum):
+    setup = config_enum.get_instance()
+    print(f"Name: {setup}, Description: {config_enum.description}")
+    hue.apply_light_config(setup)
 
 
 def test_all():
-    for name in names:
-        print(name)
-        hue.apply_light_config(
-            setups.get(name)
-        )
+    for config_enum in LightConfigEnum:
+        test(config_enum)
         sleep(7)
 
 
-def test(name):
-    print(name)
-    hue.apply_light_config(setups.get(name))
-
-
 if __name__ == '__main__':
-    test("morning_eye_soothing")
+    test(LightConfigEnum.SETUP_RELAXING)
     # test_all()
