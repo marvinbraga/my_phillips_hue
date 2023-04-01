@@ -29,4 +29,5 @@ def test(name):
 
 
 if __name__ == '__main__':
-    test("relaxing")
+    test("morning_eye_soothing")
+    # test_all()

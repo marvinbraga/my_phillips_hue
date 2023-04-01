@@ -19,7 +19,7 @@ class LightConfig:
 class SetupBrightnessColors(LightConfig):
     def __init__(self):
         super().__init__(
-            "brilho_cores",
+            "brightness_color",
             settings=[
                 LightSetting('Lâmpada 1', Color(255, 244, 229, 170)),
                 LightSetting('Lâmpada 2', Color(255, 244, 229, 170)),
@@ -36,7 +36,7 @@ class SetupBrightnessColors(LightConfig):
 class SetupConcentration(LightConfig):
     def __init__(self):
         super().__init__(
-            "concentracao",
+            "concentration",
             settings=[
                 LightSetting('Lâmpada 1', Color(255, 255, 255, 255)),
                 LightSetting('Lâmpada 2', Color(255, 255, 255, 255)),
@@ -118,10 +118,10 @@ class SetupEntertainment(LightConfig):
         )
 
 
-class LightConfig1(LightConfig):
+class SoftWhiteConcentration(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 1",
+            "soft_white_concentration",
             settings=[
                 LightSetting('Lâmpada 1', Color(255, 230, 220, 170)),
                 LightSetting('Lâmpada 2', Color(255, 230, 220, 170)),
@@ -135,10 +135,10 @@ class LightConfig1(LightConfig):
         )
 
 
-class LightConfig2(LightConfig):
+class CoolBlueEnergy(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 2",
+            "cool_blue_energy",
             settings=[
                 LightSetting('Lâmpada 1', Color(220, 255, 230, 170)),
                 LightSetting('Lâmpada 2', Color(220, 255, 230, 170)),
@@ -152,10 +152,10 @@ class LightConfig2(LightConfig):
         )
 
 
-class LightConfig3(LightConfig):
+class CozyWarmOrange(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 3",
+            "cozy_warm_orange",
             settings=[
                 LightSetting('Lâmpada 1', Color(240, 240, 255, 170)),
                 LightSetting('Lâmpada 2', Color(240, 240, 255, 170)),
@@ -169,10 +169,10 @@ class LightConfig3(LightConfig):
         )
 
 
-class LightConfig4(LightConfig):
+class GreenTealCalm(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 4",
+            "green_teal_calm",
             settings=[
                 LightSetting('Lâmpada 1', Color(255, 255, 230, 170)),
                 LightSetting('Lâmpada 2', Color(255, 255, 230, 170)),
@@ -186,10 +186,10 @@ class LightConfig4(LightConfig):
         )
 
 
-class LightConfig5(LightConfig):
+class PurpleRelaxation(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 5",
+            "purple_relaxation",
             settings=[
                 LightSetting('Lâmpada 1', Color(240, 255, 255, 170)),
                 LightSetting('Lâmpada 2', Color(240, 255, 255, 170)),
@@ -203,10 +203,10 @@ class LightConfig5(LightConfig):
         )
 
 
-class LightConfig6(LightConfig):
+class MultiColorFocus(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 6",
+            "multi_color_focus",
             settings=[
                 LightSetting('Lâmpada 1', Color(230, 255, 255, 170)),
                 LightSetting('Lâmpada 2', Color(230, 255, 255, 170)),
@@ -220,10 +220,10 @@ class LightConfig6(LightConfig):
         )
 
 
-class LightConfig7(LightConfig):
+class VibrantYellowEnergy(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 7",
+            "vibrant_yellow_energy",
             settings=[
                 LightSetting('Lâmpada 1', Color(220, 240, 255, 170)),
                 LightSetting('Lâmpada 2', Color(220, 240, 255, 170)),
@@ -237,10 +237,10 @@ class LightConfig7(LightConfig):
         )
 
 
-class LightConfig8(LightConfig):
+class PinkDream(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 8",
+            "pink_dream",
             settings=[
                 LightSetting('Lâmpada 1', Color(255, 255, 240, 170)),
                 LightSetting('Lâmpada 2', Color(255, 255, 240, 170)),
@@ -254,10 +254,10 @@ class LightConfig8(LightConfig):
         )
 
 
-class LightConfig9(LightConfig):
+class OceanBlueCalm(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 9",
+            "ocean_blue_calm",
             settings=[
                 LightSetting('Lâmpada 1', Color(200, 255, 240, 170)),
                 LightSetting('Lâmpada 2', Color(200, 255, 240, 170)),
@@ -271,10 +271,10 @@ class LightConfig9(LightConfig):
         )
 
 
-class LightConfig10(LightConfig):
+class RedHotPassion(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 10",
+            "red_hot_passion",
             settings=[
                 LightSetting('Lâmpada 1', Color(255, 240, 240, 170)),
                 LightSetting('Lâmpada 2', Color(255, 240, 240, 170)),
@@ -288,10 +288,10 @@ class LightConfig10(LightConfig):
         )
 
 
-class LightConfig11(LightConfig):
+class BrightDaylight(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 11",
+            "bright_daylight",
             settings=[
                 LightSetting('Lâmpada 1', Color(240, 240, 255, 170)),
                 LightSetting('Lâmpada 2', Color(240, 240, 255, 170)),
@@ -305,10 +305,10 @@ class LightConfig11(LightConfig):
         )
 
 
-class LightConfig12(LightConfig):
+class PastelRainbow(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 12",
+            "pastel_rainbow",
             settings=[
                 LightSetting('Lâmpada 1', Color(255, 200, 220, 170)),
                 LightSetting('Lâmpada 2', Color(255, 200, 220, 170)),
@@ -322,10 +322,10 @@ class LightConfig12(LightConfig):
         )
 
 
-class LightConfig13(LightConfig):
+class SoftGradientMix(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 13",
+            "soft_gradient_mix",
             settings=[
                 LightSetting('Lâmpada 1', Color(200, 220, 255, 170)),
                 LightSetting('Lâmpada 2', Color(200, 220, 255, 170)),
@@ -339,10 +339,10 @@ class LightConfig13(LightConfig):
         )
 
 
-class LightConfig14(LightConfig):
+class WarmGlow(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 14",
+            "warm_glow",
             settings=[
                 LightSetting('Lâmpada 1', Color(255, 230, 200, 170)),
                 LightSetting('Lâmpada 2', Color(255, 230, 200, 170)),
@@ -356,10 +356,10 @@ class LightConfig14(LightConfig):
         )
 
 
-class LightConfig15(LightConfig):
+class CoolGradientMix(LightConfig):
     def __init__(self):
         super().__init__(
-            "Configuração 15",
+            "cool_gradient_mix",
             settings=[
                 LightSetting('Lâmpada 1', Color(210, 255, 230, 170)),
                 LightSetting('Lâmpada 2', Color(210, 255, 230, 170)),
@@ -369,6 +369,74 @@ class LightConfig15(LightConfig):
                 LightSetting('Hue Play 2', Color(255, 230, 210, 100)),
                 LightSetting('Fita Led', Color(230, 255, 230, 80)),
                 LightSetting('Led cima', Color(255, 230, 255, 40)),
+            ]
+        )
+
+
+class MorningEyeSoothing(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "morning_eye_soothing",
+            settings=[
+                LightSetting('Lâmpada 1', Color(255, 244, 229, 100)),
+                LightSetting('Lâmpada 2', Color(255, 244, 229, 100)),
+                LightSetting('Lâmpada 4', Color(255, 244, 229, 100)),
+                LightSetting('Hue Iris', Color(255, 140, 80, 70)),
+                LightSetting('Hue Play 1', Color(80, 180, 255, 50)),
+                LightSetting('Hue Play 2', Color(80, 180, 255, 50)),
+                LightSetting('Fita Led', Color(255, 215, 120, 40)),
+                LightSetting('Led cima', Color(255, 244, 229, 20)),
+            ]
+        )
+
+
+class DawnRelaxation(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "dawn_relaxation",
+            settings=[
+                LightSetting('Lâmpada 1', Color(255, 235, 215, 100)),
+                LightSetting('Lâmpada 2', Color(255, 235, 215, 100)),
+                LightSetting('Lâmpada 4', Color(255, 235, 215, 100)),
+                LightSetting('Hue Iris', Color(255, 160, 100, 70)),
+                LightSetting('Hue Play 1', Color(100, 180, 200, 50)),
+                LightSetting('Hue Play 2', Color(100, 180, 200, 50)),
+                LightSetting('Fita Led', Color(255, 225, 150, 40)),
+                LightSetting('Led cima', Color(255, 235, 215, 20)),
+            ]
+        )
+
+
+class MorningMist(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "morning_mist",
+            settings=[
+                LightSetting('Lâmpada 1', Color(225, 225, 235, 100)),
+                LightSetting('Lâmpada 2', Color(225, 225, 235, 100)),
+                LightSetting('Lâmpada 4', Color(225, 225, 235, 100)),
+                LightSetting('Hue Iris', Color(200, 200, 255, 70)),
+                LightSetting('Hue Play 1', Color(180, 200, 225, 50)),
+                LightSetting('Hue Play 2', Color(180, 200, 225, 50)),
+                LightSetting('Fita Led', Color(215, 215, 255, 40)),
+                LightSetting('Led cima', Color(225, 225, 235, 20)),
+            ]
+        )
+
+
+class FocusedMorning(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "focused_morning",
+            settings=[
+                LightSetting('Lâmpada 1', Color(255, 244, 229, 140)),
+                LightSetting('Lâmpada 2', Color(255, 244, 229, 140)),
+                LightSetting('Lâmpada 4', Color(255, 244, 229, 140)),
+                LightSetting('Hue Iris', Color(255, 160, 100, 80)),
+                LightSetting('Hue Play 1', Color(100, 200, 255, 60)),
+                LightSetting('Hue Play 2', Color(100, 200, 255, 60)),
+                LightSetting('Fita Led', Color(255, 215, 120, 50)),
+                LightSetting('Led cima', Color(255, 244, 229, 30)),
             ]
         )
 
@@ -383,21 +451,25 @@ class Setups:
             SetupRelaxing(),
             SetupStudy(),
             SetupEntertainment(),
-            LightConfig1(),
-            LightConfig2(),
-            LightConfig3(),
-            LightConfig4(),
-            LightConfig5(),
-            LightConfig6(),
-            LightConfig7(),
-            LightConfig8(),
-            LightConfig9(),
-            LightConfig10(),
-            LightConfig11(),
-            LightConfig12(),
-            LightConfig13(),
-            LightConfig14(),
-            LightConfig15(),
+            SoftWhiteConcentration(),
+            CoolBlueEnergy(),
+            CozyWarmOrange(),
+            GreenTealCalm(),
+            PurpleRelaxation(),
+            MultiColorFocus(),
+            VibrantYellowEnergy(),
+            PinkDream(),
+            OceanBlueCalm(),
+            RedHotPassion(),
+            BrightDaylight(),
+            PastelRainbow(),
+            SoftGradientMix(),
+            WarmGlow(),
+            CoolGradientMix(),
+            MorningEyeSoothing(),
+            DawnRelaxation(),
+            MorningMist(),
+            FocusedMorning(),
         ]
 
     def get(self, name):
