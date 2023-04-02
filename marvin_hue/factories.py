@@ -81,6 +81,49 @@ class LightConfigEnum(Enum):
         e intrigante à noite.
         """
     )
+    FUTURISTIC_LASER_SHOW = (
+        FuturisticLaserShow,
+        """
+        Ambiente futurista com um show de laser impressionante. Com cores brilhantes e ousadas, 
+        este tema cria uma atmosfera emocionante e energética, perfeita para festas ou eventos especiais.
+        """
+    )
+    CHEERFUL_PINK_PARTY = (
+        CheerfulPinkParty,
+        """
+        Ambiente alegre com uma mistura de tons de rosa, criando uma atmosfera festiva e animada. 
+        Este tema é perfeito para comemorações, encontros sociais ou simplesmente para adicionar 
+        um toque de cor e alegria ao seu dia.
+        """
+    )
+    TRANQUIL_ROSE_GARDEN = (
+        TranquilRoseGarden,
+        """
+        Ambiente tranquilo e relaxante, inspirado em um jardim de rosas. Com tons suaves e acolhedores de rosa, 
+        este tema cria uma atmosfera serena e calmante, ideal para relaxar, meditar ou desfrutar de um momento de paz.
+        """
+    )
+    GOLDEN_SUNSET = (
+        GoldenSunset,
+        """
+        Ambiente inspirado no pôr do sol dourado, com tons quentes e dourados que criam uma atmosfera 
+        relaxante e aconchegante.
+        """
+    )
+    TROPICAL_SUNSET = (
+        TropicalSunset,
+        """
+        Ambiente inspirado em um pôr do sol tropical, com uma mistura de cores quentes e vibrantes que evocam 
+        a sensação de estar na praia durante o crepúsculo.
+        """
+    )
+    DESERT_SUNSET = (
+        DesertSunset,
+        """
+        Ambiente inspirado em um pôr do sol no deserto, com tons quentes e terrosos que lembram as paisagens 
+        desérticas e as dunas de areia.
+        """
+    )
 
     def __init__(self, light_config_class, description):
         self.light_config_class = light_config_class

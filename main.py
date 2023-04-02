@@ -1,5 +1,3 @@
-# aula_hue.py
-
 from time import sleep
 from decouple import config
 
@@ -29,7 +27,7 @@ def aplicar_todas_configuracoes(tempo_de_transicao=0, tempo_de_espera=7):
 
 if __name__ == "__main__":
     # Exemplo: aplique a configuração "SETUP_RELAXING"
-    aplicar_configuracao(LightConfigEnum.COOL_BLUE_ENERGY)
+    aplicar_configuracao(LightConfigEnum.AFTERNOON_DELIGHT)
 
     # Descomente a linha abaixo para aplicar todas as configurações
     # aplicar_todas_configuracoes()
