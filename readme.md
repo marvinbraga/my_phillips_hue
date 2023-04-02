@@ -54,11 +54,9 @@ arquivo `marvin_hue/setups.py`.
 ## Contribuindo
 
 Se você deseja contribuir com este projeto, por favor, siga as diretrizes de contribuição disponíveis no
-arquivo `CONTRIBUTING.md`.
+arquivo [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Licença
 
-Este projeto está licenciado sob a Licença `GNU Affero General Public License v3.0` - consulte o arquivo `LICENSE` para
-obter mais informações.
-
-
+Este projeto está licenciado sob a Licença `GNU Affero General Public License v3.0` - consulte o arquivo 
+[`LICENSE`](LICENSE) para obter mais informações.
