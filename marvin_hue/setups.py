@@ -1,4 +1,4 @@
-from colors import Color
+from marvin_hue.colors import Color
 
 
 class LightSetting:

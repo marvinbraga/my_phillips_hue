@@ -1,5 +1,5 @@
 from enum import Enum
-from setups import *
+from marvin_hue.setups import *
 
 
 class LightConfigEnum(Enum):
@@ -15,7 +15,7 @@ class LightConfigEnum(Enum):
     GREEN_TEAL_CALM = (GreenTealCalm, 'Ambiente calmo com tons de verde e azul')
     PURPLE_HOME = (PurpleHome, 'Ambiente relaxante com luz roxa.')
     PURPLE_RELAXATION = (
-        PurpleHome,
+        PurpleRelaxation,
         """
         Ambiente relaxante com luz roxa com menor intensidade e com uma mistura de cores
         mais suaves para criar um ambiente mais relaxante e menos intenso.

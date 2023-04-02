@@ -1,8 +1,8 @@
 from phue import Bridge, Light
 
-from colors import Color
-from setups import LightConfig
-from utils import RGBtoXYAdapter
+from marvin_hue.colors import Color
+from marvin_hue.setups import LightConfig
+from marvin_hue.utils import RGBtoXYAdapter
 
 
 class HueController:
@@ -37,8 +37,4 @@ class HueController:
         return [(group.group_id, group.name) for group in groups]
 
     def list_lights(self):
-        result = []
-        for i in range(len(self.lights) - 1):
-            l: Light = self.lights[i]
-            result.append(l.name)
-        return result
+        return [light.name for light in self.lights]
