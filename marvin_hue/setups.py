@@ -130,7 +130,7 @@ class SoftWhiteConcentration(LightConfig):
                 LightSetting('Hue Iris', Color(150, 255, 200, 130)),
                 LightSetting('Hue Play 1', Color(200, 255, 230, 100)),
                 LightSetting('Hue Play 2', Color(200, 255, 230, 100)),
-                LightSetting('Fita Led', Color(255, 200, 150, 80)),
+                LightSetting('Fita Led', Color(255, 200, 150, 50)),
                 LightSetting('Led cima', Color(200, 255, 255, 40)),
             ]
         )
