@@ -68,17 +68,18 @@ def aplicar_minha_configuracao(bridge, classe_configuracao):
     bridge.apply_light_config(light_config=classe_configuracao())
 
 
-# Conectando com a Hue bridge
-hue_bridge = HueController(ip_address=config("bridge_ip"))
-# Listando luzes
-list_lights(hue_bridge)
-# Alterando a cor de uma lâmpada
-alterando_configuracao_lampada(hue_bridge, 'Hue Iris')
+if __name__ == '__main__':
+    # Conectando com a Hue bridge
+    hue_bridge = HueController(ip_address=config("bridge_ip"))
+    # Listando luzes
+    list_lights(hue_bridge)
+    # Alterando a cor de uma lâmpada
+    alterando_configuracao_lampada(hue_bridge, 'Hue Iris')
 
-# Aplicando configuração em várias lâmpadas.
-aplicar_minha_configuracao(bridge=hue_bridge, classe_configuracao=OlaMundoSetup)
+    # Aplicando configuração em várias lâmpadas.
+    aplicar_minha_configuracao(bridge=hue_bridge, classe_configuracao=OlaMundoSetup)
 
-# Utilizando a fábrica para aplicar todas as configurações.
-hue_bridge.apply_light_config(
-    light_config=ConfiguracaoEnum.COOL_BLUE_ENERGY.get_instance()
-)
+    # Utilizando a fábrica para aplicar todas as configurações.
+    hue_bridge.apply_light_config(
+        light_config=ConfiguracaoEnum.COOL_BLUE_ENERGY.get_instance()
+    )
