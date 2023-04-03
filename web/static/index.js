@@ -4,7 +4,7 @@ function loadConfigurations() {
         $.each(data, function (index, item) {
             configurationsSelect.append($('<option>', {
                 value: item.name,
-                text: `${item.name} - ${item.description.trim().slice(0, 50)}`
+                text: `${item.name} - ${item.description.trim().slice(0, 100)}`
             }));
         });
     });
