@@ -124,6 +124,25 @@ class LightConfigEnum(Enum):
         desérticas e as dunas de areia.
         """
     )
+    ESTIMULE_A_CRIATIVIDADE = (
+        EstimuleACriatividade,
+        """
+        Ambiente com tons de amarelo claro que estimulam o raciocínio e a criatividade, ideal para momentos de
+        trabalho ou estudo que exigem maior concentração e foco.
+        """
+    )
+    ESTIMULE_A_CRIATIVIDADE_FUTURISTA = (
+        EstimuleACriatividadeFuturista,
+        """
+        Ambiente futurista com tons de azul e roxo para estimular a criatividade e criar uma atmosfera de inovação.
+        """
+    )
+    ESTIMULE_A_CRIATIVIDADE_FUTURISTA_ALTERNATIVA = (
+        EstimuleACriatividadeFuturistaAlternativa,
+        """
+        Ambiente futurista alternativo com tons de amarelo, verde claro e laranja claro para estimular a criatividade e criar uma atmosfera de inovação.
+        """
+    )
 
     def __init__(self, light_config_class, description):
         self.light_config_class = light_config_class

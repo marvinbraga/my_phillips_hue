@@ -712,3 +712,57 @@ class DesertSunset(LightConfig):
                 LightSetting('Led cima', Color(255, 215, 0, 100)),
             ]
         )
+
+
+class EstimuleACriatividade(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "estimule_a_criatividade",
+            settings=[
+                LightSetting('Lâmpada 1', Color(255, 255, 204, 255)),
+                LightSetting('Lâmpada 2', Color(255, 255, 204, 255)),
+                LightSetting('Lâmpada 3', Color(255, 255, 204, 255)),
+                LightSetting('Lâmpada 4', Color(255, 255, 204, 255)),
+                LightSetting('Hue Iris', Color(255, 255, 204, 150)),
+                LightSetting('Hue Play 1', Color(255, 255, 204, 200)),
+                LightSetting('Hue Play 2', Color(255, 255, 204, 200)),
+                LightSetting('Fita Led', Color(255, 255, 204, 60)),
+                LightSetting('Led cima', Color(255, 255, 204, 60)),
+            ]
+        )
+
+
+class EstimuleACriatividadeFuturista(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "estimule_a_criatividade_futurista",
+            settings=[
+                LightSetting('Lâmpada 1', Color(0, 191, 255, 255)),
+                LightSetting('Lâmpada 2', Color(30, 144, 255, 255)),
+                LightSetting('Lâmpada 3', Color(123, 104, 238, 255)),
+                LightSetting('Lâmpada 4', Color(106, 90, 205, 255)),
+                LightSetting('Hue Iris', Color(0, 191, 255, 150)),
+                LightSetting('Hue Play 1', Color(30, 144, 255, 200)),
+                LightSetting('Hue Play 2', Color(123, 104, 238, 200)),
+                LightSetting('Fita Led', Color(106, 90, 205, 60)),
+                LightSetting('Led cima', Color(0, 191, 255, 60)),
+            ]
+        )
+
+
+class EstimuleACriatividadeFuturistaAlternativa(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "estimule_a_criatividade_futurista_alternativa",
+            settings=[
+                LightSetting('Lâmpada 1', Color(255, 255, 204, 255)),
+                LightSetting('Lâmpada 2', Color(255, 255, 204, 255)),
+                LightSetting('Lâmpada 3', Color(255, 255, 204, 255)),
+                LightSetting('Lâmpada 4', Color(255, 255, 204, 255)),
+                LightSetting('Hue Iris', Color(204, 255, 153, 150)),
+                LightSetting('Hue Play 1', Color(255, 204, 153, 150)),
+                LightSetting('Hue Play 2', Color(255, 255, 102, 150)),
+                LightSetting('Fita Led', Color(204, 255, 153, 60)),
+                LightSetting('Led cima', Color(255, 204, 153, 60)),
+            ]
+        )
