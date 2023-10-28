@@ -12,6 +12,7 @@ python-decouple = "^3.8"
 flask = "^2.2.3"
 flask-cors = "^3.0.10"
 python-dotenv = "^1.0.0"
+jupyter = "^1.0.0"
 
 
 [build-system]
