@@ -1,7 +1,7 @@
 from phue import Bridge, Light
 
 from marvin_hue.colors import Color
-from marvin_hue.setups import LightConfig
+from marvin_hue.basics import LightConfig
 from marvin_hue.utils import RGBtoXYAdapter
 
 

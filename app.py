@@ -1,4 +1,6 @@
 from flask import Flask, jsonify, request, render_template
+
+from marvin_hue.basics import LightSetupsManager
 from marvin_hue.controllers import HueController
 from marvin_hue.factories import LightConfigEnum
 from decouple import config
@@ -7,6 +9,7 @@ import time
 
 app = Flask(__name__, static_folder='web/static', template_folder='web/templates')
 hue = HueController(ip_address=config("bridge_ip"))
+manager = LightSetupsManager(".res/setups.json")
 
 
 @app.route('/')
@@ -16,12 +19,12 @@ def index():
 
 @app.route('/configurations', methods=['GET'])
 def get_configurations():
-    configs = [{"name": item.name, "description": item.description} for item in LightConfigEnum]
+    configs = [{"name": item.name, "description": item.description} for item in manager.configs]
     return jsonify(configs)
 
 
 def apply_light_config(config_enum, transition_time_secs=0, duration_minutes=None):
-    setup = config_enum.get_instance()
+    setup = config_enum
     hue.apply_light_config(setup, transition_time_secs)
     if duration_minutes:
         time.sleep(duration_minutes * 60)
@@ -35,7 +38,7 @@ def apply_configuration():
 
     duration_minutes = request.json.get('duration_minutes', None)
 
-    config_enum = LightConfigEnum[config_name]
+    config_enum = manager.get_config(config_name)
     t = threading.Thread(target=apply_light_config, args=(config_enum, transition_time_secs, duration_minutes))
     t.start()
 

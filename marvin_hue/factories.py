@@ -143,6 +143,26 @@ class LightConfigEnum(Enum):
         Ambiente futurista alternativo com tons de amarelo, verde claro e laranja claro para estimular a criatividade e criar uma atmosfera de inovação.
         """
     )
+    DIA_CHUVOSO = (
+        DiaChuvoso,
+        """
+        Um ambiente que imita a tranquilidade e o frescor de um dia chuvoso, com tons de azul e roxo suaves.
+        """
+    )
+    SEXTA_FEIRA = (
+        Sextou,
+        """
+        Um ambiente alegre e vibrante para o happy hour de sexta-feira, com tons quentes de vermelho, laranja e roxo. 
+        É hora de celebrar o fim da semana de trabalho!
+        """
+    )
+    ARCO_IRIS_APOS_CHUVA = (
+        ArcoIrisAposChuva,
+        """
+        Ambiente colorido e alegre que lembra um arco-íris após a chuva. Esta configuração usa todas as cores 
+        do arco-íris e o branco para criar um ambiente luminoso e alegre em um dia chuvoso.
+        """
+    )
 
     def __init__(self, light_config_class, description):
         self.light_config_class = light_config_class

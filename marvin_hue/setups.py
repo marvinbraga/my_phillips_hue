@@ -1,19 +1,5 @@
+from marvin_hue.basics import LightSetting, LightConfig
 from marvin_hue.colors import Color
-
-
-class LightSetting:
-    def __init__(self, light_name, color: Color):
-        self.light_name = light_name
-        self.color = color
-
-
-class LightConfig:
-    def __init__(self, name, settings):
-        self.name = name
-        self.settings: list[LightSetting] = settings
-
-    def __str__(self):
-        return self.name
 
 
 class SetupBrightnessColors(LightConfig):
@@ -764,5 +750,59 @@ class EstimuleACriatividadeFuturistaAlternativa(LightConfig):
                 LightSetting('Hue Play 2', Color(255, 255, 102, 150)),
                 LightSetting('Fita Led', Color(204, 255, 153, 60)),
                 LightSetting('Led cima', Color(255, 204, 153, 60)),
+            ]
+        )
+
+
+class DiaChuvoso(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "dia_chuvoso",
+            settings=[
+                LightSetting('Lâmpada 1', Color(70, 130, 180, 255)),  # SteelBlue
+                LightSetting('Lâmpada 2', Color(100, 149, 237, 255)),  # CornflowerBlue
+                LightSetting('Lâmpada 3', Color(106, 90, 205, 255)),  # SlateBlue
+                LightSetting('Lâmpada 4', Color(123, 104, 238, 255)),  # MediumSlateBlue
+                LightSetting('Hue Iris', Color(138, 43, 226, 200)),  # BlueViolet
+                LightSetting('Hue Play 1', Color(70, 130, 180, 200)),  # SteelBlue
+                LightSetting('Hue Play 2', Color(100, 149, 237, 200)),  # CornflowerBlue
+                LightSetting('Fita Led', Color(106, 90, 205, 60)),  # SlateBlue
+                LightSetting('Led cima', Color(123, 104, 238, 60)),  # MediumSlateBlue
+            ]
+        )
+
+
+class Sextou(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "sextou",
+            settings=[
+                LightSetting('Lâmpada 1', Color(178, 34, 34, 255)),  # FireBrick
+                LightSetting('Lâmpada 2', Color(255, 140, 0, 255)),  # DarkOrange
+                LightSetting('Lâmpada 3', Color(255, 20, 147, 255)),  # DeepPink
+                LightSetting('Lâmpada 4', Color(148, 0, 211, 255)),  # DarkViolet
+                LightSetting('Hue Iris', Color(255, 105, 180, 200)),  # HotPink
+                LightSetting('Hue Play 1', Color(255, 140, 0, 200)),  # DarkOrange
+                LightSetting('Hue Play 2', Color(255, 20, 147, 200)),  # DeepPink
+                LightSetting('Fita Led', Color(148, 0, 211, 100)),  # DarkViolet
+                LightSetting('Led cima', Color(255, 105, 180, 100)),  # HotPink
+            ]
+        )
+
+
+class ArcoIrisAposChuva(LightConfig):
+    def __init__(self):
+        super().__init__(
+            "arco_iris_apos_chuva",
+            settings=[
+                LightSetting('Lâmpada 1', Color(255, 0, 0, 255)),  # Vermelho
+                LightSetting('Lâmpada 2', Color(255, 127, 0, 255)),  # Laranja
+                LightSetting('Lâmpada 3', Color(255, 255, 0, 255)),  # Amarelo
+                LightSetting('Lâmpada 4', Color(0, 255, 0, 255)),  # Verde
+                LightSetting('Hue Iris', Color(0, 0, 255, 200)),  # Azul
+                LightSetting('Hue Play 1', Color(75, 0, 130, 200)),  # Índigo
+                LightSetting('Hue Play 2', Color(143, 0, 255, 200)),  # Violeta
+                LightSetting('Fita Led', Color(255, 255, 255, 100)),  # Branco
+                LightSetting('Led cima', Color(255, 255, 255, 100)),  # Branco
             ]
         )

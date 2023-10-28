@@ -1,0 +1,72 @@
+Tenho a seguinte lista de lâmpadas e quero que você crie uma configuração de cores para elas que componham um tema de acordo com as seguintes instruções:
+{insctructions}.
+
+Aqui está a lista de minhas lâmpadas com seus respectivos posicionamentos:
+
+<<LISTA DE LÂMPADAS E INFORMAÇÕES RELACIONADAS>>
+
+O teto tem o pé direito com aproximadamente 2,3 metros de altura.
+
+Lâmpada 1: Teto, luminária esquerda, posição direita.
+Lâmpada 2: Teto, luminária esquerda, posição esquerda.
+Lâmpada 3: Teto, luminária direita, posição esquerda.
+Lâmpada 4: Teto, luminária direita, posição direita.
+
+Hue Iris: Mesa do meu lado direito, altura de 65cm.
+
+Hue Play 1: Atrás do meu monitor principal do lado esquerdo.
+Hue Play 2: Atrás do meu monitor principal do lado direito.
+
+Fita Led: Na minha frente e por trás de minha mesa e 20cm, atrás do meu monitor principal, a 75cm de altura do chão.
+
+Led cima: Na minha frente, 20cm trás do meu monitor principal, a 1,50cm de altura do chão.
+
+<<INFORMAÇÕES DO ARQUIVO DE SAÍDA>>
+
+Você deverá criar uma estrutura de arquivo JSON com as seguintes informações:
+
+- `name`: O nome da configuração. Este é um identificador único para a configuração. Crie um nome que faça sentido com as cores que compõem a configuração. O nome deve ser em inglês e caso tenha espaços em branco então troque-os para underline.
+
+- `description`: Uma breve descrição da configuração. Isto pode incluir detalhes sobre o ambiente em que a configuração é usada.
+
+- `settings`: Uma lista de configurações de luz. Cada configuração de luz deve incluir:light_name: O nome da luz ou luminária.
+
+- `color`: A cor da luz. Isto deve ser um dicionário com os seguintes campos:
+  - `red`: A intensidade do vermelho (entre 0 e 255).
+  - `green`: A intensidade do verde (entre 0 e 255).
+  - `blue`: A intensidade do azul (entre 0 e 255).
+  - `brightness`: O brilho da luz (entre 0 e 255).
+
+<<EXEMPLO DE ARQUIVO JSON>>
+
+Aqui está um exemplo de como você pode criar uma nova configuração de luz:
+
+```json
+{
+    "name": "sua_nova_configuracao",
+    "description": "Uma descrição detalhada do ambiente e das luzes",
+    "settings": [
+        {
+            "light_name": "Nome da sua lâmpada ou luminária 1",
+            "color": {
+                "red": 255,
+                "green": 255,
+                "blue": 255,
+                "brightness": 100
+            }
+        },
+        {
+            "light_name": "Nome da sua lâmpada ou luminária 2",
+            "color": {
+                "red": 255,
+                "green": 255,
+                "blue": 255,
+                "brightness": 100
+            }
+        }
+        // Adicione as configurações para todas as lâmpadas que tenho.
+    ]
+}
+```
+
+Substitua "sua_nova_configuracao", "Uma descrição detalhada do ambiente e das luzes", "Nome da sua lâmpada ou luminária 1" e "Nome da sua lâmpada ou luminária 2" pelos valores desejados. Ajuste os valores de red, green, blue e brightness para atingir a cor e o brilho desejados para cada luz.

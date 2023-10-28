@@ -4,7 +4,7 @@ from decouple import config
 
 from marvin_hue.colors import Color
 from marvin_hue.controllers import HueController
-from marvin_hue.setups import LightConfig, LightSetting
+from marvin_hue.basics import LightSetting, LightConfig
 
 
 def list_lights(bridge):
