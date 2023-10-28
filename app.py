@@ -25,6 +25,7 @@ def get_configurations():
 
 def apply_light_config(config_enum, transition_time_secs=0, duration_minutes=None):
     setup = config_enum
+    print(setup.to_dict())
     hue.apply_light_config(setup, transition_time_secs)
     if duration_minutes:
         time.sleep(duration_minutes * 60)

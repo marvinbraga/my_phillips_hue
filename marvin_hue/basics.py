@@ -68,7 +68,7 @@ class LightSetupsManager:
         if not os.path.exists(self._filename):
             raise FileNotFoundError(f"{self._filename} does not exist.")
         try:
-            with open(self._filename, "r") as f:
+            with open(self._filename, "r", encoding="utf-8") as f:
                 self._data = json.load(f)
         except (IOError, JSONDecodeError) as e:
             print(f"An error occurred while reading the file: {str(e)}.")
@@ -86,7 +86,7 @@ class LightSetupsManager:
 
     def save(self):
         try:
-            with open(self._filename, "w") as f:
+            with open(self._filename, "w", encoding="utf-8") as f:
                 json.dump(
                     {"setups": [config.to_dict() for config in self._configs]}, f, indent=2, ensure_ascii=False
                 )
