@@ -60,7 +60,14 @@ def apply_configuration():
     t.start()
 
     # Retornar a informação de execução da tarefa.
-    return jsonify({"message": f"Applying configuration {config_name}"})
+    return jsonify({
+        "message": f"Applying configuration {config_name}",
+        "details": {
+            "config_name": config_name,
+            "transition_time_secs": transition_time_secs,
+            "duration_minutes": duration_minutes
+        }
+    })
 
 
 if __name__ == '__main__':
