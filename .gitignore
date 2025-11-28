@@ -151,3 +151,5 @@ cython_debug/
 
 # PyCharm
 .idea/
+.playwright-mcp/
+.serena/
