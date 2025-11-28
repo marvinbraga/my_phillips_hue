@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Posicionamento das Lâmpadas - Marvin Hue</title>
+    <link rel="icon" href="/static/favicon.png" type="image/png">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet"
+          crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .theme-toggle {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+        }
+        .theme-toggle .btn {
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            transition: transform 0.3s ease;
+        }
+        .theme-toggle .btn:hover {
+            transform: scale(1.1);
+        }
+        .monitor-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 2rem 0;
+        }
+        .monitor-wrapper {
+            position: relative;
+            width: 400px;
+            height: 300px;
+        }
+        .monitor {
+            position: absolute;
+            top: 50px;
+            left: 50px;
+            width: 300px;
+            height: 200px;
+            border: 3px solid var(--bs-body-color);
+            border-radius: 8px;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 0.9rem;
+        }
+        .position-slot {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 2px dashed var(--bs-secondary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: var(--bs-body-bg);
+        }
+        .position-slot:hover {
+            border-color: var(--bs-primary);
+            transform: scale(1.1);
+        }
+        .position-slot.has-light {
+            border-style: solid;
+            border-color: var(--bs-success);
+            background: var(--bs-success-bg-subtle);
+        }
+        .position-slot.has-light:hover {
+            border-color: var(--bs-success);
+        }
+        /* Posições ao redor do monitor */
+        .pos-top-left { top: 0; left: 0; }
+        .pos-top { top: 0; left: 50%; transform: translateX(-50%); }
+        .pos-top-right { top: 0; right: 0; }
+        .pos-left { top: 50%; left: 0; transform: translateY(-50%); }
+        .pos-right { top: 50%; right: 0; transform: translateY(-50%); }
+        .pos-bottom-left { bottom: 0; left: 0; }
+        .pos-bottom { bottom: 0; left: 50%; transform: translateX(-50%); }
+        .pos-bottom-right { bottom: 0; right: 0; }
+
+        .light-card {
+            transition: all 0.3s ease;
+            cursor: grab;
+        }
+        .light-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .light-card.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+        .light-card .form-check-input:checked ~ .form-check-label {
+            color: var(--bs-success);
+        }
+        .position-badge {
+            font-size: 0.75rem;
+        }
+        .save-indicator {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 1000;
+        }
+        .light-count {
+            font-size: 0.65rem;
+            position: absolute;
+            bottom: -5px;
+            right: -5px;
+            background: var(--bs-primary);
+            color: white;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+<div class="theme-toggle">
+    <button id="theme-btn" class="btn btn-outline-secondary" title="Alternar tema">
+        <i id="theme-icon" class="bi bi-moon-fill"></i>
+    </button>
+</div>
+
+<div class="container mt-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/">Controle</a></li>
+            <li class="breadcrumb-item active">Posicionamento</li>
+            <li class="breadcrumb-item"><a href="/mirror">Espelhamento</a></li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <h1><i class="bi bi-lamp"></i> Posicionamento das Lâmpadas</h1>
+            <small id="bridge-status" class="text-muted">
+                <i class="bi bi-circle-fill text-warning"></i> Verificando conexão...
+            </small>
+        </div>
+    </div>
+    <p class="text-muted mt-2">Configure a posição de cada lâmpada em relação ao monitor para o espelhamento de tela.</p>
+
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-display"></i> Visualização do Monitor
+                </div>
+                <div class="card-body">
+                    <div class="monitor-container">
+                        <div class="monitor-wrapper">
+                            <div class="monitor">
+                                <i class="bi bi-display me-2"></i> Monitor
+                            </div>
+                            <!-- Slots de posição -->
+                            <div class="position-slot pos-top-left" data-position="top-left" title="Topo Esquerdo">
+                                <i class="bi bi-lightbulb"></i>
+                            </div>
+                            <div class="position-slot pos-top" data-position="top" title="Topo">
+                                <i class="bi bi-lightbulb"></i>
+                            </div>
+                            <div class="position-slot pos-top-right" data-position="top-right" title="Topo Direito">
+                                <i class="bi bi-lightbulb"></i>
+                            </div>
+                            <div class="position-slot pos-left" data-position="left" title="Esquerda">
+                                <i class="bi bi-lightbulb"></i>
+                            </div>
+                            <div class="position-slot pos-right" data-position="right" title="Direita">
+                                <i class="bi bi-lightbulb"></i>
+                            </div>
+                            <div class="position-slot pos-bottom-left" data-position="bottom-left" title="Base Esquerda">
+                                <i class="bi bi-lightbulb"></i>
+                            </div>
+                            <div class="position-slot pos-bottom" data-position="bottom" title="Base">
+                                <i class="bi bi-lightbulb"></i>
+                            </div>
+                            <div class="position-slot pos-bottom-right" data-position="bottom-right" title="Base Direita">
+                                <i class="bi bi-lightbulb"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-center text-muted small">
+                        <i class="bi bi-info-circle"></i> Clique em uma posição para ver as lâmpadas atribuídas
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-list-ul"></i> Lâmpadas</span>
+                    <button id="refresh-btn" class="btn btn-sm btn-outline-secondary" title="Atualizar lista">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="lights-list">
+                        <!-- Lâmpadas serão carregadas aqui -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-gear"></i> Posições Especiais
+        </div>
+        <div class="card-body">
+            <div class="row" id="special-positions">
+                <!-- Posições especiais: center, ambient, none -->
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mb-4">
+        <button id="save-btn" class="btn btn-primary">
+            <i class="bi bi-save"></i> Salvar Configuração
+        </button>
+        <button id="reset-btn" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-counterclockwise"></i> Restaurar Padrão
+        </button>
+    </div>
+</div>
+
+<div class="save-indicator">
+    <div id="save-toast" class="toast align-items-center text-bg-success border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="bi bi-check-circle"></i> Configuração salva com sucesso!
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/positions.js"></script>
+</body>
+</html>
