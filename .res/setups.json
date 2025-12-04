@@ -12431,6 +12431,84 @@
           }
         }
       ]
+    },
+    {
+      "name": "forest_gump_suave",
+      "description": "Configuração com tons suaves de verde e amarelo, inspirada na natureza e nas cenas calmas do filme Forest Gump, para um ambiente relaxante e sereno.",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 241,
+            "green": 186,
+            "blue": 136,
+            "brightness": 180
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 241,
+            "green": 186,
+            "blue": 136,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 233,
+            "green": 232,
+            "blue": 134,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 70,
+            "green": 196,
+            "blue": 70,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 64,
+            "green": 185,
+            "blue": 142,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 200,
+            "green": 112,
+            "blue": 70,
+            "brightness": 120
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 241,
+            "green": 186,
+            "blue": 136,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 114,
+            "green": 109,
+            "blue": 101,
+            "brightness": 40
+          }
+        }
+      ]
     }
   ]
 }
