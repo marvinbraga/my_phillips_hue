@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marvin Chat - Controle de Iluminação</title>
+    <link rel="icon" href="/static/favicon.png" type="image/png">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet"
+          crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --chat-bg: #f8f9fa;
+            --user-msg-bg: #0d6efd;
+            --user-msg-color: white;
+            --bot-msg-bg: white;
+            --bot-msg-color: #212529;
+            --input-bg: white;
+        }
+
+        [data-bs-theme="dark"] {
+            --chat-bg: #1a1a2e;
+            --user-msg-bg: #0d6efd;
+            --user-msg-color: white;
+            --bot-msg-bg: #2d2d44;
+            --bot-msg-color: #e9ecef;
+            --input-bg: #2d2d44;
+        }
+
+        body {
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+        }
+
+        .theme-toggle .btn {
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            transition: transform 0.3s ease;
+        }
+
+        .theme-toggle .btn:hover {
+            transform: scale(1.1);
+        }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+
+        .chat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem;
+            border-bottom: 1px solid var(--bs-border-color);
+            background: linear-gradient(135deg, var(--bs-primary) 0%, #6610f2 100%);
+            color: white;
+            border-radius: 1rem 1rem 0 0;
+            margin-top: 0.5rem;
+        }
+
+        [data-bs-theme="dark"] .chat-header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        }
+
+        .chat-header h1 {
+            font-size: 1.5rem;
+            margin: 0;
+        }
+
+        .chat-header .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #28a745;
+        }
+
+        .status-dot.offline {
+            background: #dc3545;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            background: var(--chat-bg);
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 0.75rem 1rem;
+            border-radius: 1rem;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: var(--user-msg-bg);
+            color: var(--user-msg-color);
+            border-bottom-right-radius: 0.25rem;
+        }
+
+        .message.bot {
+            align-self: flex-start;
+            background: var(--bot-msg-bg);
+            color: var(--bot-msg-color);
+            border-bottom-left-radius: 0.25rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        [data-bs-theme="dark"] .message.error {
+            background: #4a1f1f;
+            color: #f8d7da;
+            border-color: #6a2f2f;
+        }
+
+        .message.system {
+            align-self: center;
+            background: transparent;
+            color: var(--bs-secondary);
+            font-size: 0.875rem;
+            font-style: italic;
+        }
+
+        .typing-indicator {
+            display: flex;
+            gap: 0.3rem;
+            padding: 0.75rem 1rem;
+            align-self: flex-start;
+            background: var(--bot-msg-bg);
+            border-radius: 1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: var(--bs-secondary);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        .chat-input {
+            padding: 1rem;
+            background: var(--bs-body-bg);
+            border-top: 1px solid var(--bs-border-color);
+            border-radius: 0 0 1rem 1rem;
+        }
+
+        .chat-input-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .chat-input input {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--bs-border-color);
+            border-radius: 2rem;
+            background: var(--input-bg);
+            color: var(--bs-body-color);
+            font-size: 1rem;
+        }
+
+        .chat-input input:focus {
+            outline: none;
+            border-color: var(--bs-primary);
+            box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
+        }
+
+        .chat-input button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 2rem;
+        }
+
+        .chat-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            justify-content: center;
+        }
+
+        .chat-actions button {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+        }
+
+        .suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            padding: 1rem;
+            justify-content: center;
+        }
+
+        .suggestion-chip {
+            padding: 0.5rem 1rem;
+            background: var(--bot-msg-bg);
+            border: 1px solid var(--bs-border-color);
+            border-radius: 2rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.2s ease;
+        }
+
+        .suggestion-chip:hover {
+            background: var(--bs-primary);
+            color: white;
+            border-color: var(--bs-primary);
+        }
+
+        .back-link {
+            position: fixed;
+            top: 1rem;
+            left: 1rem;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <!-- Botão voltar -->
+    <div class="back-link">
+        <a href="/" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Voltar
+        </a>
+    </div>
+
+    <!-- Botão de tema -->
+    <div class="theme-toggle">
+        <button class="btn btn-outline-secondary" id="theme-toggle" title="Alternar tema">
+            <i class="bi bi-sun-fill"></i>
+        </button>
+    </div>
+
+    <div class="chat-container">
+        <!-- Header -->
+        <div class="chat-header">
+            <div>
+                <h1><i class="bi bi-lightbulb"></i> Marvin</h1>
+                <small>Assistente de Iluminação</small>
+            </div>
+            <div class="status">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-text">Conectando...</span>
+            </div>
+        </div>
+
+        <!-- Área de mensagens -->
+        <div class="chat-messages" id="chat-messages">
+            <!-- Mensagem de boas-vindas -->
+            <div class="message bot">
+                Olá! Eu sou o Marvin, seu assistente de iluminação.
+                Posso ajudar você a controlar suas lâmpadas Philips Hue.
+                Experimente me pedir para listar as lâmpadas, mudar cores, ou aplicar um tema!
+            </div>
+
+            <!-- Sugestões iniciais -->
+            <div class="suggestions" id="suggestions">
+                <span class="suggestion-chip" data-message="Liste as lâmpadas disponíveis">
+                    <i class="bi bi-list-ul"></i> Listar lâmpadas
+                </span>
+                <span class="suggestion-chip" data-message="Qual o status das lâmpadas?">
+                    <i class="bi bi-info-circle"></i> Ver status
+                </span>
+                <span class="suggestion-chip" data-message="Quais configurações de iluminação existem?">
+                    <i class="bi bi-palette"></i> Ver temas
+                </span>
+                <span class="suggestion-chip" data-message="Aplique um tema relaxante">
+                    <i class="bi bi-moon"></i> Tema relaxante
+                </span>
+                <span class="suggestion-chip" data-message="Desligue todas as lâmpadas">
+                    <i class="bi bi-power"></i> Desligar tudo
+                </span>
+            </div>
+        </div>
+
+        <!-- Input -->
+        <div class="chat-input">
+            <div class="chat-input-group">
+                <input type="text"
+                       id="message-input"
+                       placeholder="Digite sua mensagem..."
+                       autocomplete="off">
+                <button class="btn btn-primary" id="send-btn">
+                    <i class="bi bi-send"></i>
+                </button>
+            </div>
+            <div class="chat-actions">
+                <button class="btn btn-outline-secondary btn-sm" id="clear-btn">
+                    <i class="bi bi-trash"></i> Limpar histórico
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"
+            crossorigin="anonymous"></script>
+    <script>
+        // Elementos do DOM
+        const messagesContainer = document.getElementById('chat-messages');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const suggestions = document.getElementById('suggestions');
+
+        // WebSocket
+        let ws = null;
+        let isTyping = false;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+
+        // Conectar ao WebSocket
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/chat`);
+
+            ws.onopen = () => {
+                console.log('WebSocket conectado');
+                statusDot.classList.remove('offline');
+                statusText.textContent = 'Conectado';
+                reconnectAttempts = 0;
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket desconectado');
+                statusDot.classList.add('offline');
+                statusText.textContent = 'Desconectado';
+
+                // Tentar reconectar
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    setTimeout(connectWebSocket, 2000 * reconnectAttempts);
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket erro:', error);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+        }
+
+        // Processar mensagem recebida
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'typing':
+                    if (data.content) {
+                        showTypingIndicator();
+                    } else {
+                        hideTypingIndicator();
+                    }
+                    break;
+                case 'response':
+                    hideTypingIndicator();
+                    addMessage(data.content, 'bot');
+                    break;
+                case 'error':
+                    hideTypingIndicator();
+                    addMessage(data.content, 'error');
+                    break;
+                case 'cleared':
+                    clearMessages();
+                    addMessage('Histórico limpo. Como posso ajudar?', 'bot');
+                    break;
+            }
+        }
+
+        // Adicionar mensagem ao chat
+        function addMessage(content, type) {
+            // Esconder sugestões após primeira mensagem do usuário
+            if (type === 'user' && suggestions) {
+                suggestions.style.display = 'none';
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = content;
+
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // Mostrar indicador de digitação
+        function showTypingIndicator() {
+            if (isTyping) return;
+            isTyping = true;
+
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'typing-indicator';
+            typingDiv.id = 'typing-indicator';
+            typingDiv.innerHTML = '<span></span><span></span><span></span>';
+
+            messagesContainer.appendChild(typingDiv);
+            scrollToBottom();
+        }
+
+        // Esconder indicador de digitação
+        function hideTypingIndicator() {
+            isTyping = false;
+            const typingDiv = document.getElementById('typing-indicator');
+            if (typingDiv) {
+                typingDiv.remove();
+            }
+        }
+
+        // Limpar mensagens
+        function clearMessages() {
+            messagesContainer.innerHTML = '';
+            if (suggestions) {
+                suggestions.style.display = 'flex';
+                messagesContainer.appendChild(suggestions);
+            }
+        }
+
+        // Rolar para o final
+        function scrollToBottom() {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // Enviar mensagem
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addMessage('Não conectado ao servidor. Tentando reconectar...', 'error');
+                connectWebSocket();
+                return;
+            }
+
+            // Adicionar mensagem do usuário
+            addMessage(message, 'user');
+
+            // Enviar via WebSocket
+            ws.send(JSON.stringify({
+                action: 'message',
+                message: message
+            }));
+
+            // Limpar input
+            messageInput.value = '';
+        }
+
+        // Event listeners
+        sendBtn.addEventListener('click', sendMessage);
+
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        clearBtn.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: 'clear' }));
+            }
+        });
+
+        // Sugestões
+        document.querySelectorAll('.suggestion-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const message = chip.dataset.message;
+                messageInput.value = message;
+                sendMessage();
+            });
+        });
+
+        // Toggle de tema
+        const themeToggle = document.getElementById('theme-toggle');
+        const html = document.documentElement;
+
+        function updateThemeIcon() {
+            const isDark = html.getAttribute('data-bs-theme') === 'dark';
+            themeToggle.innerHTML = isDark
+                ? '<i class="bi bi-moon-fill"></i>'
+                : '<i class="bi bi-sun-fill"></i>';
+        }
+
+        themeToggle.addEventListener('click', () => {
+            const currentTheme = html.getAttribute('data-bs-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-bs-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon();
+        });
+
+        // Carregar tema salvo
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) {
+            html.setAttribute('data-bs-theme', savedTheme);
+        }
+        updateThemeIcon();
+
+        // Verificar status do chat
+        async function checkChatStatus() {
+            try {
+                const response = await fetch('/api/chat/status');
+                const data = await response.json();
+
+                if (!data.available) {
+                    addMessage(`Aviso: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Erro ao verificar status:', error);
+            }
+        }
+
+        // Inicialização
+        connectWebSocket();
+        checkChatStatus();
+    </script>
+</body>
+</html>

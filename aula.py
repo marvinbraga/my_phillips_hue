@@ -1,6 +1,9 @@
+import os
 from enum import Enum
 
-from decouple import config
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from marvin_hue.colors import Color
 from marvin_hue.controllers import HueController
@@ -70,7 +73,7 @@ def aplicar_minha_configuracao(bridge, classe_configuracao):
 
 if __name__ == '__main__':
     # Conectando com a Hue bridge
-    hue_bridge = HueController(ip_address=config("bridge_ip"))
+    hue_bridge = HueController(ip_address=os.getenv("BRIDGE_IP"))
     # Listando luzes
     list_lights(hue_bridge)
     # Alterando a cor de uma lâmpada

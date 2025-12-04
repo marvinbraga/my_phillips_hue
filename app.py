@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Any
 
 import aiofiles
-from decouple import config
+from dotenv import load_dotenv
+
+load_dotenv()
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +24,7 @@ from starlette.requests import Request
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.controllers import HueController
 from marvin_hue.screen_mirror import ScreenMirror
+from marvin_hue.chat import create_hue_agent, HueLightAgent
 
 # Constantes
 POSITIONS_FILE = Path(".res/light_positions.json")
@@ -31,17 +34,38 @@ SETUPS_FILE = Path(".res/setups.json")
 hue: HueController | None = None
 manager: LightSetupsManager | None = None
 screen_mirror: ScreenMirror | None = None
+chat_agent: HueLightAgent | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gerencia o ciclo de vida da aplicação."""
-    global hue, manager, screen_mirror
+    global hue, manager, screen_mirror, chat_agent
 
     # Startup
-    hue = HueController(ip_address=config("bridge_ip"))
+    hue = HueController(ip_address=os.getenv("BRIDGE_IP"))
     manager = LightSetupsManager(str(SETUPS_FILE))
     screen_mirror = ScreenMirror(hue, str(POSITIONS_FILE))
+
+    # Inicializa o agente de chat
+    # Configurado via variáveis de ambiente ou valores padrão
+    chat_provider = os.getenv("CHAT_PROVIDER", "openai")
+    chat_model = os.getenv("CHAT_MODEL", "gpt-4o-mini")
+
+    print(f"[Chat] Inicializando agente com provider='{chat_provider}', model='{chat_model}'")
+
+    try:
+        chat_agent = create_hue_agent(
+            controller=hue,
+            manager=manager,
+            provider=chat_provider,
+            model=chat_model,
+            temperature=0.7,
+        )
+        print(f"[Chat] Agente inicializado com sucesso!")
+    except Exception as e:
+        print(f"[Chat] Erro ao inicializar agente: {e}")
+        chat_agent = None
 
     yield
 
@@ -92,6 +116,16 @@ class MirrorSettingsRequest(BaseModel):
     saturation_boost: float | None = None
     smoothing_factor: float | None = None
     transition_time: float | None = None
+
+
+class ChatMessageRequest(BaseModel):
+    message: str
+
+
+class ChatConfigRequest(BaseModel):
+    provider: str
+    model: str
+    temperature: float = 0.7
 
 
 # ==================== FUNÇÕES AUXILIARES ====================
@@ -388,6 +422,174 @@ async def websocket_mirror(websocket: WebSocket):
         ws_manager.disconnect(websocket)
     except Exception:
         ws_manager.disconnect(websocket)
+
+
+# ==================== ROTAS DO CHAT ====================
+
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page(request: Request):
+    """Página de chat com o agente Marvin."""
+    return templates.TemplateResponse("chat.html", {"request": request})
+
+
+@app.get("/api/chat/status")
+async def chat_status():
+    """Retorna o status do agente de chat."""
+    if chat_agent is None:
+        return {
+            "available": False,
+            "error": "Agente de chat não inicializado. Verifique as chaves de API."
+        }
+
+    return {
+        "available": True,
+        "provider": os.getenv("CHAT_PROVIDER", "openai"),
+        "model": os.getenv("CHAT_MODEL", "gpt-4o-mini")
+    }
+
+
+@app.post("/api/chat/message")
+async def send_chat_message(request: ChatMessageRequest):
+    """Envia uma mensagem para o agente e retorna a resposta."""
+    if chat_agent is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Agente de chat não disponível. Verifique as configurações."
+        )
+
+    try:
+        response = await chat_agent.ainvoke(request.message)
+        return {
+            "response": response,
+            "success": True
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao processar mensagem: {str(e)}"
+        )
+
+
+@app.post("/api/chat/clear")
+async def clear_chat_history():
+    """Limpa o histórico de conversação."""
+    if chat_agent is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Agente de chat não disponível."
+        )
+
+    chat_agent.clear_history()
+    return {"message": "Histórico limpo com sucesso"}
+
+
+@app.post("/api/chat/configure")
+async def configure_chat(request: ChatConfigRequest):
+    """Reconfigura o agente de chat com novos parâmetros."""
+    global chat_agent
+
+    if hue is None or manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Controlador Hue não inicializado."
+        )
+
+    try:
+        chat_agent = create_hue_agent(
+            controller=hue,
+            manager=manager,
+            provider=request.provider,
+            model=request.model,
+            temperature=request.temperature,
+        )
+        return {
+            "message": "Agente reconfigurado com sucesso",
+            "provider": request.provider,
+            "model": request.model
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao reconfigurar agente: {str(e)}"
+        )
+
+
+# ==================== WEBSOCKET DO CHAT ====================
+
+class ChatConnectionManager:
+    """Gerencia conexões WebSocket do chat."""
+
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+
+chat_ws_manager = ChatConnectionManager()
+
+
+@app.websocket("/ws/chat")
+async def websocket_chat(websocket: WebSocket):
+    """WebSocket para comunicação em tempo real com o chat."""
+    await chat_ws_manager.connect(websocket)
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+
+            if chat_agent is None:
+                await websocket.send_json({
+                    "type": "error",
+                    "content": "Agente de chat não disponível."
+                })
+                continue
+
+            action = data.get("action", "message")
+
+            if action == "message":
+                message = data.get("message", "")
+                if not message:
+                    continue
+
+                await websocket.send_json({
+                    "type": "typing",
+                    "content": True
+                })
+
+                try:
+                    response = await chat_agent.ainvoke(message)
+                    await websocket.send_json({
+                        "type": "response",
+                        "content": response
+                    })
+                except Exception as e:
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": f"Erro: {str(e)}"
+                    })
+                finally:
+                    await websocket.send_json({
+                        "type": "typing",
+                        "content": False
+                    })
+
+            elif action == "clear":
+                chat_agent.clear_history()
+                await websocket.send_json({
+                    "type": "cleared",
+                    "content": "Histórico limpo"
+                })
+
+    except WebSocketDisconnect:
+        chat_ws_manager.disconnect(websocket)
+    except Exception:
+        chat_ws_manager.disconnect(websocket)
 
 
 # ==================== EXECUÇÃO ====================

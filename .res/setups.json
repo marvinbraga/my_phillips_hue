@@ -12353,6 +12353,84 @@
           }
         }
       ]
+    },
+    {
+      "name": "matrix_neon",
+      "description": "Tema inspirado no filme Matrix com cores neon vibrantes em fundo escuro",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 0,
+            "green": 163,
+            "blue": 38,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 235,
+            "green": 35,
+            "blue": 0,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 136,
+            "green": 136,
+            "blue": 136,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 235,
+            "green": 35,
+            "blue": 0,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 0,
+            "green": 163,
+            "blue": 38,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 136,
+            "green": 136,
+            "blue": 136,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 235,
+            "green": 35,
+            "blue": 0,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 0,
+            "green": 163,
+            "blue": 38,
+            "brightness": 63
+          }
+        }
+      ]
     }
   ]
 }

@@ -1,11 +1,15 @@
+import os
 from time import sleep
-from decouple import config
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from marvin_hue.controllers import HueController
 from marvin_hue.factories import LightConfigEnum
 
 # Crie uma instância do controlador Hue usando o endereço IP da ponte Hue
-hue = HueController(ip_address=config("bridge_ip"))
+hue = HueController(ip_address=os.getenv("BRIDGE_IP"))
 
 
 def aplicar_configuracao(config_enum, tempo_de_transicao=0):
