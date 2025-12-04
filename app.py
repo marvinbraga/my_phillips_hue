@@ -139,6 +139,17 @@ async def bridge_status():
         }
 
 
+@app.get("/api/lights/status")
+async def lights_status():
+    """Retorna o estado atual de todas as lâmpadas com suas cores."""
+    try:
+        loop = asyncio.get_event_loop()
+        status = await loop.run_in_executor(None, hue.get_lights_status)
+        return {"lights": status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== ROTAS DE PÁGINAS ====================
 
 @app.get("/", response_class=HTMLResponse)

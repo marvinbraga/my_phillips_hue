@@ -56,6 +56,69 @@
         [data-bs-theme="dark"] .hero-section {
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
         }
+        /* Estilos para os círculos das lâmpadas */
+        .lights-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .light-circle {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            transition: transform 0.2s ease;
+        }
+        .light-circle:hover {
+            transform: scale(1.05);
+        }
+        .light-bulb {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        .light-bulb.on {
+            box-shadow: 0 0 20px 5px var(--light-color, rgba(255, 255, 255, 0.5));
+        }
+        .light-bulb.off {
+            opacity: 0.5;
+            filter: grayscale(50%);
+        }
+        .light-bulb.unreachable {
+            border-color: rgba(255, 0, 0, 0.5);
+            opacity: 0.4;
+        }
+        .light-name {
+            font-size: 0.75rem;
+            text-align: center;
+            max-width: 80px;
+            word-wrap: break-word;
+            font-weight: 500;
+        }
+        .lights-card {
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .lights-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            color: var(--bs-secondary);
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .spin {
+            animation: spin 0.5s linear;
+        }
     </style>
 </head>
 <body>
@@ -82,6 +145,22 @@
             </div>
             <div id="bridge-status" class="text-end">
                 <i class="bi bi-circle-fill text-warning"></i> Verificando conexão...
+            </div>
+        </div>
+    </div>
+
+    <div class="card lights-card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-lightbulb-fill"></i> Estado das Lâmpadas</span>
+            <button id="refresh-lights-btn" class="btn btn-sm btn-outline-secondary" title="Atualizar">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="lights-container" class="lights-container">
+                <div class="lights-loading">
+                    <i class="bi bi-hourglass-split me-2"></i> Carregando lâmpadas...
+                </div>
             </div>
         </div>
     </div>
