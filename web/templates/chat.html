@@ -261,6 +261,63 @@
             left: 1rem;
             z-index: 1000;
         }
+
+        /* Painel de lâmpadas no header */
+        .lights-panel {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+            padding: 0.5rem 0;
+        }
+
+        .light-mini {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.2rem;
+        }
+
+        .light-mini-bulb {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .light-mini-bulb.on {
+            box-shadow: 0 0 10px 2px var(--light-color, rgba(255, 255, 255, 0.5));
+        }
+
+        .light-mini-bulb.off {
+            opacity: 0.4;
+            filter: grayscale(50%);
+        }
+
+        .light-mini-name {
+            font-size: 0.55rem;
+            text-align: center;
+            max-width: 40px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            opacity: 0.8;
+        }
+
+        .chat-header-content {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+        }
+
+        .chat-header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
@@ -281,13 +338,20 @@
     <div class="chat-container">
         <!-- Header -->
         <div class="chat-header">
-            <div>
-                <h1><i class="bi bi-lightbulb"></i> Marvin</h1>
-                <small>Assistente de Iluminação</small>
-            </div>
-            <div class="status">
-                <span class="status-dot" id="status-dot"></span>
-                <span id="status-text">Conectando...</span>
+            <div class="chat-header-content">
+                <div class="chat-header-top">
+                    <div>
+                        <h1><i class="bi bi-lightbulb"></i> Marvin</h1>
+                        <small>Assistente de Iluminação</small>
+                    </div>
+                    <div class="status">
+                        <span class="status-dot" id="status-dot"></span>
+                        <span id="status-text">Conectando...</span>
+                    </div>
+                </div>
+                <div class="lights-panel" id="lights-panel">
+                    <!-- Lâmpadas serão carregadas via JavaScript -->
+                </div>
             </div>
         </div>
 
@@ -556,9 +620,70 @@
             }
         }
 
+        // ==================== PAINEL DE LÂMPADAS ====================
+        const lightsPanel = document.getElementById('lights-panel');
+        let isLoadingLights = false;
+
+        function loadLightsStatus() {
+            if (isLoadingLights) return;
+            isLoadingLights = true;
+
+            fetch('/api/lights/status')
+                .then(response => response.json())
+                .then(data => {
+                    renderLights(data.lights);
+                })
+                .catch(error => {
+                    console.error('Erro ao carregar lâmpadas:', error);
+                })
+                .finally(() => {
+                    isLoadingLights = false;
+                });
+        }
+
+        function renderLights(lights) {
+            if (!lights || lights.length === 0) {
+                lightsPanel.innerHTML = '<small style="opacity: 0.6">Nenhuma lâmpada encontrada</small>';
+                return;
+            }
+
+            // Ordenar por nome
+            lights.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+            lightsPanel.innerHTML = lights.map(light => {
+                const color = light.color;
+                const rgbColor = `rgb(${color.r}, ${color.g}, ${color.b})`;
+                const isOn = light.on && light.reachable;
+                const stateClass = isOn ? 'on' : 'off';
+
+                return `
+                    <div class="light-mini" title="${light.name}">
+                        <div class="light-mini-bulb ${stateClass}"
+                             style="background-color: ${rgbColor}; --light-color: ${rgbColor}">
+                        </div>
+                        <span class="light-mini-name">${light.name}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Atualizar lâmpadas periodicamente
+        setInterval(loadLightsStatus, 3000);
+
+        // Atualizar após receber resposta do bot (pode ter mudado as luzes)
+        const originalHandleMessage = handleMessage;
+        handleMessage = function(data) {
+            originalHandleMessage(data);
+            if (data.type === 'response') {
+                // Aguarda um pouco para as luzes atualizarem
+                setTimeout(loadLightsStatus, 500);
+            }
+        };
+
         // Inicialização
         connectWebSocket();
         checkChatStatus();
+        loadLightsStatus();
     </script>
 </body>
 </html>
