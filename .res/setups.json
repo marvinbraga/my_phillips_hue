@@ -12509,6 +12509,474 @@
           }
         }
       ]
+    },
+    {
+      "name": "ouro_da_noite",
+      "description": "Tema noturno com tons dourados quentes e aconchegantes, inspirado em uma noite dourada, para criar um ambiente relaxante e sereno como o brilho do ouro ao luar.",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 241,
+            "green": 186,
+            "blue": 136,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 232,
+            "green": 193,
+            "blue": 0,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 197,
+            "green": 93,
+            "blue": 255,
+            "brightness": 120
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 64,
+            "green": 185,
+            "blue": 142,
+            "brightness": 90
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 64,
+            "green": 185,
+            "blue": 142,
+            "brightness": 90
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 200,
+            "green": 112,
+            "blue": 70,
+            "brightness": 70
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 241,
+            "green": 186,
+            "blue": 136,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 114,
+            "green": 109,
+            "blue": 101,
+            "brightness": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "amarelo_relaxante",
+      "description": "Configuração com tons suaves e predominantes de amarelo quente, ideal para ambientes relaxantes e calmos, como um pôr do sol sereno, promovendo paz e conforto.",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 255,
+            "green": 243,
+            "blue": 227,
+            "brightness": 254
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 227,
+            "green": 196,
+            "blue": 0,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 196,
+            "green": 187,
+            "blue": 175,
+            "brightness": 130
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 174,
+            "green": 166,
+            "blue": 155,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 174,
+            "green": 166,
+            "blue": 155,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 114,
+            "green": 109,
+            "blue": 101,
+            "brightness": 40
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 255,
+            "green": 243,
+            "blue": 227,
+            "brightness": 254
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 114,
+            "green": 109,
+            "blue": 101,
+            "brightness": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "amarelo_relaxante_suave",
+      "description": "Configuração com tons suaves e predominantes de amarelo quente, ideal para ambientes relaxantes e calmos, como um pôr do sol sereno, promovendo paz e conforto.",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 255,
+            "green": 243,
+            "blue": 227,
+            "brightness": 254
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 227,
+            "green": 196,
+            "blue": 0,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 196,
+            "green": 187,
+            "blue": 175,
+            "brightness": 130
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 174,
+            "green": 166,
+            "blue": 155,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 174,
+            "green": 166,
+            "blue": 155,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 114,
+            "green": 109,
+            "blue": 101,
+            "brightness": 40
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 255,
+            "green": 243,
+            "blue": 227,
+            "brightness": 254
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 114,
+            "green": 109,
+            "blue": 101,
+            "brightness": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "laranja_forte",
+      "description": "Tema forte e alaranjado com tons vibrantes e energéticos, inspirado em cores intensas de laranja para criar um ambiente dinâmico e motivador, perfeito para atividades animadas.",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 190,
+            "green": 223,
+            "blue": 199,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 255,
+            "green": 161,
+            "blue": 0,
+            "brightness": 220
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 241,
+            "green": 166,
+            "blue": 86,
+            "brightness": 130
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 85,
+            "green": 185,
+            "blue": 240,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 85,
+            "green": 185,
+            "blue": 240,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 208,
+            "green": 116,
+            "blue": 160,
+            "brightness": 80
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 190,
+            "green": 223,
+            "blue": 199,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 131,
+            "green": 100,
+            "blue": 100,
+            "brightness": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "vermelho_vibrante",
+      "description": "Configuração com tons predominantes de vermelho forte, ideal para um ambiente energético e impactante, inspirado em cores quentes para criar um efeito dinâmico.",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 188,
+            "green": 223,
+            "blue": 198,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 255,
+            "green": 0,
+            "blue": 0,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 244,
+            "green": 164,
+            "blue": 78,
+            "brightness": 130
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 78,
+            "green": 186,
+            "blue": 245,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 78,
+            "green": 186,
+            "blue": 245,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 212,
+            "green": 112,
+            "blue": 160,
+            "brightness": 80
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 188,
+            "green": 223,
+            "blue": 198,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 134,
+            "green": 99,
+            "blue": 99,
+            "brightness": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "vermelho_energico",
+      "description": "Configuração com tons predominantes de vermelho forte e vibrante, ideal para um ambiente dinâmico e impactante, promovendo energia e destaque.",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 188,
+            "green": 223,
+            "blue": 198,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 255,
+            "green": 0,
+            "blue": 0,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 244,
+            "green": 164,
+            "blue": 78,
+            "brightness": 130
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 78,
+            "green": 186,
+            "blue": 245,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 78,
+            "green": 186,
+            "blue": 245,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 212,
+            "green": 112,
+            "blue": 160,
+            "brightness": 80
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 188,
+            "green": 223,
+            "blue": 198,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 134,
+            "green": 99,
+            "blue": 99,
+            "brightness": 40
+          }
+        }
+      ]
     }
   ]
 }
