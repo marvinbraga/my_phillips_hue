@@ -5,8 +5,6 @@ Tests the Color class including initialization, validation,
 serialization, and random color generation.
 """
 
-import pytest
-
 from marvin_hue.colors import Color
 
 
@@ -161,9 +159,7 @@ class TestColorRandomGeneration:
 
         # Check that not all colors are identical
         # (extremely unlikely with random generation)
-        unique_colors = {
-            (c.red, c.green, c.blue, c.brightness) for c in colors
-        }
+        unique_colors = {(c.red, c.green, c.blue, c.brightness) for c in colors}
         assert len(unique_colors) > 1
 
     def test_random_color_with_random_brightness(self):

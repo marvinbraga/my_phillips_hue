@@ -6,11 +6,10 @@ including mocks for hardware interactions and test clients for the API.
 """
 
 import json
-import os
 import tempfile
 from pathlib import Path
 from typing import Generator
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -54,14 +53,14 @@ def sample_light_config() -> LightConfig:
     return LightConfig(
         name="test_config",
         settings=settings,
-        description="Test configuration for unit tests"
+        description="Test configuration for unit tests",
     )
 
 
 @pytest.fixture
 def temp_json_file() -> Generator[Path, None, None]:
     """Provides a temporary JSON file path for testing file operations."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         filepath = Path(f.name)
 
     yield filepath
@@ -82,13 +81,23 @@ def sample_setups_json(temp_json_file: Path) -> Path:
                 "settings": [
                     {
                         "light_name": "Lâmpada 1",
-                        "color": {"red": 255, "green": 244, "blue": 229, "brightness": 254}
+                        "color": {
+                            "red": 255,
+                            "green": 244,
+                            "blue": 229,
+                            "brightness": 254,
+                        },
                     },
                     {
                         "light_name": "Lâmpada 2",
-                        "color": {"red": 255, "green": 244, "blue": 229, "brightness": 254}
-                    }
-                ]
+                        "color": {
+                            "red": 255,
+                            "green": 244,
+                            "blue": 229,
+                            "brightness": 254,
+                        },
+                    },
+                ],
             },
             {
                 "name": "relax",
@@ -96,14 +105,19 @@ def sample_setups_json(temp_json_file: Path) -> Path:
                 "settings": [
                     {
                         "light_name": "Lâmpada 1",
-                        "color": {"red": 255, "green": 147, "blue": 41, "brightness": 180}
+                        "color": {
+                            "red": 255,
+                            "green": 147,
+                            "blue": 41,
+                            "brightness": 180,
+                        },
                     }
-                ]
-            }
+                ],
+            },
         ]
     }
 
-    with open(temp_json_file, 'w', encoding='utf-8') as f:
+    with open(temp_json_file, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
     return temp_json_file
@@ -185,7 +199,7 @@ def mock_screen_mirror():
         "running": False,
         "fps": 25,
         "brightness": 200,
-        "colors": {}
+        "colors": {},
     }
     mirror.start = Mock()
     mirror.stop = Mock()
@@ -198,7 +212,9 @@ def mock_screen_mirror():
 
 
 @pytest.fixture
-def fastapi_test_client(mock_hue_controller, mock_light_setups_manager, mock_screen_mirror, monkeypatch) -> TestClient:
+def fastapi_test_client(
+    mock_hue_controller, mock_light_setups_manager, mock_screen_mirror, monkeypatch
+) -> TestClient:
     """Provides a FastAPI TestClient for integration tests."""
     # Set environment variables
     monkeypatch.setenv("BRIDGE_IP", "192.168.1.100")

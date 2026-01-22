@@ -33,7 +33,9 @@ class LightConfig:
     Classe para guardar a configuração de várias lâmpadas para um ambiente.
     """
 
-    def __init__(self, name: str, settings: list[LightSetting], description: str = "") -> None:
+    def __init__(
+        self, name: str, settings: list[LightSetting], description: str = ""
+    ) -> None:
         self.name = name
         self.description = description
         self.settings: list[LightSetting] = settings
@@ -45,7 +47,7 @@ class LightConfig:
         return {
             "name": self.name,
             "description": self.description,
-            "settings": [s.to_dict() for s in self.settings]
+            "settings": [s.to_dict() for s in self.settings],
         }
 
 
@@ -60,7 +62,9 @@ class LightSetupsManager:
     """
 
     # Cache class-level para compartilhar entre instâncias
-    _cache: dict[str, tuple[dict[str, Any], float, float]] = {}  # filename -> (data, timestamp, mtime)
+    _cache: dict[
+        str, tuple[dict[str, Any], float, float]
+    ] = {}  # filename -> (data, timestamp, mtime)
     _cache_ttl: float = 60.0  # 60 segundos
 
     def __init__(self, filename: str) -> None:
@@ -107,7 +111,9 @@ class LightSetupsManager:
                 logger.debug(f"Cache hit for {self._filename} (age: {cache_age:.1f}s)")
                 return self
             else:
-                logger.debug(f"Cache miss for {self._filename} (expired or file modified)")
+                logger.debug(
+                    f"Cache miss for {self._filename} (expired or file modified)"
+                )
 
         # Cache miss: carrega do arquivo
         try:
@@ -117,9 +123,13 @@ class LightSetupsManager:
             # Atualiza cache
             self._cache[self._filename] = (self._data, current_time, file_mtime)
 
-            logger.info(f"Successfully loaded {len(self._data.get('setups', []))} configurations from {self._filename}")
+            logger.info(
+                f"Successfully loaded {len(self._data.get('setups', []))} configurations from {self._filename}"
+            )
         except (IOError, JSONDecodeError) as e:
-            logger.error(f"Error reading file {self._filename}: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error reading file {self._filename}: {str(e)}", exc_info=True
+            )
         return self
 
     def update(self) -> "LightSetupsManager":
@@ -129,7 +139,9 @@ class LightSetupsManager:
                 LightSetting(setting["light_name"], Color(**setting["color"]))
                 for setting in config["settings"]
             ]
-            self._configs.append(LightConfig(config["name"], light_settings, config["description"]))
+            self._configs.append(
+                LightConfig(config["name"], light_settings, config["description"])
+            )
         return self
 
     def save(self) -> "LightSetupsManager":
@@ -142,16 +154,23 @@ class LightSetupsManager:
         try:
             with open(self._filename, "w", encoding="utf-8") as f:
                 json.dump(
-                    {"setups": [config.to_dict() for config in self._configs]}, f, indent=2, ensure_ascii=False
+                    {"setups": [config.to_dict() for config in self._configs]},
+                    f,
+                    indent=2,
+                    ensure_ascii=False,
                 )
 
             # Invalida cache após salvar
             if self._filename in self._cache:
                 del self._cache[self._filename]
 
-            logger.info(f"Successfully saved {len(self._configs)} configurations to {self._filename}")
+            logger.info(
+                f"Successfully saved {len(self._configs)} configurations to {self._filename}"
+            )
         except IOError as e:
-            logger.error(f"Error writing to file {self._filename}: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error writing to file {self._filename}: {str(e)}", exc_info=True
+            )
         return self
 
     async def load_async(self) -> "LightSetupsManager":
@@ -181,7 +200,9 @@ class LightSetupsManager:
                 logger.debug(f"Cache hit for {self._filename} (age: {cache_age:.1f}s)")
                 return self
             else:
-                logger.debug(f"Cache miss for {self._filename} (expired or file modified)")
+                logger.debug(
+                    f"Cache miss for {self._filename} (expired or file modified)"
+                )
 
         # Cache miss: carrega do arquivo de forma assíncrona
         try:
@@ -192,9 +213,13 @@ class LightSetupsManager:
             # Atualiza cache
             self._cache[self._filename] = (self._data, current_time, file_mtime)
 
-            logger.info(f"Successfully loaded (async) {len(self._data.get('setups', []))} configurations from {self._filename}")
+            logger.info(
+                f"Successfully loaded (async) {len(self._data.get('setups', []))} configurations from {self._filename}"
+            )
         except (IOError, JSONDecodeError) as e:
-            logger.error(f"Error reading file {self._filename}: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error reading file {self._filename}: {str(e)}", exc_info=True
+            )
         return self
 
     async def save_async(self) -> "LightSetupsManager":
@@ -217,7 +242,11 @@ class LightSetupsManager:
             if self._filename in self._cache:
                 del self._cache[self._filename]
 
-            logger.info(f"Successfully saved (async) {len(self._configs)} configurations to {self._filename}")
+            logger.info(
+                f"Successfully saved (async) {len(self._configs)} configurations to {self._filename}"
+            )
         except IOError as e:
-            logger.error(f"Error writing to file {self._filename}: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error writing to file {self._filename}: {str(e)}", exc_info=True
+            )
         return self

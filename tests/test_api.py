@@ -5,11 +5,7 @@ Tests REST API endpoints including configurations, positions,
 mirror control, and error handling.
 """
 
-import json
-from pathlib import Path
-
 import pytest
-from fastapi.testclient import TestClient
 
 
 class TestConfigurationsEndpoints:
@@ -63,8 +59,7 @@ class TestApplyConfigurationEndpoint:
             config_name = configs[0]["name"]
 
             response = fastapi_test_client.post(
-                "/apply",
-                json={"config_name": config_name}
+                "/apply", json={"config_name": config_name}
             )
 
             assert response.status_code == 200
@@ -80,11 +75,7 @@ class TestApplyConfigurationEndpoint:
             config_name = configs[0]["name"]
 
             response = fastapi_test_client.post(
-                "/apply",
-                json={
-                    "config_name": config_name,
-                    "transition_time_secs": 2.0
-                }
+                "/apply", json={"config_name": config_name, "transition_time_secs": 2.0}
             )
 
             assert response.status_code == 200
@@ -96,8 +87,7 @@ class TestApplyConfigurationEndpoint:
     def test_apply_nonexistent_configuration(self, fastapi_test_client):
         """Test POST /apply with nonexistent configuration."""
         response = fastapi_test_client.post(
-            "/apply",
-            json={"config_name": "nonexistent_config_xyz"}
+            "/apply", json={"config_name": "nonexistent_config_xyz"}
         )
 
         assert response.status_code == 404
@@ -113,11 +103,7 @@ class TestApplyConfigurationEndpoint:
             config_name = configs[0]["name"]
 
             response = fastapi_test_client.post(
-                "/apply",
-                json={
-                    "config_name": config_name,
-                    "duration_minutes": 30.0
-                }
+                "/apply", json={"config_name": config_name, "duration_minutes": 30.0}
             )
 
             assert response.status_code == 200
@@ -129,7 +115,7 @@ class TestApplyConfigurationEndpoint:
         """Test POST /apply with invalid request body."""
         response = fastapi_test_client.post(
             "/apply",
-            json={}  # Missing config_name
+            json={},  # Missing config_name
         )
 
         # Should return 422 (validation error)
@@ -220,15 +206,10 @@ class TestPositionsEndpoints:
     def test_save_positions(self, fastapi_test_client, tmp_path):
         """Test POST /positions endpoint."""
         positions_data = {
-            "lights": [
-                {"name": "Test Light", "position": "left", "enabled": True}
-            ]
+            "lights": [{"name": "Test Light", "position": "left", "enabled": True}]
         }
 
-        response = fastapi_test_client.post(
-            "/positions",
-            json=positions_data
-        )
+        response = fastapi_test_client.post("/positions", json=positions_data)
 
         # May succeed or fail depending on file permissions
         # Just check it doesn't crash
@@ -260,8 +241,7 @@ class TestMirrorEndpoints:
     def test_start_mirror(self, fastapi_test_client):
         """Test POST /mirror/start endpoint."""
         response = fastapi_test_client.post(
-            "/mirror/start",
-            json={"fps": 25, "brightness": 200}
+            "/mirror/start", json={"fps": 25, "brightness": 200}
         )
 
         # May fail if screen_mirror is None (which it is in tests)
@@ -280,8 +260,7 @@ class TestMirrorEndpoints:
     def test_update_mirror_settings(self, fastapi_test_client):
         """Test POST /mirror/settings endpoint."""
         response = fastapi_test_client.post(
-            "/mirror/settings",
-            json={"fps": 30, "brightness": 180}
+            "/mirror/settings", json={"fps": 30, "brightness": 180}
         )
 
         # Should work even if mirror not running
@@ -341,8 +320,7 @@ class TestChatEndpoints:
     def test_send_chat_message_unavailable(self, fastapi_test_client):
         """Test sending message when chat is unavailable."""
         response = fastapi_test_client.post(
-            "/api/chat/message",
-            json={"message": "Test message"}
+            "/api/chat/message", json={"message": "Test message"}
         )
 
         # Should return 503 when chat agent not available
@@ -376,7 +354,7 @@ class TestAPIErrorHandling:
         """Test that invalid JSON in POST returns 422."""
         response = fastapi_test_client.post(
             "/apply",
-            json={"invalid_field": "value"}  # Missing config_name
+            json={"invalid_field": "value"},  # Missing config_name
         )
 
         assert response.status_code == 422
@@ -396,8 +374,7 @@ class TestAPIResponseFormats:
     def test_error_response_format(self, fastapi_test_client):
         """Test that errors return proper JSON format."""
         response = fastapi_test_client.post(
-            "/apply",
-            json={"config_name": "nonexistent"}
+            "/apply", json={"config_name": "nonexistent"}
         )
 
         assert response.status_code == 404
@@ -412,8 +389,7 @@ class TestAPIResponseFormats:
 
         if len(configs) > 0:
             response = fastapi_test_client.post(
-                "/apply",
-                json={"config_name": configs[0]["name"]}
+                "/apply", json={"config_name": configs[0]["name"]}
             )
 
             assert response.status_code == 200
@@ -434,8 +410,7 @@ class TestAPIIntegration:
         if len(configs) > 0:
             # Apply first configuration
             apply_response = fastapi_test_client.post(
-                "/apply",
-                json={"config_name": configs[0]["name"]}
+                "/apply", json={"config_name": configs[0]["name"]}
             )
             assert apply_response.status_code == 200
 

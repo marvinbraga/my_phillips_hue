@@ -35,11 +35,17 @@ class ColorConverter:
         """
         # Validação de entrada
         if not isinstance(red, int) or not 0 <= red <= 255:
-            raise ValueError(f"Valor de red deve ser inteiro entre 0-255, recebido: {red}")
+            raise ValueError(
+                f"Valor de red deve ser inteiro entre 0-255, recebido: {red}"
+            )
         if not isinstance(green, int) or not 0 <= green <= 255:
-            raise ValueError(f"Valor de green deve ser inteiro entre 0-255, recebido: {green}")
+            raise ValueError(
+                f"Valor de green deve ser inteiro entre 0-255, recebido: {green}"
+            )
         if not isinstance(blue, int) or not 0 <= blue <= 255:
-            raise ValueError(f"Valor de blue deve ser inteiro entre 0-255, recebido: {blue}")
+            raise ValueError(
+                f"Valor de blue deve ser inteiro entre 0-255, recebido: {blue}"
+            )
 
         # Normaliza RGB para 0-1
         red_norm = red / 255.0
@@ -79,7 +85,9 @@ class ColorConverter:
         return (x, y)
 
     @staticmethod
-    def xy_to_rgb(xy: tuple[float, float], brightness: int = 254) -> tuple[int, int, int]:
+    def xy_to_rgb(
+        xy: tuple[float, float], brightness: int = 254
+    ) -> tuple[int, int, int]:
         """
         Converte coordenadas XY do Hue para RGB.
 

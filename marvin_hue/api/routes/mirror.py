@@ -2,6 +2,7 @@
 Mirror Routes
 Endpoints para controle de espelhamento de tela.
 """
+
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -27,7 +28,7 @@ async def mirror_page(request: Request):
 @router.post("/mirror/start")
 async def start_mirror(
     request: MirrorStartRequest,
-    screen_mirror: ScreenMirror = Depends(get_screen_mirror)
+    screen_mirror: ScreenMirror = Depends(get_screen_mirror),
 ):
     """
     Inicia o espelhamento de tela.
@@ -51,11 +52,13 @@ async def start_mirror(
         screen_mirror.start(fps=request.fps, brightness=request.brightness)
         return {
             "message": "Espelhamento iniciado",
-            "status": screen_mirror.get_status()
+            "status": screen_mirror.get_status(),
         }
     except Exception as e:
         logger.error(f"Error starting mirror: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erro ao iniciar espelhamento: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Erro ao iniciar espelhamento: {str(e)}"
+        )
 
 
 @router.post("/mirror/stop")
@@ -77,7 +80,7 @@ async def mirror_status(screen_mirror: ScreenMirror = Depends(get_screen_mirror)
 @router.post("/mirror/settings")
 async def update_mirror_settings(
     request: MirrorSettingsRequest,
-    screen_mirror: ScreenMirror = Depends(get_screen_mirror)
+    screen_mirror: ScreenMirror = Depends(get_screen_mirror),
 ):
     """Atualiza configurações do espelhamento em tempo real."""
     if request.fps is not None:
@@ -93,5 +96,5 @@ async def update_mirror_settings(
 
     return {
         "message": "Configurações atualizadas",
-        "status": screen_mirror.get_status()
+        "status": screen_mirror.get_status(),
     }

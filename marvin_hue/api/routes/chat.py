@@ -2,6 +2,7 @@
 Chat Routes
 Endpoints para interação com o agente de chat.
 """
+
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -9,7 +10,12 @@ from marvin_hue.chat import create_hue_agent, HueLightAgent
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.config import settings
-from marvin_hue.api.dependencies import get_chat_agent, get_hue_controller, get_manager, set_chat_agent
+from marvin_hue.api.dependencies import (
+    get_chat_agent,
+    get_hue_controller,
+    get_manager,
+    set_chat_agent,
+)
 from marvin_hue.api.models import ChatMessageRequest, ChatConfigRequest
 from marvin_hue.logging_config import get_logger
 
@@ -33,20 +39,20 @@ async def chat_status(chat_agent: HueLightAgent | None = Depends(get_chat_agent)
     if chat_agent is None:
         return {
             "available": False,
-            "error": "Agente de chat não inicializado. Verifique as chaves de API."
+            "error": "Agente de chat não inicializado. Verifique as chaves de API.",
         }
 
     return {
         "available": True,
         "provider": settings.chat_provider,
-        "model": settings.chat_model
+        "model": settings.chat_model,
     }
 
 
 @router.post("/api/chat/message")
 async def send_chat_message(
     request: ChatMessageRequest,
-    chat_agent: HueLightAgent | None = Depends(get_chat_agent)
+    chat_agent: HueLightAgent | None = Depends(get_chat_agent),
 ):
     """
     Envia uma mensagem para o agente e retorna a resposta.
@@ -63,38 +69,30 @@ async def send_chat_message(
     if chat_agent is None:
         raise HTTPException(
             status_code=503,
-            detail="Agente de chat não disponível. Verifique as configurações."
+            detail="Agente de chat não disponível. Verifique as configurações.",
         )
 
     # Validação adicional da mensagem
     if not request.message or not request.message.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Mensagem não pode ser vazia"
-        )
+        raise HTTPException(status_code=400, detail="Mensagem não pode ser vazia")
 
     try:
         response = await chat_agent.ainvoke(request.message)
-        return {
-            "response": response,
-            "success": True
-        }
+        return {"response": response, "success": True}
     except Exception as e:
         logger.error(f"Error processing chat message: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao processar mensagem: {str(e)}"
+            status_code=500, detail=f"Erro ao processar mensagem: {str(e)}"
         )
 
 
 @router.post("/api/chat/clear")
-async def clear_chat_history(chat_agent: HueLightAgent | None = Depends(get_chat_agent)):
+async def clear_chat_history(
+    chat_agent: HueLightAgent | None = Depends(get_chat_agent),
+):
     """Limpa o histórico de conversação."""
     if chat_agent is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Agente de chat não disponível."
-        )
+        raise HTTPException(status_code=503, detail="Agente de chat não disponível.")
 
     chat_agent.clear_history()
     return {"message": "Histórico limpo com sucesso"}
@@ -104,14 +102,11 @@ async def clear_chat_history(chat_agent: HueLightAgent | None = Depends(get_chat
 async def configure_chat(
     request: ChatConfigRequest,
     hue: HueController = Depends(get_hue_controller),
-    manager: LightSetupsManager = Depends(get_manager)
+    manager: LightSetupsManager = Depends(get_manager),
 ):
     """Reconfigura o agente de chat com novos parâmetros."""
     if hue is None or manager is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Controlador Hue não inicializado."
-        )
+        raise HTTPException(status_code=503, detail="Controlador Hue não inicializado.")
 
     try:
         new_agent = create_hue_agent(
@@ -125,10 +120,9 @@ async def configure_chat(
         return {
             "message": "Agente reconfigurado com sucesso",
             "provider": request.provider,
-            "model": request.model
+            "model": request.model,
         }
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao reconfigurar agente: {str(e)}"
+            status_code=500, detail=f"Erro ao reconfigurar agente: {str(e)}"
         )

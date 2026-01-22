@@ -6,7 +6,6 @@ including file operations and configuration management.
 """
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -215,13 +214,13 @@ class TestLightSetupsManagerFileOperations:
         manager._filename = str(save_file)
 
         # Save
-        result = manager.save()
+        manager.save()
 
         # Check that file was created
         assert save_file.exists()
 
         # Verify saved content
-        with open(save_file, 'r', encoding='utf-8') as f:
+        with open(save_file, "r", encoding="utf-8") as f:
             saved_data = json.load(f)
 
         assert "setups" in saved_data
@@ -329,13 +328,18 @@ class TestLightSetupsManagerEdgeCases:
                     "settings": [
                         {
                             "light_name": "Lâmpada 1",
-                            "color": {"red": 255, "green": 200, "blue": 150, "brightness": 200}
+                            "color": {
+                                "red": 255,
+                                "green": 200,
+                                "blue": 150,
+                                "brightness": 200,
+                            },
                         }
-                    ]
+                    ],
                 }
             ]
         }
-        unicode_file.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+        unicode_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
         manager = LightSetupsManager(str(unicode_file))
 

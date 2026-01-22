@@ -30,6 +30,7 @@ class ScreenRegion:
         width: Largura da região (em pixels)
         height: Altura da região (em pixels)
     """
+
     x: int
     y: int
     width: int
@@ -66,7 +67,7 @@ class ScreenMirror:
 
     # Mapeamento de posições para regiões da tela (em porcentagem)
     POSITION_REGIONS = {
-        "left": (0.0, 0.2, 0.15, 0.6),        # x, y, width, height (em %)
+        "left": (0.0, 0.2, 0.15, 0.6),  # x, y, width, height (em %)
         "right": (0.85, 0.2, 0.15, 0.6),
         "top": (0.2, 0.0, 0.6, 0.15),
         "bottom": (0.2, 0.85, 0.6, 0.15),
@@ -75,10 +76,14 @@ class ScreenMirror:
         "bottom-left": (0.0, 0.75, 0.25, 0.25),
         "bottom-right": (0.75, 0.75, 0.25, 0.25),
         "center": (0.25, 0.25, 0.5, 0.5),  # Região maior no centro
-        "ambient": (0.0, 0.0, 1.0, 1.0),       # Tela inteira
+        "ambient": (0.0, 0.0, 1.0, 1.0),  # Tela inteira
     }
 
-    def __init__(self, hue_controller: HueController, positions_file: str = ".res/light_positions.json") -> None:
+    def __init__(
+        self,
+        hue_controller: HueController,
+        positions_file: str = ".res/light_positions.json",
+    ) -> None:
         """
         Performance optimizations já implementadas:
         - Sampling: Imagens redimensionadas para 32x32 pixels (1024 amostras)
@@ -98,8 +103,12 @@ class ScreenMirror:
         self.transition_time = 1  # Tempo de transição em décimos de segundo (100ms)
         self._on_status_change: Callable[[dict[str, Any]], None] | None = None
         self._current_colors: dict[str, tuple[int, int, int]] = {}
-        self._target_colors: dict[str, tuple[int, int, int]] = {}  # Cores alvo para interpolação
-        self._smoothed_colors: dict[str, tuple[int, int, int]] = {}  # Cores suavizadas (OPTIMIZATION: change detection cache)
+        self._target_colors: dict[
+            str, tuple[int, int, int]
+        ] = {}  # Cores alvo para interpolação
+        self._smoothed_colors: dict[
+            str, tuple[int, int, int]
+        ] = {}  # Cores suavizadas (OPTIMIZATION: change detection cache)
 
     def load_light_positions(self) -> list[dict[str, Any]]:
         """
@@ -117,9 +126,13 @@ class ScreenMirror:
             ]
         """
         try:
-            with open(self.positions_file, 'r', encoding='utf-8') as f:
+            with open(self.positions_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                lights = [light for light in data.get("lights", []) if light.get("enabled") and light.get("position") != "none"]
+                lights = [
+                    light
+                    for light in data.get("lights", [])
+                    if light.get("enabled") and light.get("position") != "none"
+                ]
                 logger.debug(f"Loaded {len(lights)} active lights from positions file")
                 return lights
         except FileNotFoundError:
@@ -129,7 +142,9 @@ class ScreenMirror:
             logger.error(f"Error parsing positions file: {str(e)}", exc_info=True)
             return []
 
-    def get_screen_region(self, position: str, screen_width: int, screen_height: int) -> ScreenRegion:
+    def get_screen_region(
+        self, position: str, screen_width: int, screen_height: int
+    ) -> ScreenRegion:
         """
         Calcula a região da tela para uma posição específica.
 
@@ -159,10 +174,12 @@ class ScreenMirror:
             x=int(screen_width * x_pct),
             y=int(screen_height * y_pct),
             width=int(screen_width * w_pct),
-            height=int(screen_height * h_pct)
+            height=int(screen_height * h_pct),
         )
 
-    def get_dominant_color(self, image: Image.Image, region: ScreenRegion) -> tuple[int, int, int]:
+    def get_dominant_color(
+        self, image: Image.Image, region: ScreenRegion
+    ) -> tuple[int, int, int]:
         """
         Extrai a cor dominante de uma região da imagem capturada.
 
@@ -189,12 +206,9 @@ class ScreenMirror:
             RGB(255, 100, 50)
         """
         # Recorta a região
-        cropped = image.crop((
-            region.x,
-            region.y,
-            region.x + region.width,
-            region.y + region.height
-        ))
+        cropped = image.crop(
+            (region.x, region.y, region.x + region.width, region.y + region.height)
+        )
 
         # OPTIMIZATION: Sampling - redimensiona para 32x32 pixels (1024 amostras)
         # Reduz processamento em ~99% (ex: 1920x1080 = 2M pixels -> 1K pixels)
@@ -252,7 +266,9 @@ class ScreenMirror:
 
         return r, g, b
 
-    def _interpolate_color(self, current: tuple[int, int, int], target: tuple[int, int, int]) -> tuple[int, int, int]:
+    def _interpolate_color(
+        self, current: tuple[int, int, int], target: tuple[int, int, int]
+    ) -> tuple[int, int, int]:
         """Interpola suavemente entre a cor atual e a cor alvo."""
         factor = self.smoothing_factor
         r = int(current[0] + (target[0] - current[0]) * factor)
@@ -260,7 +276,9 @@ class ScreenMirror:
         b = int(current[2] + (target[2] - current[2]) * factor)
         return (r, g, b)
 
-    def _color_changed_significantly(self, light_name: str, new_color: tuple[int, int, int], threshold: int = 15) -> bool:
+    def _color_changed_significantly(
+        self, light_name: str, new_color: tuple[int, int, int], threshold: int = 15
+    ) -> bool:
         """
         OPTIMIZATION: Change detection - verifica se a cor mudou o suficiente para justificar atualização.
 
@@ -270,7 +288,11 @@ class ScreenMirror:
         if light_name not in self._smoothed_colors:
             return True
         old = self._smoothed_colors[light_name]
-        diff = abs(new_color[0] - old[0]) + abs(new_color[1] - old[1]) + abs(new_color[2] - old[2])
+        diff = (
+            abs(new_color[0] - old[0])
+            + abs(new_color[1] - old[1])
+            + abs(new_color[2] - old[2])
+        )
         return diff > threshold
 
     def _apply_color_to_light(self, light_name: str, r: int, g: int, b: int) -> None:
@@ -302,7 +324,9 @@ class ScreenMirror:
                 light.transitiontime = int(round(self.transition_time))
         except ValueError as e:
             # Lâmpada não encontrada - log warning já feito pelo controller
-            logger.debug(f"Light '{light_name}' not available for screen mirroring: {str(e)}")
+            logger.debug(
+                f"Light '{light_name}' not available for screen mirroring: {str(e)}"
+            )
         except Exception as e:
             logger.debug(f"Error applying color to light '{light_name}': {str(e)}")
 
@@ -321,7 +345,9 @@ class ScreenMirror:
 
                 # Captura a tela
                 screenshot = sct.grab(monitor)
-                image = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+                image = Image.frombytes(
+                    "RGB", screenshot.size, screenshot.bgra, "raw", "BGRX"
+                )
 
                 # Carrega configuração de lâmpadas
                 lights = self.load_light_positions()
@@ -337,7 +363,9 @@ class ScreenMirror:
 
                 # Processa cada posição
                 for position, light_names in position_lights.items():
-                    region = self.get_screen_region(position, screen_width, screen_height)
+                    region = self.get_screen_region(
+                        position, screen_width, screen_height
+                    )
                     r, g, b = self.get_dominant_color(image, region)
 
                     # Aplica a cor a todas as lâmpadas desta posição
@@ -346,17 +374,21 @@ class ScreenMirror:
                         self._apply_color_to_light(light_name, r, g, b)
                         # Atualiza cores atuais com as suavizadas para exibição
                         if light_name in self._smoothed_colors:
-                            self._current_colors[light_name] = self._smoothed_colors[light_name]
+                            self._current_colors[light_name] = self._smoothed_colors[
+                                light_name
+                            ]
                         else:
                             self._current_colors[light_name] = (r, g, b)
 
                 # Notifica mudança de status se houver callback
                 if self._on_status_change:
-                    self._on_status_change({
-                        "running": True,
-                        "fps": self.fps,
-                        "colors": self._current_colors.copy()
-                    })
+                    self._on_status_change(
+                        {
+                            "running": True,
+                            "fps": self.fps,
+                            "colors": self._current_colors.copy(),
+                        }
+                    )
 
                 # OPTIMIZATION: Throttling - aguarda para manter o FPS e não sobrecarregar a bridge
                 elapsed = time.time() - start_time
@@ -451,7 +483,7 @@ class ScreenMirror:
             "running": self.running,
             "fps": self.fps,
             "brightness": self.brightness,
-            "colors": self._current_colors.copy()
+            "colors": self._current_colors.copy(),
         }
 
     def set_status_callback(self, callback: Callable[[dict[str, Any]], None]) -> None:

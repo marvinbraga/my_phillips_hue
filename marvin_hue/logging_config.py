@@ -27,6 +27,7 @@ def _get_settings():
     """
     try:
         from marvin_hue.config import settings
+
         return settings
     except ImportError:
         return None

@@ -2,6 +2,7 @@
 Status Routes
 Endpoints para status da bridge e das lâmpadas.
 """
+
 import asyncio
 from fastapi import APIRouter, HTTPException, Depends
 from marvin_hue.controllers import HueController
@@ -20,13 +21,10 @@ async def bridge_status(hue: HueController = Depends(get_hue_controller)):
         return {
             "connected": True,
             "bridge_ip": hue.bridge.ip,
-            "light_count": light_count
+            "light_count": light_count,
         }
     except Exception as e:
-        return {
-            "connected": False,
-            "error": str(e)
-        }
+        return {"connected": False, "error": str(e)}
 
 
 @router.get("/api/lights/status")

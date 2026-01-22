@@ -11,9 +11,8 @@ import pytest
 from marvin_hue.setup_builder import (
     LightConfigBuilder,
     STANDARD_LIGHTS,
-    create_config_from_legacy_class,
 )
-from marvin_hue.basics import LightConfig, LightSetting
+from marvin_hue.basics import LightConfig
 from marvin_hue.colors import Color
 
 
@@ -28,13 +27,13 @@ class TestLightConfigBuilder:
             "settings": [
                 {
                     "light_name": "Lâmpada 1",
-                    "color": {"red": 255, "green": 200, "blue": 100, "brightness": 150}
+                    "color": {"red": 255, "green": 200, "blue": 100, "brightness": 150},
                 },
                 {
                     "light_name": "Lâmpada 2",
-                    "color": {"red": 100, "green": 255, "blue": 200, "brightness": 120}
-                }
-            ]
+                    "color": {"red": 100, "green": 255, "blue": 200, "brightness": 120},
+                },
+            ],
         }
 
         config = LightConfigBuilder.from_dict(config_dict)
@@ -54,9 +53,9 @@ class TestLightConfigBuilder:
             "settings": [
                 {
                     "light_name": "Lâmpada 1",
-                    "color": {"red": 255, "green": 255, "blue": 255, "brightness": 200}
+                    "color": {"red": 255, "green": 255, "blue": 255, "brightness": 200},
                 }
-            ]
+            ],
         }
 
         config = LightConfigBuilder.from_dict(config_dict)
@@ -80,9 +79,7 @@ class TestLightConfigBuilder:
         """Test creating a uniform color configuration."""
         blue_color = Color(0, 0, 255, 200)
         config = LightConfigBuilder.create_uniform(
-            "all_blue",
-            blue_color,
-            "Everything blue"
+            "all_blue", blue_color, "Everything blue"
         )
 
         assert config.name == "all_blue"
@@ -102,9 +99,7 @@ class TestLightConfigBuilder:
         color = Color(255, 0, 0, 150)
 
         config = LightConfigBuilder.create_uniform(
-            "custom_red",
-            color,
-            lights=custom_lights
+            "custom_red", color, lights=custom_lights
         )
 
         assert len(config.settings) == 2
@@ -120,9 +115,7 @@ class TestLightConfigBuilder:
         }
 
         config = LightConfigBuilder.create_custom(
-            "rgb_mix",
-            light_colors,
-            "Red, Green, Blue mix"
+            "rgb_mix", light_colors, "Red, Green, Blue mix"
         )
 
         assert config.name == "rgb_mix"
@@ -142,9 +135,9 @@ class TestLightConfigBuilder:
             "settings": [
                 {
                     "light_name": "Lâmpada 1",
-                    "color": {"red": 255, "green": 255, "blue": 255, "brightness": 200}
+                    "color": {"red": 255, "green": 255, "blue": 255, "brightness": 200},
                 }
-            ]
+            ],
         }
 
         assert LightConfigBuilder.validate_config(valid_config) is True
@@ -165,7 +158,7 @@ class TestLightConfigBuilder:
             "name": "test",
             "settings": [
                 {"light_name": "Light 1"}  # Missing color
-            ]
+            ],
         }
         assert LightConfigBuilder.validate_config(invalid_settings) is False
 
@@ -175,9 +168,9 @@ class TestLightConfigBuilder:
             "settings": [
                 {
                     "light_name": "Light 1",
-                    "color": {"red": 255}  # Missing green, blue, brightness
+                    "color": {"red": 255},  # Missing green, blue, brightness
                 }
-            ]
+            ],
         }
         assert LightConfigBuilder.validate_config(invalid_color) is False
 
@@ -193,11 +186,14 @@ class TestBackwardCompatibility:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             from marvin_hue.setups import SetupConcentration
+
             config = SetupConcentration()
 
             # Check that a deprecation warning was issued
             assert len(w) >= 1
-            assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
+            assert any(
+                issubclass(warning.category, DeprecationWarning) for warning in w
+            )
 
         assert isinstance(config, LightConfig)
         assert config.name == "concentration"
@@ -214,10 +210,12 @@ class TestBackwardCompatibility:
 
             # Check that a deprecation warning was issued
             assert len(w) >= 1
-            assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
+            assert any(
+                issubclass(warning.category, DeprecationWarning) for warning in w
+            )
 
         # Enum should still be functional
-        assert hasattr(LightConfigEnum, 'SETUP_CONCENTRATION')
+        assert hasattr(LightConfigEnum, "SETUP_CONCENTRATION")
         config = LightConfigEnum.SETUP_CONCENTRATION.get_instance()
         assert isinstance(config, LightConfig)
 
@@ -333,8 +331,9 @@ class TestEquivalence:
         old_light_names = {s.light_name for s in old_config.settings}
         new_light_names = {s.light_name for s in new_config.settings}
 
-        assert old_light_names.issubset(new_light_names), \
+        assert old_light_names.issubset(new_light_names), (
             f"Old config lights {old_light_names} not all in new config {new_light_names}"
+        )
 
         # For lights that exist in both, check they have the same colors
         old_settings_by_name = {s.light_name: s for s in old_config.settings}
@@ -363,7 +362,9 @@ class TestEquivalence:
                 old_config = enum_member.get_instance()
                 new_config = get_config(old_config.name)
 
-                assert new_config is not None, f"Config {old_config.name} not found in new system"
+                assert new_config is not None, (
+                    f"Config {old_config.name} not found in new system"
+                )
                 assert new_config.name == old_config.name
 
 
@@ -376,9 +377,9 @@ class TestStandardLights:
         assert len(STANDARD_LIGHTS) > 0
 
         # Check for known lights
-        assert 'Lâmpada 1' in STANDARD_LIGHTS
-        assert 'Hue Iris' in STANDARD_LIGHTS
-        assert 'Fita Led' in STANDARD_LIGHTS
+        assert "Lâmpada 1" in STANDARD_LIGHTS
+        assert "Hue Iris" in STANDARD_LIGHTS
+        assert "Fita Led" in STANDARD_LIGHTS
 
 
 class TestJSONIntegration:
@@ -387,16 +388,16 @@ class TestJSONIntegration:
     def test_setups_json_exists(self):
         """Test that setups.json file exists."""
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        json_path = os.path.join(base_dir, '.res', 'setups.json')
+        json_path = os.path.join(base_dir, ".res", "setups.json")
 
         assert os.path.exists(json_path), "setups.json file not found"
 
     def test_setups_json_valid(self):
         """Test that setups.json contains valid data."""
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        json_path = os.path.join(base_dir, '.res', 'setups.json')
+        json_path = os.path.join(base_dir, ".res", "setups.json")
 
-        with open(json_path, 'r', encoding='utf-8') as f:
+        with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         assert "setups" in data

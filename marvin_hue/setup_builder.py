@@ -16,14 +16,14 @@ logger = get_logger("setup_builder")
 
 # Standard light names used across all configurations
 STANDARD_LIGHTS = [
-    'Lâmpada 1',
-    'Lâmpada 2',
-    'Lâmpada 4',
-    'Hue Iris',
-    'Hue Play 1',
-    'Hue Play 2',
-    'Fita Led',
-    'Led cima',
+    "Lâmpada 1",
+    "Lâmpada 2",
+    "Lâmpada 4",
+    "Hue Iris",
+    "Hue Play 1",
+    "Hue Play 2",
+    "Fita Led",
+    "Led cima",
 ]
 
 
@@ -67,14 +67,16 @@ class LightConfigBuilder:
                 color_data = setting.get("color", {})
 
                 if not light_name or not color_data:
-                    logger.warning(f"Skipping invalid setting in config '{name}': {setting}")
+                    logger.warning(
+                        f"Skipping invalid setting in config '{name}': {setting}"
+                    )
                     continue
 
                 color = Color(
                     red=color_data.get("red", 0),
                     green=color_data.get("green", 0),
                     blue=color_data.get("blue", 0),
-                    brightness=color_data.get("brightness", 0)
+                    brightness=color_data.get("brightness", 0),
                 )
                 settings.append(LightSetting(light_name, color))
 
@@ -86,10 +88,7 @@ class LightConfigBuilder:
 
     @staticmethod
     def create_uniform(
-        name: str,
-        color: Color,
-        description: str = "",
-        lights: list[str] | None = None
+        name: str, color: Color, description: str = "", lights: list[str] | None = None
     ) -> LightConfig:
         """
         Create a LightConfig with the same color for all lights.
@@ -118,9 +117,7 @@ class LightConfigBuilder:
 
     @staticmethod
     def create_custom(
-        name: str,
-        light_colors: dict[str, Color],
-        description: str = ""
+        name: str, light_colors: dict[str, Color], description: str = ""
     ) -> LightConfig:
         """
         Create a LightConfig with custom colors for each light.
@@ -202,7 +199,7 @@ def create_config_from_legacy_class(legacy_class: Any) -> dict[str, Any]:
     warnings.warn(
         "Using legacy setup classes is deprecated. Please migrate to JSON-based configurations.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
 
     instance = legacy_class()

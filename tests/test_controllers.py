@@ -5,7 +5,7 @@ Tests the HueController class including light control, color application,
 and XY to RGB conversion, all with mocked hardware.
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -25,9 +25,11 @@ class TestHueControllerInitialization:
 
     def test_controller_bridge_connection(self, mock_phue_bridge, monkeypatch):
         """Test that controller connects to bridge."""
-        monkeypatch.setattr("marvin_hue.controllers.Bridge", lambda ip: mock_phue_bridge)
+        monkeypatch.setattr(
+            "marvin_hue.controllers.Bridge", lambda ip: mock_phue_bridge
+        )
 
-        controller = HueController("192.168.1.100")
+        HueController("192.168.1.100")
 
         # Bridge connect should have been called
         mock_phue_bridge.connect.assert_called_once()
@@ -59,8 +61,8 @@ class TestHueControllerSetLightColor:
         result = mock_hue_controller.set_light_color("Lâmpada 1", color)
 
         assert result is not None
-        assert hasattr(result, 'brightness')
-        assert hasattr(result, 'xy')
+        assert hasattr(result, "brightness")
+        assert hasattr(result, "xy")
 
     def test_set_light_color_with_different_colors(self, mock_hue_controller):
         """Test setting various colors."""
@@ -83,7 +85,7 @@ class TestHueControllerSetLightColor:
         light = mock_hue_controller.set_light_color("Lâmpada 1", color)
 
         # Check that xy was set (mocked, but should be called)
-        assert hasattr(light, 'xy')
+        assert hasattr(light, "xy")
 
     def test_set_light_nonexistent(self, mock_hue_controller):
         """Test setting color for nonexistent light."""
@@ -103,11 +105,12 @@ class TestHueControllerApplyLightConfig:
 
         assert result == mock_hue_controller
 
-    def test_apply_light_config_with_transition(self, mock_hue_controller, sample_light_config):
+    def test_apply_light_config_with_transition(
+        self, mock_hue_controller, sample_light_config
+    ):
         """Test applying configuration with transition time."""
         result = mock_hue_controller.apply_light_config(
-            sample_light_config,
-            transition_time_secs=2
+            sample_light_config, transition_time_secs=2
         )
 
         assert result == mock_hue_controller
@@ -153,7 +156,7 @@ class TestHueControllerLightLookup:
 
     def test_light_cache_initialization(self, mock_hue_controller):
         """Test that light cache is initialized on controller creation."""
-        assert hasattr(mock_hue_controller, '_light_cache')
+        assert hasattr(mock_hue_controller, "_light_cache")
         assert isinstance(mock_hue_controller._light_cache, dict)
         assert len(mock_hue_controller._light_cache) > 0
 
@@ -186,7 +189,7 @@ class TestHueControllerLightLookup:
         mock_hue_controller.refresh_lights()
 
         # Cache should still exist and be populated
-        assert hasattr(mock_hue_controller, '_light_cache')
+        assert hasattr(mock_hue_controller, "_light_cache")
         assert len(mock_hue_controller._light_cache) >= initial_size
 
     def test_list_lights(self, mock_hue_controller):
@@ -247,9 +250,9 @@ class TestHueControllerGetLightsStatus:
             assert light["brightness"] > 0
             # Color should be actual color, not gray
             assert not (
-                light["color"]["r"] == 50 and
-                light["color"]["g"] == 50 and
-                light["color"]["b"] == 50
+                light["color"]["r"] == 50
+                and light["color"]["g"] == 50
+                and light["color"]["b"] == 50
             )
 
     def test_lights_status_handles_errors(self, mock_hue_controller):
@@ -363,7 +366,9 @@ class TestHueControllerIntegration:
     def test_apply_config_workflow(self, mock_hue_controller, sample_light_config):
         """Test full workflow: apply config then verify."""
         # Apply configuration
-        mock_hue_controller.apply_light_config(sample_light_config, transition_time_secs=1)
+        mock_hue_controller.apply_light_config(
+            sample_light_config, transition_time_secs=1
+        )
 
         # Get status to verify (in mock, this won't show changes, but test the flow)
         status = mock_hue_controller.get_lights_status()

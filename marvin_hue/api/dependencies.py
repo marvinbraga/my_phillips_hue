@@ -2,6 +2,7 @@
 FastAPI Dependencies
 Dependency injection para compartilhar instâncias globais.
 """
+
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.screen_mirror import ScreenMirror

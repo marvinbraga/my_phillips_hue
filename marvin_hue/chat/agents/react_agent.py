@@ -85,6 +85,7 @@ class AgentConfig:
         streaming: Se deve usar streaming de respostas
         system_prompt: Prompt de sistema customizado
     """
+
     provider: str = "openai"
     model: str = "gpt-4o-mini"
     temperature: float = 0.7
@@ -153,7 +154,7 @@ class HueLightAgent(BaseAgent):
         self,
         controller: HueController,
         manager: LightSetupsManager,
-        config: Optional[AgentConfig] = None
+        config: Optional[AgentConfig] = None,
     ):
         """Inicializa o agente.
 
@@ -248,9 +249,7 @@ class HueLightAgent(BaseAgent):
         self._conversation_history.append(HumanMessage(content=message))
 
         # Invoca o agente
-        result = self._agent.invoke({
-            "messages": self._conversation_history
-        })
+        result = self._agent.invoke({"messages": self._conversation_history})
 
         # Atualiza o histórico com as novas mensagens
         new_messages = result.get("messages", [])
@@ -275,9 +274,7 @@ class HueLightAgent(BaseAgent):
         self._conversation_history.append(HumanMessage(content=message))
 
         # Invoca o agente de forma assíncrona
-        result = await self._agent.ainvoke({
-            "messages": self._conversation_history
-        })
+        result = await self._agent.ainvoke({"messages": self._conversation_history})
 
         # Atualiza o histórico com as novas mensagens
         new_messages = result.get("messages", [])
@@ -301,19 +298,19 @@ class HueLightAgent(BaseAgent):
         self._conversation_history.append(HumanMessage(content=message))
 
         # Stream do agente
-        for event in self._agent.stream({
-            "messages": self._conversation_history
-        }):
+        for event in self._agent.stream({"messages": self._conversation_history}):
             # Processa eventos do agente
             if "messages" in event:
                 for msg in event["messages"]:
-                    if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                    if (
+                        isinstance(msg, AIMessage)
+                        and msg.content
+                        and not msg.tool_calls
+                    ):
                         yield msg.content
 
         # Atualiza histórico após streaming completo
-        result = self._agent.invoke({
-            "messages": self._conversation_history
-        })
+        result = self._agent.invoke({"messages": self._conversation_history})
         self._conversation_history = result.get("messages", self._conversation_history)
 
     async def astream(self, message: str):
@@ -329,12 +326,16 @@ class HueLightAgent(BaseAgent):
         self._conversation_history.append(HumanMessage(content=message))
 
         # Stream assíncrono do agente
-        async for event in self._agent.astream({
-            "messages": self._conversation_history
-        }):
+        async for event in self._agent.astream(
+            {"messages": self._conversation_history}
+        ):
             if "messages" in event:
                 for msg in event["messages"]:
-                    if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                    if (
+                        isinstance(msg, AIMessage)
+                        and msg.content
+                        and not msg.tool_calls
+                    ):
                         yield msg.content
 
     def clear_history(self) -> None:
@@ -491,9 +492,7 @@ class HueLightAgentBuilder:
             raise ValueError("Manager não foi definido. Use with_manager().")
 
         return HueLightAgent(
-            controller=self._controller,
-            manager=self._manager,
-            config=self._config
+            controller=self._controller, manager=self._manager, config=self._config
         )
 
 
@@ -503,7 +502,7 @@ def create_hue_agent(
     provider: str = "openai",
     model: str = "gpt-4o-mini",
     temperature: float = 0.7,
-    **kwargs
+    **kwargs,
 ) -> HueLightAgent:
     """Factory function para criar um agente de iluminação.
 
@@ -529,14 +528,7 @@ def create_hue_agent(
         )
     """
     config = AgentConfig(
-        provider=provider,
-        model=model,
-        temperature=temperature,
-        **kwargs
+        provider=provider, model=model, temperature=temperature, **kwargs
     )
 
-    return HueLightAgent(
-        controller=controller,
-        manager=manager,
-        config=config
-    )
+    return HueLightAgent(controller=controller, manager=manager, config=config)

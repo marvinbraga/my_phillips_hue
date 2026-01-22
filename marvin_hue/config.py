@@ -42,87 +42,61 @@ class Settings(BaseSettings):
     """
 
     # Bridge Configuration
-    bridge_ip: str = Field(
-        ...,
-        description="IP address do Philips Hue Bridge"
-    )
+    bridge_ip: str = Field(..., description="IP address do Philips Hue Bridge")
     bridge_timeout: int = Field(
         default=10,
         ge=1,
         le=60,
-        description="Timeout em segundos para operações com a bridge"
+        description="Timeout em segundos para operações com a bridge",
     )
 
     # API Configuration
     api_key: str | None = Field(
-        default=None,
-        description="API key opcional para autenticação"
+        default=None, description="API key opcional para autenticação"
     )
     cors_origins: list[str] = Field(
         default=["*"],
-        description="CORS allowed origins (separados por vírgula em .env)"
+        description="CORS allowed origins (separados por vírgula em .env)",
     )
-    api_host: str = Field(
-        default="0.0.0.0",
-        description="Host da API"
-    )
-    api_port: int = Field(
-        default=5000,
-        ge=1,
-        le=65535,
-        description="Porta da API"
-    )
+    api_host: str = Field(default="0.0.0.0", description="Host da API")
+    api_port: int = Field(default=5000, ge=1, le=65535, description="Porta da API")
 
     # Chat Configuration
     chat_provider: Literal["openai", "anthropic", "xai", "groq"] = Field(
-        default="openai",
-        description="Provider de chat (openai, anthropic, xai, groq)"
+        default="openai", description="Provider de chat (openai, anthropic, xai, groq)"
     )
     chat_model: str = Field(
-        default="gpt-4o-mini",
-        description="Modelo de chat a ser usado"
+        default="gpt-4o-mini", description="Modelo de chat a ser usado"
     )
     chat_temperature: float = Field(
         default=0.7,
         ge=0.0,
         le=2.0,
-        description="Temperatura para geração de texto (0.0-1.0)"
+        description="Temperatura para geração de texto (0.0-1.0)",
     )
-    openai_api_key: str | None = Field(
-        default=None,
-        description="API key para OpenAI"
-    )
+    openai_api_key: str | None = Field(default=None, description="API key para OpenAI")
     anthropic_api_key: str | None = Field(
-        default=None,
-        description="API key para Anthropic"
+        default=None, description="API key para Anthropic"
     )
-    xai_api_key: str | None = Field(
-        default=None,
-        description="API key para xAI"
-    )
-    groq_api_key: str | None = Field(
-        default=None,
-        description="API key para Groq"
-    )
+    xai_api_key: str | None = Field(default=None, description="API key para xAI")
+    groq_api_key: str | None = Field(default=None, description="API key para Groq")
 
     # File Paths
     setups_file: str = Field(
         default=".res/setups.json",
-        description="Caminho para o arquivo JSON de configurações"
+        description="Caminho para o arquivo JSON de configurações",
     )
     positions_file: str = Field(
         default=".res/light_positions.json",
-        description="Caminho para o arquivo JSON de posições"
+        description="Caminho para o arquivo JSON de posições",
     )
 
     # Logging Configuration
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
-        default="INFO",
-        description="Nível de logging"
+        default="INFO", description="Nível de logging"
     )
     log_file: str = Field(
-        default="logs/marvin_hue.log",
-        description="Caminho para o arquivo de log"
+        default="logs/marvin_hue.log", description="Caminho para o arquivo de log"
     )
 
     model_config = SettingsConfigDict(

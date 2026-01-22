@@ -80,3 +80,17 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "langgraph.*"
 ignore_missing_imports = true
+
+[tool.ruff]
+# Exclude deprecated and example files from linting
+exclude = [
+    "aula.py",
+    "marvin_hue/factories.py",
+    "marvin_hue/setups.py",
+    "marvin_hue/setups_backup.py",
+    "marvin_hue/setups_deprecated.py",
+]
+
+[tool.ruff.lint]
+# Ignore E402 (imports after non-import code) - needed for dotenv loading
+ignore = ["E402", "F403", "F405"]

@@ -5111,6 +5111,162 @@
           }
         }
       ]
+    },
+    {
+      "name": "noite_relaxante",
+      "description": "Ambiente calmo e tranquilo com tons de azul e roxo para promover relaxamento",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 254,
+            "green": 39,
+            "blue": 255,
+            "brightness": 128
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 228,
+            "green": 195,
+            "blue": 45,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 63,
+            "green": 0,
+            "blue": 255,
+            "brightness": 128
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 63,
+            "green": 0,
+            "blue": 255,
+            "brightness": 128
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 175,
+            "green": 166,
+            "blue": 154,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 114,
+            "green": 109,
+            "blue": 100,
+            "brightness": 40
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 255,
+            "green": 242,
+            "blue": 225,
+            "brightness": 254
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 61,
+            "green": 0,
+            "blue": 255,
+            "brightness": 64
+          }
+        }
+      ]
+    },
+    {
+      "name": "mar_calmo",
+      "description": "Ambiente sereno com tons azuis para uma sensação de paz e relaxamento junto ao mar",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 254,
+            "green": 39,
+            "blue": 255,
+            "brightness": 128
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 228,
+            "green": 195,
+            "blue": 45,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 63,
+            "green": 0,
+            "blue": 255,
+            "brightness": 128
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 63,
+            "green": 0,
+            "blue": 255,
+            "brightness": 128
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 175,
+            "green": 166,
+            "blue": 154,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 114,
+            "green": 109,
+            "blue": 100,
+            "brightness": 40
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 255,
+            "green": 242,
+            "blue": 225,
+            "brightness": 254
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 61,
+            "green": 0,
+            "blue": 255,
+            "brightness": 64
+          }
+        }
+      ]
     }
   ]
 }

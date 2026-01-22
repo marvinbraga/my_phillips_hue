@@ -2,6 +2,7 @@
 Position Routes
 Endpoints para gerenciar posicionamento de lâmpadas para espelhamento.
 """
+
 import json
 from pathlib import Path
 from typing import Any
@@ -24,14 +25,14 @@ async def load_json_file(filepath: Path) -> dict[str, Any]:
     """Carrega um arquivo JSON de forma assíncrona."""
     if not filepath.exists():
         return {}
-    async with aiofiles.open(filepath, 'r', encoding='utf-8') as f:
+    async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
         content = await f.read()
         return json.loads(content)
 
 
 async def save_json_file(filepath: Path, data: dict[str, Any]) -> None:
     """Salva um arquivo JSON de forma assíncrona."""
-    async with aiofiles.open(filepath, 'w', encoding='utf-8') as f:
+    async with aiofiles.open(filepath, "w", encoding="utf-8") as f:
         await f.write(json.dumps(data, ensure_ascii=False, indent=2))
 
 
@@ -72,21 +73,61 @@ async def reset_positions():
             {"name": "Hue Play 1", "position": "left", "enabled": True},
             {"name": "Hue Play 2", "position": "right", "enabled": True},
             {"name": "Fita Led", "position": "top", "enabled": True},
-            {"name": "Led cima", "position": "top", "enabled": True}
+            {"name": "Led cima", "position": "top", "enabled": True},
         ],
         "positions": [
-            {"id": "none", "label": "Não usar", "description": "Lâmpada não participa do espelhamento"},
-            {"id": "left", "label": "Esquerda", "description": "Lado esquerdo do monitor"},
-            {"id": "right", "label": "Direita", "description": "Lado direito do monitor"},
+            {
+                "id": "none",
+                "label": "Não usar",
+                "description": "Lâmpada não participa do espelhamento",
+            },
+            {
+                "id": "left",
+                "label": "Esquerda",
+                "description": "Lado esquerdo do monitor",
+            },
+            {
+                "id": "right",
+                "label": "Direita",
+                "description": "Lado direito do monitor",
+            },
             {"id": "top", "label": "Topo", "description": "Parte superior do monitor"},
-            {"id": "bottom", "label": "Base", "description": "Parte inferior do monitor"},
-            {"id": "top-left", "label": "Topo Esquerdo", "description": "Canto superior esquerdo"},
-            {"id": "top-right", "label": "Topo Direito", "description": "Canto superior direito"},
-            {"id": "bottom-left", "label": "Base Esquerda", "description": "Canto inferior esquerdo"},
-            {"id": "bottom-right", "label": "Base Direita", "description": "Canto inferior direito"},
-            {"id": "center", "label": "Centro", "description": "Região central da tela"},
-            {"id": "ambient", "label": "Ambiente", "description": "Cor média de toda a tela"}
-        ]
+            {
+                "id": "bottom",
+                "label": "Base",
+                "description": "Parte inferior do monitor",
+            },
+            {
+                "id": "top-left",
+                "label": "Topo Esquerdo",
+                "description": "Canto superior esquerdo",
+            },
+            {
+                "id": "top-right",
+                "label": "Topo Direito",
+                "description": "Canto superior direito",
+            },
+            {
+                "id": "bottom-left",
+                "label": "Base Esquerda",
+                "description": "Canto inferior esquerdo",
+            },
+            {
+                "id": "bottom-right",
+                "label": "Base Direita",
+                "description": "Canto inferior direito",
+            },
+            {
+                "id": "center",
+                "label": "Centro",
+                "description": "Região central da tela",
+            },
+            {
+                "id": "ambient",
+                "label": "Ambiente",
+                "description": "Cor média de toda a tela",
+            },
+        ],
     }
     await save_json_file(POSITIONS_FILE, default_config)
     return default_config

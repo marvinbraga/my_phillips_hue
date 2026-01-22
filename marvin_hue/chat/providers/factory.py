@@ -45,7 +45,7 @@ class LLMProviderFactory:
         max_tokens: Optional[int] = None,
         api_key: Optional[str] = None,
         streaming: bool = True,
-        **extra_params
+        **extra_params,
     ) -> BaseLLMProvider:
         """Cria uma instância de provedor com os parâmetros fornecidos.
 
@@ -76,9 +76,7 @@ class LLMProviderFactory:
 
     @classmethod
     def create_from_config(
-        cls,
-        provider_name: str,
-        config: LLMConfig
+        cls, provider_name: str, config: LLMConfig
     ) -> BaseLLMProvider:
         """Cria uma instância de provedor a partir de um objeto LLMConfig.
 
@@ -97,10 +95,7 @@ class LLMProviderFactory:
 
     @classmethod
     def from_string(
-        cls,
-        model_string: str,
-        temperature: float = 0.7,
-        **extra_params
+        cls, model_string: str, temperature: float = 0.7, **extra_params
     ) -> BaseLLMProvider:
         """Cria um provedor a partir de uma string no formato "provider:model".
 
@@ -134,7 +129,7 @@ class LLMProviderFactory:
             provider_name=provider_name,
             model=model,
             temperature=temperature,
-            **extra_params
+            **extra_params,
         )
 
     @classmethod

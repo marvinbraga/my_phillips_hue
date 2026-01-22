@@ -58,13 +58,17 @@ class HueController:
         Raises:
             ValueError: Se a lâmpada não for encontrada ou valores forem inválidos
         """
-        logger.debug(f"Setting light '{light_name}' to RGB({color.red}, {color.green}, {color.blue}), brightness={color.brightness}")
+        logger.debug(
+            f"Setting light '{light_name}' to RGB({color.red}, {color.green}, {color.blue}), brightness={color.brightness}"
+        )
 
         # Verifica se a lâmpada existe
         light = self._get_light_by_name(light_name)
         if light is None:
             logger.warning(f"Light '{light_name}' not found")
-            raise ValueError(f"Lâmpada '{light_name}' não encontrada. Lâmpadas disponíveis: {self.list_lights()}")
+            raise ValueError(
+                f"Lâmpada '{light_name}' não encontrada. Lâmpadas disponíveis: {self.list_lights()}"
+            )
 
         try:
             # Converte RGB para XY (já validado em RGBtoXYAdapter)
@@ -72,7 +76,9 @@ class HueController:
 
             # Valida coordenadas XY
             if not self._validate_xy(xy):
-                logger.warning(f"Coordenadas XY fora do gamut: {xy}, usando valores corrigidos")
+                logger.warning(
+                    f"Coordenadas XY fora do gamut: {xy}, usando valores corrigidos"
+                )
                 xy = self._clamp_xy(xy)
 
             # Aplica as configurações
@@ -88,7 +94,9 @@ class HueController:
             logger.error(f"Erro inesperado ao definir cor para '{light_name}': {e}")
             raise RuntimeError(f"Erro ao aplicar cor: {e}") from e
 
-    def apply_light_config(self, light_config: LightConfig, transition_time_secs: float = 0) -> "HueController":
+    def apply_light_config(
+        self, light_config: LightConfig, transition_time_secs: float = 0
+    ) -> "HueController":
         """
         Aplica uma configuração completa de iluminação.
 
@@ -102,15 +110,19 @@ class HueController:
         Raises:
             ValueError: Se houver erros na configuração
         """
-        if not light_config or not hasattr(light_config, 'settings'):
+        if not light_config or not hasattr(light_config, "settings"):
             raise ValueError("LightConfig inválido")
 
         # Valida transition_time
         if transition_time_secs < 0:
-            logger.warning(f"Transition time negativo ({transition_time_secs}), usando 0")
+            logger.warning(
+                f"Transition time negativo ({transition_time_secs}), usando 0"
+            )
             transition_time_secs = 0
 
-        logger.info(f"Applying configuration '{light_config.name}' with {len(light_config.settings)} lights (transition: {transition_time_secs}s)")
+        logger.info(
+            f"Applying configuration '{light_config.name}' with {len(light_config.settings)} lights (transition: {transition_time_secs}s)"
+        )
 
         errors = []
         for setting in light_config.settings:
@@ -121,10 +133,14 @@ class HueController:
                     light.transitiontime = int(transition_time_secs * 10)
                 light.on = True
             except ValueError as e:
-                logger.warning(f"Erro ao aplicar configuração para '{setting.light_name}': {e}")
+                logger.warning(
+                    f"Erro ao aplicar configuração para '{setting.light_name}': {e}"
+                )
                 errors.append(str(e))
             except Exception as e:
-                logger.error(f"Erro inesperado ao aplicar configuração para '{setting.light_name}': {e}")
+                logger.error(
+                    f"Erro inesperado ao aplicar configuração para '{setting.light_name}': {e}"
+                )
                 errors.append(str(e))
 
         if errors:
@@ -239,27 +255,31 @@ class HueController:
                     "reachable": light.reachable,
                 }
                 # Converter XY para RGB se a lâmpada estiver ligada e tiver cor
-                if light.on and hasattr(light, 'xy') and light.xy:
+                if light.on and hasattr(light, "xy") and light.xy:
                     rgb = ColorConverter.xy_to_rgb(light.xy, light.brightness)
-                    status["color"] = {
-                        "r": rgb[0],
-                        "g": rgb[1],
-                        "b": rgb[2]
-                    }
+                    status["color"] = {"r": rgb[0], "g": rgb[1], "b": rgb[2]}
                 else:
-                    status["color"] = {"r": 50, "g": 50, "b": 50}  # Cinza quando desligada
+                    status["color"] = {
+                        "r": 50,
+                        "g": 50,
+                        "b": 50,
+                    }  # Cinza quando desligada
                 lights_status.append(status)
             except Exception as e:
-                logger.warning(f"Error getting status for light '{light.name}': {str(e)}")
+                logger.warning(
+                    f"Error getting status for light '{light.name}': {str(e)}"
+                )
                 # Adiciona status mínimo para lâmpadas com erro
-                lights_status.append({
-                    "name": light.name,
-                    "on": False,
-                    "brightness": 0,
-                    "reachable": False,
-                    "color": {"r": 50, "g": 50, "b": 50},
-                    "error": str(e)
-                })
+                lights_status.append(
+                    {
+                        "name": light.name,
+                        "on": False,
+                        "brightness": 0,
+                        "reachable": False,
+                        "color": {"r": 50, "g": 50, "b": 50},
+                        "error": str(e),
+                    }
+                )
         return lights_status
 
     def _xy_to_rgb(self, xy: tuple, brightness: int = 254) -> tuple[int, int, int]:

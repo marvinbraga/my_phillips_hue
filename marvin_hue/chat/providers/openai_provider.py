@@ -5,7 +5,7 @@ OpenAI Provider - Implementação do provedor para modelos OpenAI.
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
-from marvin_hue.chat.providers.base import BaseLLMProvider, LLMConfig
+from marvin_hue.chat.providers.base import BaseLLMProvider
 from marvin_hue.chat.providers.registry import register_provider
 from marvin_hue.config import settings
 

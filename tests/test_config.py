@@ -1,11 +1,10 @@
 """
 Testes para o módulo de configuração centralizada.
 """
+
 import os
 import pytest
 from pydantic import ValidationError
-
-from marvin_hue.config import Settings
 
 
 @pytest.fixture(autouse=True)
@@ -13,11 +12,23 @@ def isolate_env_vars(monkeypatch):
     """Isola variáveis de ambiente para cada teste."""
     # Lista de variáveis de ambiente que devem ser isoladas
     env_vars = [
-        "BRIDGE_IP", "BRIDGE_TIMEOUT", "API_KEY", "CORS_ORIGINS",
-        "API_HOST", "API_PORT", "CHAT_PROVIDER", "CHAT_MODEL",
-        "CHAT_TEMPERATURE", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-        "XAI_API_KEY", "GROQ_API_KEY", "SETUPS_FILE", "POSITIONS_FILE",
-        "LOG_LEVEL", "LOG_FILE"
+        "BRIDGE_IP",
+        "BRIDGE_TIMEOUT",
+        "API_KEY",
+        "CORS_ORIGINS",
+        "API_HOST",
+        "API_PORT",
+        "CHAT_PROVIDER",
+        "CHAT_MODEL",
+        "CHAT_TEMPERATURE",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "XAI_API_KEY",
+        "GROQ_API_KEY",
+        "SETUPS_FILE",
+        "POSITIONS_FILE",
+        "LOG_LEVEL",
+        "LOG_FILE",
     ]
     # Salva valores originais
     original_values = {var: os.environ.get(var) for var in env_vars}
@@ -231,12 +242,16 @@ class TestSettingsValidChatProviders:
 
     def test_openai_provider(self):
         """Verifica provider OpenAI."""
-        settings = create_test_settings(bridge_ip="192.168.1.100", chat_provider="openai")
+        settings = create_test_settings(
+            bridge_ip="192.168.1.100", chat_provider="openai"
+        )
         assert settings.chat_provider == "openai"
 
     def test_anthropic_provider(self):
         """Verifica provider Anthropic."""
-        settings = create_test_settings(bridge_ip="192.168.1.100", chat_provider="anthropic")
+        settings = create_test_settings(
+            bridge_ip="192.168.1.100", chat_provider="anthropic"
+        )
         assert settings.chat_provider == "anthropic"
 
     def test_xai_provider(self):

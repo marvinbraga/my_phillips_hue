@@ -14,18 +14,29 @@ class Color:
     Raises:
         ValueError: Se algum valor estiver fora dos limites permitidos
     """
-    def __init__(self, red: int = 254, green: int = 254, blue: int = 254, brightness: int = 254):
+
+    def __init__(
+        self, red: int = 254, green: int = 254, blue: int = 254, brightness: int = 254
+    ):
         # Validação RGB: 0-255
         if not isinstance(red, int) or not 0 <= red <= 255:
-            raise ValueError(f"Valor de red deve ser inteiro entre 0-255, recebido: {red}")
+            raise ValueError(
+                f"Valor de red deve ser inteiro entre 0-255, recebido: {red}"
+            )
         if not isinstance(green, int) or not 0 <= green <= 255:
-            raise ValueError(f"Valor de green deve ser inteiro entre 0-255, recebido: {green}")
+            raise ValueError(
+                f"Valor de green deve ser inteiro entre 0-255, recebido: {green}"
+            )
         if not isinstance(blue, int) or not 0 <= blue <= 255:
-            raise ValueError(f"Valor de blue deve ser inteiro entre 0-255, recebido: {blue}")
+            raise ValueError(
+                f"Valor de blue deve ser inteiro entre 0-255, recebido: {blue}"
+            )
 
         # Validação Brightness: 0-254
         if not isinstance(brightness, int) or not 0 <= brightness <= 254:
-            raise ValueError(f"Valor de brightness deve ser inteiro entre 0-254, recebido: {brightness}")
+            raise ValueError(
+                f"Valor de brightness deve ser inteiro entre 0-254, recebido: {brightness}"
+            )
 
         self.red = red
         self.green = green

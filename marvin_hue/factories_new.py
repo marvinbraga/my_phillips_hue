@@ -6,11 +6,9 @@ replacing the old enum-based system with a more maintainable approach.
 """
 
 import os
-from typing import Any
 
 from marvin_hue.basics import LightConfig, LightSetupsManager
 from marvin_hue.logging_config import get_logger
-from marvin_hue.setup_builder import LightConfigBuilder
 
 logger = get_logger("factories_new")
 
@@ -41,7 +39,7 @@ class LightConfigRegistry:
         try:
             # Get path to setups.json
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            json_path = os.path.join(base_dir, '.res', 'setups.json')
+            json_path = os.path.join(base_dir, ".res", "setups.json")
 
             if not os.path.exists(json_path):
                 logger.error(f"Setups file not found: {json_path}")
@@ -52,8 +50,7 @@ class LightConfigRegistry:
 
             # Build index by name
             self._configs_by_name = {
-                config.name: config
-                for config in self._manager.configs
+                config.name: config for config in self._manager.configs
             }
 
             logger.info(f"Loaded {len(self._configs_by_name)} configurations from JSON")

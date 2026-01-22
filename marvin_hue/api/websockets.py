@@ -2,6 +2,7 @@
 WebSocket Management
 Gerenciamento de conexões WebSocket para espelhamento e chat.
 """
+
 import asyncio
 from fastapi import WebSocket, WebSocketDisconnect, FastAPI
 from marvin_hue.api.dependencies import get_screen_mirror, get_chat_agent
@@ -81,8 +82,7 @@ def setup_websockets(app: FastAPI) -> None:
                 # Verifica se há mensagem do cliente (não-bloqueante)
                 try:
                     data = await asyncio.wait_for(
-                        websocket.receive_json(),
-                        timeout=0.01
+                        websocket.receive_json(), timeout=0.01
                     )
                     # Processa comandos do cliente
                     if data.get("action") == "start":
@@ -123,10 +123,9 @@ def setup_websockets(app: FastAPI) -> None:
                 data = await websocket.receive_json()
 
                 if chat_agent is None:
-                    await websocket.send_json({
-                        "type": "error",
-                        "content": "Agente de chat não disponível."
-                    })
+                    await websocket.send_json(
+                        {"type": "error", "content": "Agente de chat não disponível."}
+                    )
                     continue
 
                 action = data.get("action", "message")
@@ -136,34 +135,25 @@ def setup_websockets(app: FastAPI) -> None:
                     if not message:
                         continue
 
-                    await websocket.send_json({
-                        "type": "typing",
-                        "content": True
-                    })
+                    await websocket.send_json({"type": "typing", "content": True})
 
                     try:
                         response = await chat_agent.ainvoke(message)
-                        await websocket.send_json({
-                            "type": "response",
-                            "content": response
-                        })
+                        await websocket.send_json(
+                            {"type": "response", "content": response}
+                        )
                     except Exception as e:
-                        await websocket.send_json({
-                            "type": "error",
-                            "content": f"Erro: {str(e)}"
-                        })
+                        await websocket.send_json(
+                            {"type": "error", "content": f"Erro: {str(e)}"}
+                        )
                     finally:
-                        await websocket.send_json({
-                            "type": "typing",
-                            "content": False
-                        })
+                        await websocket.send_json({"type": "typing", "content": False})
 
                 elif action == "clear":
                     chat_agent.clear_history()
-                    await websocket.send_json({
-                        "type": "cleared",
-                        "content": "Histórico limpo"
-                    })
+                    await websocket.send_json(
+                        {"type": "cleared", "content": "Histórico limpo"}
+                    )
 
         except WebSocketDisconnect:
             chat_ws_manager.disconnect(websocket)

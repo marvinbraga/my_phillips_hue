@@ -139,6 +139,7 @@ class LLMProviderRegistry:
             # Instancia temporariamente para obter informações
             try:
                 from marvin_hue.chat.providers.base import LLMConfig
+
                 temp_config = LLMConfig(model="temp")
                 temp_instance = provider_class(temp_config)
                 info[name] = {
@@ -161,7 +162,9 @@ def register_provider(name: str):
         class CustomProvider(BaseLLMProvider):
             ...
     """
+
     def decorator(cls: Type[BaseLLMProvider]) -> Type[BaseLLMProvider]:
         LLMProviderRegistry.register(name, cls)
         return cls
+
     return decorator

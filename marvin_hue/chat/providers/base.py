@@ -25,6 +25,7 @@ class LLMConfig:
         streaming: Habilitar streaming de respostas
         extra_params: Parâmetros adicionais específicos do provedor
     """
+
     model: str
     temperature: float = 0.7
     max_tokens: Optional[int] = None
@@ -126,7 +127,10 @@ class BaseLLMProvider(ABC):
             api_key=kwargs.get("api_key", self._config.api_key),
             base_url=kwargs.get("base_url", self._config.base_url),
             streaming=kwargs.get("streaming", self._config.streaming),
-            extra_params={**self._config.extra_params, **kwargs.get("extra_params", {})},
+            extra_params={
+                **self._config.extra_params,
+                **kwargs.get("extra_params", {}),
+            },
         )
         return self.__class__(new_config)
 

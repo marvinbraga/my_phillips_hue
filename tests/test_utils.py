@@ -206,8 +206,8 @@ class TestRGBtoXYDivisionByZero:
         # Result should be valid numbers (not NaN or Inf)
         assert not (x != x)  # Check for NaN (NaN != NaN)
         assert not (y != y)  # Check for NaN
-        assert abs(x) != float('inf')
-        assert abs(y) != float('inf')
+        assert abs(x) != float("inf")
+        assert abs(y) != float("inf")
 
 
 class TestRGBtoXYStaticMethod:

@@ -3,29 +3,27 @@ Marvin Hue Controller - FastAPI Application
 Aplicação assíncrona para controle de luzes Philips Hue.
 """
 
-import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, Request  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import HTMLResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.templating import Jinja2Templates  # noqa: E402
 
-from marvin_hue.basics import LightSetupsManager
-from marvin_hue.controllers import HueController
-from marvin_hue.screen_mirror import ScreenMirror
-from marvin_hue.chat import create_hue_agent
-from marvin_hue.logging_config import get_logger
-from marvin_hue.config import settings
-from marvin_hue.api import dependencies
-from marvin_hue.api.routes import status, configurations, positions, mirror, chat
-from marvin_hue.api.websockets import setup_websockets
+from marvin_hue.basics import LightSetupsManager  # noqa: E402
+from marvin_hue.controllers import HueController  # noqa: E402
+from marvin_hue.screen_mirror import ScreenMirror  # noqa: E402
+from marvin_hue.chat import create_hue_agent  # noqa: E402
+from marvin_hue.logging_config import get_logger  # noqa: E402
+from marvin_hue.config import settings  # noqa: E402
+from marvin_hue.api import dependencies  # noqa: E402
+from marvin_hue.api.routes import status, configurations, positions, mirror, chat  # noqa: E402
+from marvin_hue.api.websockets import setup_websockets  # noqa: E402
 
 logger = get_logger("app")
 
@@ -35,7 +33,9 @@ async def lifespan(app: FastAPI):
     """Gerencia o ciclo de vida da aplicação."""
     # Startup
     logger.info("Starting Marvin Hue application")
-    logger.info(f"Configuration: bridge_ip={settings.bridge_ip}, api_port={settings.api_port}, log_level={settings.log_level}")
+    logger.info(
+        f"Configuration: bridge_ip={settings.bridge_ip}, api_port={settings.api_port}, log_level={settings.log_level}"
+    )
 
     # Inicializa componentes principais
     hue = HueController(ip_address=settings.bridge_ip)
@@ -48,7 +48,9 @@ async def lifespan(app: FastAPI):
     dependencies.set_screen_mirror(screen_mirror)
 
     # Inicializa o agente de chat
-    logger.info(f"Initializing chat agent with provider='{settings.chat_provider}', model='{settings.chat_model}'")
+    logger.info(
+        f"Initializing chat agent with provider='{settings.chat_provider}', model='{settings.chat_model}'"
+    )
 
     try:
         chat_agent = create_hue_agent(
@@ -78,7 +80,7 @@ app = FastAPI(
     title="Marvin Hue Controller",
     description="Controle de luzes Philips Hue com espelhamento de tela",
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Configurar CORS
@@ -114,9 +116,5 @@ async def index(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app:app",
-        host=settings.api_host,
-        port=settings.api_port,
-        reload=True
-    )
+
+    uvicorn.run("app:app", host=settings.api_host, port=settings.api_port, reload=True)

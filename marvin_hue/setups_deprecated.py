@@ -20,30 +20,31 @@ warnings.warn(
     "Use marvin_hue.factories_new.get_config() or add configurations to .res/setups.json instead. "
     "This module will be removed in a future version.",
     DeprecationWarning,
-    stacklevel=2
+    stacklevel=2,
 )
 
-from marvin_hue.basics import LightSetting, LightConfig
-from marvin_hue.colors import Color
+from marvin_hue.basics import LightSetting, LightConfig  # noqa: E402
+from marvin_hue.colors import Color  # noqa: E402
 
 
 # Legacy classes kept for backward compatibility only
 # DO NOT add new classes here - add to .res/setups.json instead
+
 
 class SetupBrightnessColors(LightConfig):
     def __init__(self):
         super().__init__(
             "brightness_color",
             settings=[
-                LightSetting('Lâmpada 1', Color(255, 244, 229, 170)),
-                LightSetting('Lâmpada 2', Color(255, 244, 229, 170)),
-                LightSetting('Lâmpada 4', Color(255, 244, 229, 170)),
-                LightSetting('Hue Iris', Color(255, 140, 80, 130)),
-                LightSetting('Hue Play 1', Color(80, 180, 255, 100)),
-                LightSetting('Hue Play 2', Color(80, 180, 255, 100)),
-                LightSetting('Fita Led', Color(255, 215, 120, 80)),
-                LightSetting('Led cima', Color(255, 244, 229, 40)),
-            ]
+                LightSetting("Lâmpada 1", Color(255, 244, 229, 170)),
+                LightSetting("Lâmpada 2", Color(255, 244, 229, 170)),
+                LightSetting("Lâmpada 4", Color(255, 244, 229, 170)),
+                LightSetting("Hue Iris", Color(255, 140, 80, 130)),
+                LightSetting("Hue Play 1", Color(80, 180, 255, 100)),
+                LightSetting("Hue Play 2", Color(80, 180, 255, 100)),
+                LightSetting("Fita Led", Color(255, 215, 120, 80)),
+                LightSetting("Led cima", Color(255, 244, 229, 40)),
+            ],
         )
 
 
@@ -53,15 +54,15 @@ class SetupConcentration(LightConfig):
         super().__init__(
             "concentration",
             settings=[
-                LightSetting('Lâmpada 1', Color(*color, 254)),
-                LightSetting('Lâmpada 2', Color(*color, 254)),
-                LightSetting('Lâmpada 4', Color(*color, 254)),
-                LightSetting('Hue Iris', Color(*color, 130)),
-                LightSetting('Hue Play 1', Color(*color, 100)),
-                LightSetting('Hue Play 2', Color(*color, 100)),
-                LightSetting('Fita Led', Color(*color, 40)),
-                LightSetting('Led cima', Color(*color, 40)),
-            ]
+                LightSetting("Lâmpada 1", Color(*color, 254)),
+                LightSetting("Lâmpada 2", Color(*color, 254)),
+                LightSetting("Lâmpada 4", Color(*color, 254)),
+                LightSetting("Hue Iris", Color(*color, 130)),
+                LightSetting("Hue Play 1", Color(*color, 100)),
+                LightSetting("Hue Play 2", Color(*color, 100)),
+                LightSetting("Fita Led", Color(*color, 40)),
+                LightSetting("Led cima", Color(*color, 40)),
+            ],
         )
 
 

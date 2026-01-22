@@ -12,7 +12,6 @@ import sys
 # Add parent directory to path to import marvin_hue
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from marvin_hue import setups
 from marvin_hue.factories import LightConfigEnum
 
 
@@ -22,17 +21,17 @@ def convert_all_setups():
     # Get existing JSON data
     json_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        '.res',
-        'setups.json'
+        ".res",
+        "setups.json",
     )
 
     # Load existing setups
     existing_setups = {}
     if os.path.exists(json_path):
-        with open(json_path, 'r', encoding='utf-8') as f:
+        with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            for setup in data.get('setups', []):
-                existing_setups[setup['name']] = setup
+            for setup in data.get("setups", []):
+                existing_setups[setup["name"]] = setup
 
     # Convert all enum setups
     all_setups = []
@@ -44,13 +43,13 @@ def convert_all_setups():
             setup_dict = instance.to_dict()
 
             # Use description from enum if not in class
-            if not setup_dict.get('description'):
-                setup_dict['description'] = enum_member.description
+            if not setup_dict.get("description"):
+                setup_dict["description"] = enum_member.description
 
             # Don't override existing setups from JSON
-            if setup_dict['name'] not in existing_setups:
+            if setup_dict["name"] not in existing_setups:
                 all_setups.append(setup_dict)
-                converted_names.append(setup_dict['name'])
+                converted_names.append(setup_dict["name"])
             else:
                 print(f"Skipping '{setup_dict['name']}' - already exists in JSON")
 
@@ -62,22 +61,22 @@ def convert_all_setups():
         all_setups.append(setup)
 
     # Sort by name for consistency
-    all_setups.sort(key=lambda x: x['name'])
+    all_setups.sort(key=lambda x: x["name"])
 
     # Write to JSON
     output_data = {"setups": all_setups}
 
-    with open(json_path, 'w', encoding='utf-8') as f:
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
 
-    print(f"\nConversion complete!")
+    print("\nConversion complete!")
     print(f"Total setups: {len(all_setups)}")
     print(f"Newly converted: {len(converted_names)}")
     print(f"Already in JSON: {len(existing_setups)}")
     print(f"\nOutput written to: {json_path}")
 
     if converted_names:
-        print(f"\nConverted setups:")
+        print("\nConverted setups:")
         for name in sorted(converted_names):
             print(f"  - {name}")
 

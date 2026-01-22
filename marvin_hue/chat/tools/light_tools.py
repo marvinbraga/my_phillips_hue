@@ -19,10 +19,7 @@ _hue_controller: Optional[HueController] = None
 _setups_manager: Optional[LightSetupsManager] = None
 
 
-def configure_tools(
-    controller: HueController,
-    manager: LightSetupsManager
-) -> None:
+def configure_tools(controller: HueController, manager: LightSetupsManager) -> None:
     """Configura as referências globais para o controller e manager.
 
     Args:
@@ -105,7 +102,7 @@ def set_light_color_tool(
     red: Annotated[int, "Valor do vermelho (0-255)"],
     green: Annotated[int, "Valor do verde (0-255)"],
     blue: Annotated[int, "Valor do azul (0-255)"],
-    brightness: Annotated[int, "Brilho (0-254, padrão 200)"] = 200
+    brightness: Annotated[int, "Brilho (0-254, padrão 200)"] = 200,
 ) -> str:
     """Define a cor de uma lâmpada específica.
 
@@ -145,7 +142,7 @@ def set_light_color_tool(
 @tool
 def apply_config_tool(
     config_name: Annotated[str, "Nome da configuração de iluminação"],
-    transition_time: Annotated[float, "Tempo de transição em segundos (padrão 0)"] = 0
+    transition_time: Annotated[float, "Tempo de transição em segundos (padrão 0)"] = 0,
 ) -> str:
     """Aplica uma configuração de iluminação predefinida.
 
@@ -182,7 +179,7 @@ def apply_config_tool(
 
 @tool
 def list_configs_tool(
-    search: Annotated[str, "Termo de busca opcional para filtrar configurações"] = ""
+    search: Annotated[str, "Termo de busca opcional para filtrar configurações"] = "",
 ) -> str:
     """Lista as configurações de iluminação disponíveis.
 
@@ -210,7 +207,11 @@ def list_configs_tool(
 
     result_parts = ["Configurações disponíveis:"]
     for config in configs:
-        desc = config.description[:60] + "..." if len(config.description) > 60 else config.description
+        desc = (
+            config.description[:60] + "..."
+            if len(config.description) > 60
+            else config.description
+        )
         result_parts.append(f"- {config.name}: {desc}")
 
     if len(manager.configs) > 15:
@@ -221,7 +222,7 @@ def list_configs_tool(
 
 @tool
 def turn_off_lights_tool(
-    light_name: Annotated[str, "Nome da lâmpada ou 'all' para todas"] = "all"
+    light_name: Annotated[str, "Nome da lâmpada ou 'all' para todas"] = "all",
 ) -> str:
     """Desliga lâmpadas.
 
@@ -262,7 +263,7 @@ def turn_off_lights_tool(
 
 @tool
 def turn_on_lights_tool(
-    light_name: Annotated[str, "Nome da lâmpada ou 'all' para todas"] = "all"
+    light_name: Annotated[str, "Nome da lâmpada ou 'all' para todas"] = "all",
 ) -> str:
     """Liga lâmpadas.
 
@@ -295,7 +296,7 @@ def turn_on_lights_tool(
 @tool
 def set_brightness_tool(
     light_name: Annotated[str, "Nome da lâmpada ou 'all' para todas"],
-    brightness: Annotated[int, "Nível de brilho (0-100 em porcentagem)"]
+    brightness: Annotated[int, "Nível de brilho (0-100 em porcentagem)"],
 ) -> str:
     """Ajusta o brilho de lâmpadas.
 
@@ -331,8 +332,14 @@ def set_brightness_tool(
 
 @tool
 def save_current_config_tool(
-    config_name: Annotated[str, "Nome para a nova configuração (use underscores, sem espaços). SEMPRE crie um nome criativo baseado nas cores atuais (ex: 'sunset_warm', 'ocean_blue', 'natal_festivo')"],
-    description: Annotated[str, "Descrição de uma linha da configuração. SEMPRE crie uma descrição criativa baseada no ambiente/mood das cores"]
+    config_name: Annotated[
+        str,
+        "Nome para a nova configuração (use underscores, sem espaços). SEMPRE crie um nome criativo baseado nas cores atuais (ex: 'sunset_warm', 'ocean_blue', 'natal_festivo')",
+    ],
+    description: Annotated[
+        str,
+        "Descrição de uma linha da configuração. SEMPRE crie uma descrição criativa baseada no ambiente/mood das cores",
+    ],
 ) -> str:
     """Salva o estado atual das lâmpadas como uma nova configuração.
 
@@ -375,12 +382,7 @@ def save_current_config_tool(
         if light["on"] and light["reachable"]:
             color = light["color"]
             brightness = light["brightness"]
-            light_color = Color(
-                color["r"],
-                color["g"],
-                color["b"],
-                brightness
-            )
+            light_color = Color(color["r"], color["g"], color["b"], brightness)
             settings.append(LightSetting(light["name"], light_color))
 
     if not settings:
@@ -390,7 +392,7 @@ def save_current_config_tool(
     new_config = LightConfig(
         name=config_name,
         settings=settings,
-        description=description or "Configuração salva pelo chat"
+        description=description or "Configuração salva pelo chat",
     )
 
     # Adiciona ao manager e salva
@@ -407,7 +409,7 @@ def save_current_config_tool(
 
 @tool
 def get_light_locations_tool(
-    light_name: Annotated[str, "Nome da lâmpada ou 'all' para todas"] = "all"
+    light_name: Annotated[str, "Nome da lâmpada ou 'all' para todas"] = "all",
 ) -> str:
     """Obtém informações sobre a localização física das lâmpadas.
 
@@ -431,7 +433,7 @@ def get_light_locations_tool(
         return "Arquivo de localizações físicas não encontrado."
 
     try:
-        with open(locations_file, 'r', encoding='utf-8') as f:
+        with open(locations_file, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
         return f"Erro ao ler arquivo de localizações: {str(e)}"
