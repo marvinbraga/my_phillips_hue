@@ -491,6 +491,48 @@
                 <button class="btn btn-outline-secondary btn-sm" id="clear-btn">
                     <i class="bi bi-trash"></i> Limpar histórico
                 </button>
+                <button class="btn btn-outline-primary btn-sm" id="save-config-btn">
+                    <i class="bi bi-save"></i> Salvar Configuração
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Salvar Configuração -->
+    <div class="modal fade" id="saveConfigModal" tabindex="-1" aria-labelledby="saveConfigModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="saveConfigModalLabel">
+                        <i class="bi bi-save"></i> Salvar Configuração Atual
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="config-name-input" class="form-label">Nome da Configuração</label>
+                        <input type="text" class="form-control" id="config-name-input"
+                               placeholder="Ex: minha_iluminacao, festa_rgb, trabalho_focado"
+                               required>
+                        <div class="form-text">Use letras, números e underscores. Sem espaços ou caracteres especiais.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="config-description-input" class="form-label">Descrição</label>
+                        <textarea class="form-control" id="config-description-input" rows="3"
+                                  placeholder="Descreva o ambiente ou mood desta configuração..."
+                                  required></textarea>
+                        <div class="form-text">Descreva o propósito ou mood desta configuração de iluminação.</div>
+                    </div>
+                    <div class="alert alert-info mb-0">
+                        <i class="bi bi-info-circle"></i> Esta ação irá salvar o estado atual de todas as lâmpadas ligadas como uma nova configuração reutilizável.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="confirm-save-config-btn">
+                        <i class="bi bi-check-lg"></i> Salvar
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -779,6 +821,68 @@
                 setTimeout(loadLightsStatus, 500);
             }
         };
+
+        // ==================== SALVAR CONFIGURAÇÃO ====================
+        const saveConfigBtn = document.getElementById('save-config-btn');
+        const saveConfigModal = new bootstrap.Modal(document.getElementById('saveConfigModal'));
+        const configNameInput = document.getElementById('config-name-input');
+        const configDescriptionInput = document.getElementById('config-description-input');
+        const confirmSaveConfigBtn = document.getElementById('confirm-save-config-btn');
+
+        // Abrir modal ao clicar no botão
+        saveConfigBtn.addEventListener('click', () => {
+            // Limpar campos
+            configNameInput.value = '';
+            configDescriptionInput.value = '';
+            saveConfigModal.show();
+        });
+
+        // Confirmar salvamento
+        confirmSaveConfigBtn.addEventListener('click', () => {
+            const configName = configNameInput.value.trim();
+            const configDescription = configDescriptionInput.value.trim();
+
+            if (!configName) {
+                alert('Por favor, informe um nome para a configuração.');
+                return;
+            }
+
+            if (!configDescription) {
+                alert('Por favor, informe uma descrição para a configuração.');
+                return;
+            }
+
+            // Validar nome (sem espaços ou caracteres especiais)
+            const nameRegex = /^[a-zA-Z0-9_]+$/;
+            if (!nameRegex.test(configName)) {
+                alert('O nome deve conter apenas letras, números e underscores (sem espaços ou caracteres especiais).');
+                return;
+            }
+
+            // Fechar modal
+            saveConfigModal.hide();
+
+            // Enviar mensagem ao agente
+            const message = `Salve a configuração atual com o nome "${configName}" e descrição "${configDescription}"`;
+            messageInput.value = message;
+            sendMessage();
+        });
+
+        // Permitir salvar com Enter no campo de nome
+        configNameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                configDescriptionInput.focus();
+            }
+        });
+
+        // Permitir salvar com Ctrl+Enter no campo de descrição
+        configDescriptionInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                confirmSaveConfigBtn.click();
+            }
+        });
 
         // Inicialização
         connectWebSocket();

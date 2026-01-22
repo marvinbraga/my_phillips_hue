@@ -12977,6 +12977,240 @@
           }
         }
       ]
+    },
+    {
+      "name": "festa_alegre_diaria",
+      "description": "Tema festivo e alegre para o dia a dia, com cores vibrantes e suaves para um clima energizante sem excessos",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 255,
+            "green": 160,
+            "blue": 0,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 206,
+            "green": 206,
+            "blue": 0,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 255,
+            "green": 98,
+            "blue": 176,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 0,
+            "green": 241,
+            "blue": 0,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 0,
+            "green": 0,
+            "blue": 255,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 255,
+            "green": 0,
+            "blue": 254,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 255,
+            "green": 160,
+            "blue": 0,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 229,
+            "green": 229,
+            "blue": 229,
+            "brightness": 200
+          }
+        }
+      ]
+    },
+    {
+      "name": "festa_alegre_equilibrada",
+      "description": "Tema festivo e alegre para o dia a dia, com luzes do teto claras e brancas para clareza, e cores vibrantes nas outras para um clima energizante",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 229,
+            "green": 229,
+            "blue": 229,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 229,
+            "green": 229,
+            "blue": 229,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 255,
+            "green": 98,
+            "blue": 176,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 0,
+            "green": 241,
+            "blue": 61,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 63,
+            "green": 0,
+            "blue": 255,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 254,
+            "green": 39,
+            "blue": 255,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 229,
+            "green": 229,
+            "blue": 229,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 229,
+            "green": 229,
+            "blue": 229,
+            "brightness": 200
+          }
+        }
+      ]
+    },
+    {
+      "name": "ambiente_relaxado_confortavel",
+      "description": "Tema relaxante com iluminação suave e dimmer para um ambiente confortável e sem esforço nos olhos, ideal para uso diário sem cansar",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 229,
+            "green": 229,
+            "blue": 229,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 229,
+            "green": 229,
+            "blue": 229,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 255,
+            "green": 98,
+            "blue": 176,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 0,
+            "green": 241,
+            "blue": 61,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 63,
+            "green": 0,
+            "blue": 255,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 220,
+            "green": 30,
+            "blue": 220,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 229,
+            "green": 229,
+            "blue": 229,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 141,
+            "green": 134,
+            "blue": 125,
+            "brightness": 63
+          }
+        }
+      ]
     }
   ]
 }

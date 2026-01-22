@@ -331,23 +331,24 @@ def set_brightness_tool(
 
 @tool
 def save_current_config_tool(
-    config_name: Annotated[str, "Nome para a nova configuração. Se o usuário não informar, crie um nome criativo baseado nas cores atuais (ex: 'sunset_warm', 'ocean_blue', 'natal_festivo')"],
-    description: Annotated[str, "Descrição da configuração. Se o usuário não informar, crie uma descrição criativa baseada no ambiente/mood das cores"]
+    config_name: Annotated[str, "Nome para a nova configuração (use underscores, sem espaços). SEMPRE crie um nome criativo baseado nas cores atuais (ex: 'sunset_warm', 'ocean_blue', 'natal_festivo')"],
+    description: Annotated[str, "Descrição de uma linha da configuração. SEMPRE crie uma descrição criativa baseada no ambiente/mood das cores"]
 ) -> str:
     """Salva o estado atual das lâmpadas como uma nova configuração.
 
     Captura as cores e brilhos atuais de todas as lâmpadas ligadas
     e salva como uma nova configuração reutilizável.
 
-    IMPORTANTE: Se o usuário não fornecer nome ou descrição, você DEVE criar
-    automaticamente baseado nas cores e no contexto da conversa. Por exemplo:
-    - Se as cores são vermelhas e verdes: nome='natal_festivo', descrição='Tema natalino com cores tradicionais'
-    - Se as cores são azuis e roxas: nome='noite_relaxante', descrição='Ambiente calmo para relaxar'
-    - Se as cores são laranjas e amarelas: nome='por_do_sol', descrição='Cores quentes inspiradas no pôr do sol'
+    IMPORTANTE: Você DEVE SEMPRE fornecer nome E descrição ao chamar esta ferramenta.
+    Mesmo que o usuário não informe, crie automaticamente baseado nas cores e contexto:
+    - Cores vermelhas/verdes → nome='natal_festivo', descrição='Tema natalino com cores tradicionais'
+    - Cores azuis/roxas → nome='noite_relaxante', descrição='Ambiente calmo para relaxar'
+    - Cores laranjas/amarelas → nome='por_do_sol', descrição='Cores quentes inspiradas no pôr do sol'
+    - Cores RGB variadas → nome='festa_multicolor', descrição='Iluminação vibrante para festas'
 
     Args:
-        config_name: Nome único para a configuração
-        description: Descrição do tema/ambiente
+        config_name: Nome único para a configuração (obrigatório, sem espaços)
+        description: Descrição de uma linha do tema/ambiente (obrigatório)
 
     Returns:
         Confirmação do salvamento ou mensagem de erro
@@ -404,6 +405,97 @@ def save_current_config_tool(
     )
 
 
+@tool
+def get_light_locations_tool(
+    light_name: Annotated[str, "Nome da lâmpada ou 'all' para todas"] = "all"
+) -> str:
+    """Obtém informações sobre a localização física das lâmpadas.
+
+    Retorna detalhes sobre onde cada lâmpada está posicionada no ambiente,
+    incluindo restrições de intensidade e recomendações de uso.
+
+    IMPORTANTE: Fita Led e Led cima têm limite de 25% de intensidade para não forçar a vista.
+
+    Args:
+        light_name: Nome da lâmpada específica ou 'all' para todas
+
+    Returns:
+        Informações de localização das lâmpadas
+    """
+    import json
+    from pathlib import Path
+
+    locations_file = Path(".res/light_physical_locations.json")
+
+    if not locations_file.exists():
+        return "Arquivo de localizações físicas não encontrado."
+
+    try:
+        with open(locations_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as e:
+        return f"Erro ao ler arquivo de localizações: {str(e)}"
+
+    lights = data.get("lights", [])
+
+    if light_name.lower() == "all":
+        result_parts = ["Localizações físicas das lâmpadas:"]
+
+        for light in lights:
+            name = light["name"]
+            location = light["location"]
+            notes = light.get("notes", "")
+
+            info = f"\n• {name}: {location}"
+
+            if "max_brightness_percent" in light:
+                max_bright = light["max_brightness_percent"]
+                info += f"\n  ⚠️ ATENÇÃO: Intensidade máxima recomendada: {max_bright}%"
+
+            if notes:
+                info += f"\n  📝 {notes}"
+
+            if "recommendations" in light:
+                info += "\n  💡 Recomendações:"
+                for rec in light["recommendations"]:
+                    info += f"\n     - {rec}"
+
+            result_parts.append(info)
+
+        # Adiciona informações do ambiente
+        env_info = data.get("environment_info", {})
+        if "considerations" in env_info:
+            result_parts.append("\n⚙️ Considerações importantes:")
+            for consideration in env_info["considerations"]:
+                result_parts.append(f"  • {consideration}")
+
+        return "\n".join(result_parts)
+    else:
+        # Busca lâmpada específica
+        for light in lights:
+            if light["name"].lower() == light_name.lower():
+                location = light["location"]
+                notes = light.get("notes", "")
+
+                info = f"Lâmpada '{light['name']}':\n• Localização: {location}"
+
+                if "max_brightness_percent" in light:
+                    max_bright = light["max_brightness_percent"]
+                    info += f"\n• ⚠️ Intensidade máxima recomendada: {max_bright}%"
+
+                if notes:
+                    info += f"\n• Observação: {notes}"
+
+                if "recommendations" in light:
+                    info += "\n• Recomendações:"
+                    for rec in light["recommendations"]:
+                        info += f"\n  - {rec}"
+
+                return info
+
+        return f"Lâmpada '{light_name}' não encontrada no arquivo de localizações."
+
+
 def get_all_tools() -> list:
     """Retorna todas as ferramentas disponíveis para o agente.
 
@@ -420,4 +512,5 @@ def get_all_tools() -> list:
         turn_on_lights_tool,
         set_brightness_tool,
         save_current_config_tool,
+        get_light_locations_tool,
     ]

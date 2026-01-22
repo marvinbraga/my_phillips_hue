@@ -1,0 +1,89 @@
+{
+  "lights": [
+    {
+      "name": "Lâmpada 1",
+      "location": "Teto, à direita",
+      "position_relative_to_user": "above_right",
+      "distance": "far",
+      "notes": "Iluminação ambiente superior direita"
+    },
+    {
+      "name": "Lâmpada 2",
+      "location": "Teto, à direita",
+      "position_relative_to_user": "above_right",
+      "distance": "far",
+      "notes": "Iluminação ambiente superior direita"
+    },
+    {
+      "name": "Lâmpada 3",
+      "location": "Teto, à esquerda",
+      "position_relative_to_user": "above_left",
+      "distance": "far",
+      "notes": "Iluminação ambiente superior esquerda"
+    },
+    {
+      "name": "Lâmpada 4",
+      "location": "Teto, à esquerda",
+      "position_relative_to_user": "above_left",
+      "distance": "far",
+      "notes": "Iluminação ambiente superior esquerda"
+    },
+    {
+      "name": "Fita Led",
+      "location": "Frente, parte de baixo do monitor",
+      "position_relative_to_user": "front_bottom",
+      "distance": "very_close",
+      "max_brightness_percent": 25,
+      "notes": "Muito próxima aos olhos. Intensidades acima de 25% forçam a vista.",
+      "recommendations": [
+        "Use cores suaves e baixa intensidade",
+        "Ideal para iluminação de destaque sutil",
+        "Evite cores muito saturadas ou brilhantes"
+      ]
+    },
+    {
+      "name": "Led cima",
+      "location": "Frente, parte de cima do monitor",
+      "position_relative_to_user": "front_top",
+      "distance": "very_close",
+      "max_brightness_percent": 25,
+      "notes": "Muito próxima aos olhos. Intensidades acima de 25% forçam a vista.",
+      "recommendations": [
+        "Use cores suaves e baixa intensidade",
+        "Ideal para iluminação de destaque sutil",
+        "Evite cores muito saturadas ou brilhantes"
+      ]
+    },
+    {
+      "name": "Hue Play 1",
+      "location": "Frente, lado direito, atrás do monitor",
+      "position_relative_to_user": "front_right_behind_monitor",
+      "distance": "close",
+      "notes": "Iluminação de acento por trás do monitor, lado direito"
+    },
+    {
+      "name": "Hue Play 2",
+      "location": "Frente, lado esquerdo, atrás do monitor",
+      "position_relative_to_user": "front_left_behind_monitor",
+      "distance": "close",
+      "notes": "Iluminação de acento por trás do monitor, lado esquerdo"
+    },
+    {
+      "name": "Hue Iris",
+      "location": "À direita, um pouco atrás do usuário",
+      "position_relative_to_user": "right_behind",
+      "distance": "medium",
+      "notes": "Iluminação ambiente lateral traseira"
+    }
+  ],
+  "environment_info": {
+    "setup_type": "home_office_gaming",
+    "primary_use": "Trabalho e entretenimento",
+    "considerations": [
+      "Lâmpadas frontais (Fita Led e Led cima) devem ser usadas com baixa intensidade",
+      "Lâmpadas do teto podem usar intensidade total para iluminação ambiente",
+      "Hue Play (atrás do monitor) são ideais para criar atmosfera sem ofuscar",
+      "Hue Iris pode ser usada para iluminação de destaque ou ambiente geral"
+    ]
+  }
+}
