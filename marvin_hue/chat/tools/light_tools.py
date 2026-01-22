@@ -390,7 +390,7 @@ def save_current_config_tool(
     new_config = LightConfig(
         name=config_name,
         settings=settings,
-        description=description or f"Configuração salva pelo chat"
+        description=description or "Configuração salva pelo chat"
     )
 
     # Adiciona ao manager e salva

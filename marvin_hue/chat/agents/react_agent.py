@@ -16,7 +16,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
-from marvin_hue.chat.providers import LLMProviderFactory, LLMProviderBuilder
+from marvin_hue.chat.providers import LLMProviderFactory
 from marvin_hue.chat.tools import configure_tools, get_all_tools
 
 
