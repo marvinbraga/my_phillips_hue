@@ -2,12 +2,12 @@
 OpenAI Provider - Implementação do provedor para modelos OpenAI.
 """
 
-import os
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
 from marvin_hue.chat.providers.base import BaseLLMProvider, LLMConfig
 from marvin_hue.chat.providers.registry import register_provider
+from marvin_hue.config import settings
 
 
 @register_provider("openai")
@@ -45,8 +45,8 @@ class OpenAIProvider(BaseLLMProvider):
             "streaming": self._config.streaming,
         }
 
-        # API key: usa config ou variável de ambiente
-        api_key = self._config.api_key or os.getenv("OPENAI_API_KEY")
+        # API key: usa config ou settings
+        api_key = self._config.api_key or settings.openai_api_key
         if api_key:
             params["api_key"] = api_key
 

@@ -1,5 +1,23 @@
+"""
+DEPRECATED: This module is deprecated and will be removed in a future version.
+
+Use marvin_hue.factories_new.get_config() or marvin_hue.factories_new.list_all_configs() instead.
+
+All configurations are now loaded from .res/setups.json for easier maintenance.
+"""
+
+import warnings
 from enum import Enum
 from marvin_hue.setups import *
+
+# Issue deprecation warning when module is imported
+warnings.warn(
+    "marvin_hue.factories.LightConfigEnum is deprecated. "
+    "Use marvin_hue.factories_new.get_config() or list_all_configs() instead. "
+    "Configurations are now loaded from JSON for easier maintenance.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class LightConfigEnum(Enum):

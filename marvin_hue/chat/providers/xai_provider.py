@@ -5,12 +5,12 @@ O xAI usa uma API compatível com OpenAI, então utilizamos ChatOpenAI
 com base_url customizada.
 """
 
-import os
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
 from marvin_hue.chat.providers.base import BaseLLMProvider, LLMConfig
 from marvin_hue.chat.providers.registry import register_provider
+from marvin_hue.config import settings
 
 
 @register_provider("xai")
@@ -46,8 +46,8 @@ class XAIProvider(BaseLLMProvider):
             "base_url": self._config.base_url or self.XAI_BASE_URL,
         }
 
-        # API key: usa config ou variável de ambiente
-        api_key = self._config.api_key or os.getenv("XAI_API_KEY")
+        # API key: usa config ou settings
+        api_key = self._config.api_key or settings.xai_api_key
         if api_key:
             params["api_key"] = api_key
 
