@@ -55,7 +55,7 @@ async def start_mirror(
             "status": screen_mirror.get_status(),
         }
     except Exception as e:
-        logger.error(f"Error starting mirror: {e}", exc_info=True)
+        logger.exception(f"Error starting mirror: {e}")
         raise HTTPException(
             status_code=500, detail=f"Erro ao iniciar espelhamento: {str(e)}"
         )

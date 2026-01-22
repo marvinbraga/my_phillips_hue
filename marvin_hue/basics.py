@@ -127,8 +127,8 @@ class LightSetupsManager:
                 f"Successfully loaded {len(self._data.get('setups', []))} configurations from {self._filename}"
             )
         except (IOError, JSONDecodeError) as e:
-            logger.error(
-                f"Error reading file {self._filename}: {str(e)}", exc_info=True
+            logger.exception(
+                f"Error reading file {self._filename}: {str(e)}"
             )
         return self
 
@@ -168,8 +168,8 @@ class LightSetupsManager:
                 f"Successfully saved {len(self._configs)} configurations to {self._filename}"
             )
         except IOError as e:
-            logger.error(
-                f"Error writing to file {self._filename}: {str(e)}", exc_info=True
+            logger.exception(
+                f"Error writing to file {self._filename}: {str(e)}"
             )
         return self
 
@@ -217,8 +217,8 @@ class LightSetupsManager:
                 f"Successfully loaded (async) {len(self._data.get('setups', []))} configurations from {self._filename}"
             )
         except (IOError, JSONDecodeError) as e:
-            logger.error(
-                f"Error reading file {self._filename}: {str(e)}", exc_info=True
+            logger.exception(
+                f"Error reading file {self._filename}: {str(e)}"
             )
         return self
 
@@ -246,7 +246,7 @@ class LightSetupsManager:
                 f"Successfully saved (async) {len(self._configs)} configurations to {self._filename}"
             )
         except IOError as e:
-            logger.error(
-                f"Error writing to file {self._filename}: {str(e)}", exc_info=True
+            logger.exception(
+                f"Error writing to file {self._filename}: {str(e)}"
             )
         return self

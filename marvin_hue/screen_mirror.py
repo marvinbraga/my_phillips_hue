@@ -139,7 +139,7 @@ class ScreenMirror:
             logger.warning(f"Positions file not found: {self.positions_file}")
             return []
         except json.JSONDecodeError as e:
-            logger.error(f"Error parsing positions file: {str(e)}", exc_info=True)
+            logger.exception(f"Error parsing positions file: {str(e)}")
             return []
 
     def get_screen_region(

@@ -83,7 +83,7 @@ class LightConfigBuilder:
             return LightConfig(name=name, settings=settings, description=description)
 
         except Exception as e:
-            logger.error(f"Error creating LightConfig from dict: {e}", exc_info=True)
+            logger.exception(f"Error creating LightConfig from dict: {e}")
             raise ValueError(f"Invalid configuration data: {e}")
 
     @staticmethod

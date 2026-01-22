@@ -90,9 +90,8 @@ async def apply_configuration(
         logger.error(f"Validation error applying config '{request.config_name}': {e}")
         raise HTTPException(status_code=400, detail=f"Erro de validação: {str(e)}")
     except Exception as e:
-        logger.error(
-            f"Unexpected error applying config '{request.config_name}': {e}",
-            exc_info=True,
+        logger.exception(
+            f"Unexpected error applying config '{request.config_name}': {e}"
         )
         raise HTTPException(
             status_code=500, detail=f"Erro ao aplicar configuração: {str(e)}"

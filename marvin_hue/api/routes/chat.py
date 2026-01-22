@@ -80,7 +80,7 @@ async def send_chat_message(
         response = await chat_agent.ainvoke(request.message)
         return {"response": response, "success": True}
     except Exception as e:
-        logger.error(f"Error processing chat message: {e}", exc_info=True)
+        logger.exception(f"Error processing chat message: {e}")
         raise HTTPException(
             status_code=500, detail=f"Erro ao processar mensagem: {str(e)}"
         )

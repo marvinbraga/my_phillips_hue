@@ -1,21 +1,12 @@
 """
-Configuração centralizada de logging para o Marvin Hue.
+Configuração centralizada de logging para o Marvin Hue usando Loguru.
 Fornece loggers estruturados com rotação automática de arquivos.
 """
 
-import logging
 import sys
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Dict
 
-
-# Formato de log com timestamp
-LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-
-# Cache de loggers
-_loggers: Dict[str, logging.Logger] = {}
+from loguru import logger
 
 
 def _get_settings():
@@ -39,9 +30,9 @@ def setup_logging(
     max_bytes: int = 10 * 1024 * 1024,  # 10MB
     backup_count: int = 5,
     console_output: bool = True,
-) -> logging.Logger:
+) -> None:
     """
-    Configura o sistema de logging principal.
+    Configura o sistema de logging principal usando Loguru.
 
     Args:
         log_level: Nível de log (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -49,46 +40,39 @@ def setup_logging(
         max_bytes: Tamanho máximo do arquivo antes de rotacionar (padrão: 10MB)
         backup_count: Número de arquivos de backup (padrão: 5)
         console_output: Se True, também imprime logs no console
-
-    Returns:
-        Logger configurado para o módulo raiz
     """
-    # Configura o logger raiz
-    root_logger = logging.getLogger("marvin_hue")
-    root_logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
+    # Remove todos os handlers padrão
+    logger.remove()
 
-    # Remove handlers existentes para evitar duplicação
-    root_logger.handlers.clear()
-
-    # Formatter
-    formatter = logging.Formatter(LOG_FORMAT, DATE_FORMAT)
-
-    # Handler de arquivo com rotação
+    # Cria diretório de logs se não existir
     log_path = Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    file_handler = RotatingFileHandler(
+    # Handler de arquivo com rotação
+    logger.add(
         log_path,
-        maxBytes=max_bytes,
-        backupCount=backup_count,
+        level="DEBUG",  # Arquivo captura tudo
+        rotation=max_bytes,
+        retention=backup_count,
         encoding="utf-8",
+        format="{time:YYYY-MM-DD HH:mm:ss} - {name} - {level} - {message}",
+        backtrace=True,
+        diagnose=True,
     )
-    file_handler.setLevel(logging.DEBUG)  # Arquivo captura tudo
-    file_handler.setFormatter(formatter)
-    root_logger.addHandler(file_handler)
 
     # Handler de console (opcional)
     if console_output:
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(getattr(logging, log_level.upper(), logging.INFO))
-        console_handler.setFormatter(formatter)
-        root_logger.addHandler(console_handler)
+        logger.add(
+            sys.stdout,
+            level=log_level.upper(),
+            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> - <level>{level}</level> - {message}",
+            colorize=True,
+        )
 
-    root_logger.info(f"Sistema de logging iniciado (nível: {log_level})")
-    return root_logger
+    logger.info(f"Sistema de logging iniciado (nível: {log_level})")
 
 
-def get_logger(module_name: str) -> logging.Logger:
+def get_logger(module_name: str):
     """
     Retorna um logger para um módulo específico.
 
@@ -96,32 +80,28 @@ def get_logger(module_name: str) -> logging.Logger:
         module_name: Nome do módulo (ex: 'controllers', 'screen_mirror')
 
     Returns:
-        Logger configurado para o módulo
+        Logger configurado para o módulo (loguru logger)
     """
-    full_name = f"marvin_hue.{module_name}"
-
-    if full_name not in _loggers:
-        logger = logging.getLogger(full_name)
-        # Herda configuração do logger raiz
-        _loggers[full_name] = logger
-
-    return _loggers[full_name]
+    # Loguru usa um logger global, então apenas retornamos o logger
+    # com o contexto do módulo
+    return logger.bind(name=f"marvin_hue.{module_name}")
 
 
-def log_exception(logger: logging.Logger, message: str, exc_info: bool = True) -> None:
+def log_exception(message: str, exc_info: bool = True) -> None:
     """
     Loga uma exceção com traceback completo.
 
     Args:
-        logger: Logger a ser usado
         message: Mensagem descritiva do erro
-        exc_info: Se True, inclui traceback completo
+        exc_info: Se True, inclui traceback completo (sempre True no loguru)
     """
-    logger.error(message, exc_info=exc_info)
+    if exc_info:
+        logger.exception(message)
+    else:
+        logger.error(message)
 
 
 # Configurar logging no import do módulo usando settings se disponível
-# Pode ser sobrescrito chamando setup_logging() novamente
 _settings = _get_settings()
 if _settings:
     setup_logging(log_level=_settings.log_level, log_file=_settings.log_file)

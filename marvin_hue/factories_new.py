@@ -56,7 +56,7 @@ class LightConfigRegistry:
             logger.info(f"Loaded {len(self._configs_by_name)} configurations from JSON")
 
         except Exception as e:
-            logger.error(f"Error loading configurations: {e}", exc_info=True)
+            logger.exception(f"Error loading configurations: {e}")
             raise
 
     def get_config(self, name: str) -> LightConfig | None:

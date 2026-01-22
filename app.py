@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
         dependencies.set_chat_agent(chat_agent)
         logger.info("Chat agent initialized successfully")
     except Exception as e:
-        logger.error(f"Error initializing chat agent: {e}", exc_info=True)
+        logger.exception(f"Error initializing chat agent: {e}")
         dependencies.set_chat_agent(None)
 
     yield
