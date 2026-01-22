@@ -30,10 +30,10 @@ class OlaMundoSetup(LightConfig):
             name="ola_mundo",
             # Aqui já podemos incluir as cofigurações de outras lâmpadas.
             settings=[
-                LightSetting('Lâmpada 1', Color(0, 255, 0, 255 // 2)),
-                LightSetting('Lâmpada 2', Color(0, 255, 0, 255 // 2)),
-                LightSetting('Hue Iris', Color(0, 255, 0, 255 // 2)),
-            ]
+                LightSetting("Lâmpada 1", Color(0, 255, 0, 255 // 2)),
+                LightSetting("Lâmpada 2", Color(0, 255, 0, 255 // 2)),
+                LightSetting("Hue Iris", Color(0, 255, 0, 255 // 2)),
+            ],
         )
 
 
@@ -42,21 +42,21 @@ class CoolBlueEnergy(LightConfig):
         super().__init__(
             "cool_blue_energy",
             settings=[
-                LightSetting('Lâmpada 1', Color(220, 255, 230, 170)),
-                LightSetting('Lâmpada 2', Color(220, 255, 230, 170)),
-                LightSetting('Lâmpada 4', Color(220, 255, 230, 170)),
-                LightSetting('Hue Iris', Color(255, 180, 100, 130)),
-                LightSetting('Hue Play 1', Color(100, 200, 255, 100)),
-                LightSetting('Hue Play 2', Color(100, 200, 255, 100)),
-                LightSetting('Fita Led', Color(255, 150, 200, 80)),
-                LightSetting('Led cima', Color(255, 200, 200, 40)),
-            ]
+                LightSetting("Lâmpada 1", Color(220, 255, 230, 170)),
+                LightSetting("Lâmpada 2", Color(220, 255, 230, 170)),
+                LightSetting("Lâmpada 4", Color(220, 255, 230, 170)),
+                LightSetting("Hue Iris", Color(255, 180, 100, 130)),
+                LightSetting("Hue Play 1", Color(100, 200, 255, 100)),
+                LightSetting("Hue Play 2", Color(100, 200, 255, 100)),
+                LightSetting("Fita Led", Color(255, 150, 200, 80)),
+                LightSetting("Led cima", Color(255, 200, 200, 40)),
+            ],
         )
 
 
 class ConfiguracaoEnum(Enum):
-    OLA_MUNDO_SETUP = (OlaMundoSetup, 'Ambiente verde utilizado no exemplo.')
-    COOL_BLUE_ENERGY = (CoolBlueEnergy, 'Energia e foco com luz azul fria')
+    OLA_MUNDO_SETUP = (OlaMundoSetup, "Ambiente verde utilizado no exemplo.")
+    COOL_BLUE_ENERGY = (CoolBlueEnergy, "Energia e foco com luz azul fria")
 
     def __init__(self, light_config_class, description):
         self.light_config_class = light_config_class
@@ -71,13 +71,13 @@ def aplicar_minha_configuracao(bridge, classe_configuracao):
     bridge.apply_light_config(light_config=classe_configuracao())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Conectando com a Hue bridge
     hue_bridge = HueController(ip_address=os.getenv("BRIDGE_IP"))
     # Listando luzes
     list_lights(hue_bridge)
     # Alterando a cor de uma lâmpada
-    alterando_configuracao_lampada(hue_bridge, 'Hue Iris')
+    alterando_configuracao_lampada(hue_bridge, "Hue Iris")
 
     # Aplicando configuração em várias lâmpadas.
     aplicar_minha_configuracao(bridge=hue_bridge, classe_configuracao=OlaMundoSetup)

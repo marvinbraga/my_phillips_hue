@@ -2,37 +2,37 @@
   "lights": [
     {
       "name": "Lâmpada 1",
-      "position": "top",
+      "position": "none",
       "enabled": true
     },
     {
       "name": "Lâmpada 2",
-      "position": "top",
+      "position": "none",
       "enabled": true
     },
     {
       "name": "Lâmpada 4",
-      "position": "top",
+      "position": "none",
       "enabled": true
     },
     {
       "name": "Hue Iris",
-      "position": "bottom-right",
+      "position": "none",
       "enabled": true
     },
     {
       "name": "Hue Play 1",
-      "position": "right",
-      "enabled": true
-    },
-    {
-      "name": "Hue Play 2",
       "position": "left",
       "enabled": true
     },
     {
+      "name": "Hue Play 2",
+      "position": "right",
+      "enabled": true
+    },
+    {
       "name": "Fita Led",
-      "position": "bottom",
+      "position": "top",
       "enabled": true
     },
     {
