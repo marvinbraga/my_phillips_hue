@@ -37,6 +37,8 @@ def clamp_eye_safety(light_name: str, value: int, scale: str = "pct") -> int:
     if scale == "pct":
         return min(value, limit_pct)
     if scale == "hue":
-        hue_limit = int(round((limit_pct / 100) * 254))
+        # Teto de SEGURANÇA: arredonda PARA BAIXO (floor), nunca para cima.
+        # 25% de 254 = 63.5 -> 63 (24.8%); round() daria 64 (25.2%), acima do limite.
+        hue_limit = int((limit_pct / 100) * 254)
         return min(value, hue_limit)
     raise ValueError(f"escala desconhecida: {scale!r}")
