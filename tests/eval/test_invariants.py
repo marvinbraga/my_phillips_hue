@@ -140,7 +140,7 @@ def test_eval_eye_safety_all_max_via_chokepoint():
     c.lights = [fita, teto]
     c._light_cache = {fita.name: fita, teto.name: teto}
     c.set_all_brightness(254)
-    assert fita.brightness <= 64   # 25% de 254 (floor 63)
+    assert fita.brightness == 63   # 25% de 254 floored (nunca 64)
     assert teto.brightness == 254  # sem restrição
 
 

@@ -1,6 +1,8 @@
 """Persistência opcional: o checkpointer é INJETADO; o agente nunca abre SQLite."""
 from __future__ import annotations
 
+import pytest
+
 
 def test_sqlite_saver_smoke():
     """SqliteSaver.from_conn_string é um context manager (ciclo de vida do chamador)."""
@@ -44,3 +46,37 @@ def test_agent_defaults_to_in_memory_saver(monkeypatch, fake_controller, fake_ma
 
     agent = ra.HueLightAgent(fake_controller, fake_manager)
     assert isinstance(agent._checkpointer, InMemorySaver)
+
+
+@pytest.mark.asyncio
+async def test_async_delete_paths_with_async_sqlite(
+    monkeypatch, fake_controller, fake_manager, bindable_model_factory
+):
+    """REGRESSÃO: sob AsyncSqliteSaver, aclear_history e a eviction async NÃO
+    podem chamar delete_thread síncrono do event loop (InvalidStateError).
+    Devem aguardar adelete_thread."""
+    import marvin_hue.chat.agents.react_agent as ra
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    class _FakeProvider:
+        model = bindable_model_factory()
+
+    monkeypatch.setattr(
+        ra.LLMProviderFactory, "create",
+        classmethod(lambda cls, **kw: _FakeProvider()),
+    )
+    monkeypatch.setattr(ra, "create_agent", lambda **kw: object())
+
+    async with AsyncSqliteSaver.from_conn_string(":memory:") as saver:
+        await saver.setup()  # cria as tabelas (em produção o grafo faz no 1º write)
+        agent = ra.HueLightAgent(fake_controller, fake_manager, checkpointer=saver)
+
+        # aclear_history no event loop NÃO deve levantar InvalidStateError.
+        await agent.aclear_history("s1")
+
+        # Eviction pelo caminho async (como ainvoke/astream fazem): também não levanta.
+        agent._max_sessions = 1
+        agent._session_last_access = {"velha": 1.0}
+        for tid in agent._touch_session("nova"):
+            await agent._adelete_thread(tid)
+        assert "velha" not in agent._session_last_access

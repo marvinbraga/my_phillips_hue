@@ -63,6 +63,9 @@ async def lifespan(app: FastAPI):
             checkpointer = await stack.enter_async_context(
                 AsyncSqliteSaver.from_conn_string(settings.chat_checkpoint_db)
             )
+        # Registra o checkpointer p/ que o reconfigure reuse o MESMO (não recaia
+        # em InMemorySaver sob sqlite).
+        dependencies.set_chat_checkpointer(checkpointer)
 
         try:
             chat_agent = create_hue_agent(

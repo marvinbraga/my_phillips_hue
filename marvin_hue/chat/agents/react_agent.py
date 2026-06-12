@@ -313,16 +313,31 @@ class HueLightAgent(BaseAgent):
         """Config do checkpointer: thread_id isola o histórico por sessão."""
         return {"configurable": {"thread_id": session_id}}
 
-    def _touch_session(self, session_id: str) -> None:
-        """Marca a sessão como acessada e aplica eviction LRU se exceder o limite."""
+    def _touch_session(self, session_id: str) -> list[str]:
+        """Marca a sessão como acessada e RETORNA as threads a despejar (LRU).
+
+        NÃO deleta aqui: o caller (sync ou async) decide como apagar a thread no
+        checkpointer — `delete_thread` síncrono quebra sob `AsyncSqliteSaver`
+        chamado do event loop. Sync deleta direto; async aguarda `adelete_thread`.
+        """
         self._session_last_access[session_id] = time.monotonic()
+        evicted: list[str] = []
         while len(self._session_last_access) > self._max_sessions:
             oldest = min(
                 self._session_last_access,
                 key=self._session_last_access.__getitem__,
             )
-            self._checkpointer.delete_thread(oldest)
             del self._session_last_access[oldest]
+            evicted.append(oldest)
+        return evicted
+
+    async def _adelete_thread(self, session_id: str) -> None:
+        """Apaga a thread de forma async-safe (await adelete_thread se houver)."""
+        adelete = getattr(self._checkpointer, "adelete_thread", None)
+        if adelete is not None:
+            await adelete(session_id)
+        else:
+            self._checkpointer.delete_thread(session_id)
 
     def invoke(self, message: str, session_id: str = "default") -> str:
         """Processa uma mensagem do usuário.
@@ -336,7 +351,8 @@ class HueLightAgent(BaseAgent):
         Returns:
             Resposta do agente
         """
-        self._touch_session(session_id)
+        for tid in self._touch_session(session_id):
+            self._checkpointer.delete_thread(tid)
         result = self._agent.invoke(
             {"messages": [HumanMessage(content=message)]},
             config=self._config_for(session_id),
@@ -353,7 +369,8 @@ class HueLightAgent(BaseAgent):
         Returns:
             Resposta do agente
         """
-        self._touch_session(session_id)
+        for tid in self._touch_session(session_id):
+            await self._adelete_thread(tid)
         result = await self._agent.ainvoke(
             {"messages": [HumanMessage(content=message)]},
             config=self._config_for(session_id),
@@ -370,7 +387,8 @@ class HueLightAgent(BaseAgent):
         Yields:
             Chunks da resposta
         """
-        self._touch_session(session_id)
+        for tid in self._touch_session(session_id):
+            self._checkpointer.delete_thread(tid)
         for chunk in self._agent.stream(
             {"messages": [HumanMessage(content=message)]},
             config=self._config_for(session_id),
@@ -393,7 +411,8 @@ class HueLightAgent(BaseAgent):
         Yields:
             Chunks da resposta
         """
-        self._touch_session(session_id)
+        for tid in self._touch_session(session_id):
+            await self._adelete_thread(tid)
         async for chunk in self._agent.astream(
             {"messages": [HumanMessage(content=message)]},
             config=self._config_for(session_id),
@@ -406,8 +425,17 @@ class HueLightAgent(BaseAgent):
                     yield last.content if isinstance(last.content, str) else str(last.content)
 
     def clear_history(self, session_id: str = "default") -> None:
-        """Limpa o histórico de uma sessão zerando o thread no checkpointer."""
+        """Limpa o histórico de uma sessão (caminho SÍNCRONO — CLI/InMemory).
+
+        Para o caminho async (FastAPI) use `aclear_history`: `delete_thread`
+        síncrono quebra sob `AsyncSqliteSaver` chamado do event loop.
+        """
         self._checkpointer.delete_thread(session_id)
+        self._session_last_access.pop(session_id, None)
+
+    async def aclear_history(self, session_id: str = "default") -> None:
+        """Limpa o histórico de uma sessão (caminho ASYNC — rotas/WS)."""
+        await self._adelete_thread(session_id)
         self._session_last_access.pop(session_id, None)
 
 

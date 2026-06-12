@@ -156,7 +156,7 @@ def setup_websockets(app: FastAPI) -> None:
                         await websocket.send_json({"type": "typing", "content": False})
 
                 elif action == "clear":
-                    chat_agent.clear_history(session_id=session_id)
+                    await chat_agent.aclear_history(session_id=session_id)
                     await websocket.send_json(
                         {"type": "cleared", "content": "Histórico limpo"}
                     )

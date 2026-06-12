@@ -12,6 +12,7 @@ from marvin_hue.basics import LightSetupsManager
 from marvin_hue.config import settings
 from marvin_hue.api.dependencies import (
     get_chat_agent,
+    get_chat_checkpointer,
     get_hue_controller,
     get_manager,
     set_chat_agent,
@@ -106,7 +107,7 @@ async def clear_chat_history(
         raise HTTPException(status_code=503, detail="Agente de chat não disponível.")
 
     session_id = request.session_id if request is not None else "default"
-    chat_agent.clear_history(session_id=session_id)
+    await chat_agent.aclear_history(session_id=session_id)
     return {"message": "Histórico limpo com sucesso"}
 
 
@@ -127,6 +128,8 @@ async def configure_chat(
             provider=request.provider,
             model=request.model,
             temperature=request.temperature,
+            # Reusa o checkpointer ativo (lifespan) — sob sqlite, não recai p/ memória.
+            checkpointer=get_chat_checkpointer(),
         )
         set_chat_agent(new_agent)
         return {
