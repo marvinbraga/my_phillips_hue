@@ -18,7 +18,7 @@ uv run python main.py
 # Run FastAPI web server
 uv run python app.py
 # or with auto-reload
-uv run uvicorn app:app --reload --port 5000
+uv run uvicorn app:app --reload --port 5081
 ```
 
 ## Configuration

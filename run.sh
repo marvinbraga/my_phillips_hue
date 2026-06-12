@@ -25,7 +25,7 @@ if ! command -v uv &> /dev/null; then
 fi
 
 # Porta padrão
-PORT=${1:-5000}
+PORT=${1:-5081}
 
 echo -e "${GREEN}📡 Servidor será iniciado na porta ${PORT}${NC}"
 echo -e "${GREEN}🌐 Acesse: http://localhost:${PORT}${NC}"

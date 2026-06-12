@@ -59,7 +59,7 @@ class Settings(BaseSettings):
         description="CORS allowed origins (separados por vírgula em .env)",
     )
     api_host: str = Field(default="0.0.0.0", description="Host da API")
-    api_port: int = Field(default=5000, ge=1, le=65535, description="Porta da API")
+    api_port: int = Field(default=5081, ge=1, le=65535, description="Porta da API")
 
     # Chat Configuration
     chat_provider: Literal["openai", "anthropic", "xai", "groq"] = Field(

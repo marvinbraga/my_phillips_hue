@@ -649,7 +649,7 @@ uv run pytest tests/test_setup_builder.py
 # Todos os setups devem carregar corretamente
 
 # API
-curl http://localhost:5000/configurations
+curl http://localhost:5081/configurations
 # Deve retornar mesmas configs que antes
 ```
 
