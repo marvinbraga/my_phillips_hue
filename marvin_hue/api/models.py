@@ -58,12 +58,27 @@ class ChatMessageRequest(BaseModel):
     message: str = Field(
         ..., min_length=1, max_length=1000, description="Mensagem para o agente"
     )
+    session_id: str = Field(
+        default="default",
+        description=(
+            "Id de sessão estável por cliente. É o ÚNICO mecanismo de isolamento "
+            "de histórico (thread_id do checkpointer compartilhado). O cliente DEVE "
+            "enviar um id único e estável; 'default' significa SEM isolamento."
+        ),
+    )
 
     @field_validator("message")
     @classmethod
     def sanitize_message(cls, v: str) -> str:
         """Remove espaços extras e valida."""
         return v.strip()
+
+
+class ChatClearRequest(BaseModel):
+    session_id: str = Field(
+        default="default",
+        description="Id da sessão cujo histórico deve ser limpo (thread_id).",
+    )
 
 
 class ChatConfigRequest(BaseModel):

@@ -16,7 +16,11 @@ from marvin_hue.api.dependencies import (
     get_manager,
     set_chat_agent,
 )
-from marvin_hue.api.models import ChatMessageRequest, ChatConfigRequest
+from marvin_hue.api.models import (
+    ChatMessageRequest,
+    ChatClearRequest,
+    ChatConfigRequest,
+)
 from marvin_hue.logging_config import get_logger
 
 logger = get_logger("chat")
@@ -77,7 +81,7 @@ async def send_chat_message(
         raise HTTPException(status_code=400, detail="Mensagem não pode ser vazia")
 
     try:
-        response = await chat_agent.ainvoke(request.message)
+        response = await chat_agent.ainvoke(request.message, session_id=request.session_id)
         return {"response": response, "success": True}
     except Exception as e:
         logger.exception(f"Error processing chat message: {e}")
@@ -88,13 +92,21 @@ async def send_chat_message(
 
 @router.post("/api/chat/clear")
 async def clear_chat_history(
+    request: ChatClearRequest | None = None,
     chat_agent: HueLightAgent | None = Depends(get_chat_agent),
 ):
-    """Limpa o histórico de conversação."""
+    """Limpa o histórico de conversação DA SESSÃO informada.
+
+    NÃO limpa globalmente: o checkpointer é compartilhado, então um clear sem
+    session_id apagaria o histórico de todas as sessões. O default 'default'
+    existe só para retrocompatibilidade — o cliente DEVE enviar seu session_id.
+    Body é opcional para retrocompatibilidade (clientes antigos sem body).
+    """
     if chat_agent is None:
         raise HTTPException(status_code=503, detail="Agente de chat não disponível.")
 
-    chat_agent.clear_history()
+    session_id = request.session_id if request is not None else "default"
+    chat_agent.clear_history(session_id=session_id)
     return {"message": "Histórico limpo com sucesso"}
 
 
