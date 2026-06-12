@@ -188,37 +188,41 @@ def build_light_tools(
         path = Path(locations_path)
         if not path.exists():
             return "Arquivo de localizações físicas não encontrado."
+        # Try/except cobre TODA a leitura/parse/acesso (espelha _locations_block):
+        # um JSON malformado/forma inesperada vira erro de tool, não exceção.
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+            lights = data.get("lights", []) if isinstance(data, dict) else []
+            if light_name.lower() == "all":
+                parts = ["Localizações físicas das lâmpadas:"]
+                for light in lights:
+                    if "name" not in light or "location" not in light:
+                        continue
+                    info = f"\n• {light['name']}: {light['location']}"
+                    if "max_brightness_percent" in light:
+                        info += f"\n  ⚠️ Intensidade máxima recomendada: {light['max_brightness_percent']}%"
+                    if light.get("notes"):
+                        info += f"\n  📝 {light['notes']}"
+                    if "recommendations" in light:
+                        info += "\n  💡 Recomendações:" + "".join(f"\n     - {r}" for r in light["recommendations"])
+                    parts.append(info)
+                env = data.get("environment_info", {})
+                if "considerations" in env:
+                    parts.append("\n⚙️ Considerações importantes:")
+                    parts.extend(f"  • {c}" for c in env["considerations"])
+                return "\n".join(parts)
+            for light in lights:
+                if light.get("name", "").lower() == light_name.lower():
+                    info = f"Lâmpada '{light['name']}':\n• Localização: {light.get('location', '?')}"
+                    if "max_brightness_percent" in light:
+                        info += f"\n• ⚠️ Intensidade máxima recomendada: {light['max_brightness_percent']}%"
+                    if light.get("notes"):
+                        info += f"\n• Observação: {light['notes']}"
+                    if "recommendations" in light:
+                        info += "\n• Recomendações:" + "".join(f"\n  - {r}" for r in light["recommendations"])
+                    return info
         except Exception as e:  # noqa: BLE001
             return f"Erro ao ler arquivo de localizações: {e}"
-        lights = data.get("lights", [])
-        if light_name.lower() == "all":
-            parts = ["Localizações físicas das lâmpadas:"]
-            for light in lights:
-                info = f"\n• {light['name']}: {light['location']}"
-                if "max_brightness_percent" in light:
-                    info += f"\n  ⚠️ Intensidade máxima recomendada: {light['max_brightness_percent']}%"
-                if light.get("notes"):
-                    info += f"\n  📝 {light['notes']}"
-                if "recommendations" in light:
-                    info += "\n  💡 Recomendações:" + "".join(f"\n     - {r}" for r in light["recommendations"])
-                parts.append(info)
-            env = data.get("environment_info", {})
-            if "considerations" in env:
-                parts.append("\n⚙️ Considerações importantes:")
-                parts.extend(f"  • {c}" for c in env["considerations"])
-            return "\n".join(parts)
-        for light in lights:
-            if light["name"].lower() == light_name.lower():
-                info = f"Lâmpada '{light['name']}':\n• Localização: {light['location']}"
-                if "max_brightness_percent" in light:
-                    info += f"\n• ⚠️ Intensidade máxima recomendada: {light['max_brightness_percent']}%"
-                if light.get("notes"):
-                    info += f"\n• Observação: {light['notes']}"
-                if "recommendations" in light:
-                    info += "\n• Recomendações:" + "".join(f"\n  - {r}" for r in light["recommendations"])
-                return info
         return f"Lâmpada '{light_name}' não encontrada no arquivo de localizações."
 
     # ----- montagem das StructuredTools -----

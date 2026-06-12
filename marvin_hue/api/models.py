@@ -84,6 +84,8 @@ class ChatClearRequest(BaseModel):
 
 
 class ChatConfigRequest(BaseModel):
-    provider: str = Field(..., pattern=r"^(openai|anthropic|ollama)$")
+    # Espelha os providers registrados (config.chat_provider Literal). "ollama"
+    # foi removido (sem provider registrado); xai/groq são de primeira classe.
+    provider: str = Field(..., pattern=r"^(openai|anthropic|xai|groq)$")
     model: str = Field(..., min_length=1, max_length=100)
     temperature: float = Field(default=0.7, ge=0, le=2)
