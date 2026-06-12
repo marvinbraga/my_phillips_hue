@@ -3,6 +3,7 @@ from phue import Bridge, Light
 
 from marvin_hue.colors import Color
 from marvin_hue.basics import LightConfig
+from marvin_hue.eye_safety import clamp_eye_safety
 from marvin_hue.utils import RGBtoXYAdapter, ColorConverter
 from marvin_hue.logging_config import get_logger
 
@@ -81,9 +82,12 @@ class HueController:
                 )
                 xy = self._clamp_xy(xy)
 
-            # Aplica as configurações
+            # Aplica as configurações.
+            # Invariante ocular (defesa em profundidade): clampa o brilho na
+            # ORIGEM, cobrindo presets (apply_light_config -> set_light_color),
+            # screen-mirror e tools diretas. Escala "hue" (0-254).
             light.xy = xy
-            light.brightness = color.brightness
+            light.brightness = clamp_eye_safety(light_name, color.brightness, scale="hue")
             logger.debug(f"Successfully applied color to '{light_name}'")
             return light
 
@@ -182,6 +186,44 @@ class HueController:
             Light | None: Objeto da lâmpada ou None se não encontrada
         """
         return self._light_cache.get(light_name)
+
+    def turn_on(self, light_name: str) -> bool:
+        """Liga uma lâmpada pelo nome. Retorna False se não encontrada."""
+        light = self._get_light_by_name(light_name)
+        if light is None:
+            return False
+        light.on = True
+        return True
+
+    def turn_off(self, light_name: str) -> bool:
+        """Desliga uma lâmpada pelo nome. Retorna False se não encontrada."""
+        light = self._get_light_by_name(light_name)
+        if light is None:
+            return False
+        light.on = False
+        return True
+
+    def set_brightness(self, light_name: str, hue_brightness: int) -> bool:
+        """Define o brilho (0-254) de uma lâmpada, clampado pelo invariante ocular.
+
+        Retorna False se a lâmpada não for encontrada.
+        """
+        light = self._get_light_by_name(light_name)
+        if light is None:
+            return False
+        safe = clamp_eye_safety(light_name, max(0, min(254, hue_brightness)), scale="hue")
+        light.brightness = safe
+        return True
+
+    def set_all(self, on: bool) -> None:
+        """Liga/desliga TODAS as lâmpadas."""
+        for light in self.lights:
+            light.on = on
+
+    def set_all_brightness(self, hue_brightness: int) -> None:
+        """Brilho de TODAS as lâmpadas — clampado POR LÂMPADA (fecha o furo "all")."""
+        for light in self.lights:
+            self.set_brightness(light.name, hue_brightness)
 
     def _validate_xy(self, xy: tuple[float, float]) -> bool:
         """
