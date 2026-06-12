@@ -5267,6 +5267,84 @@
           }
         }
       ]
+    },
+    {
+      "name": "festa_multicolor",
+      "description": "Iluminação vibrante com mistura de cores para um ambiente dinâmico e energético",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 80,
+            "green": 0,
+            "blue": 255,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 80,
+            "green": 0,
+            "blue": 255,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 80,
+            "green": 0,
+            "blue": 255,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 234,
+            "green": 222,
+            "blue": 184,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 234,
+            "green": 222,
+            "blue": 184,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 104,
+            "green": 143,
+            "blue": 187,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 80,
+            "green": 0,
+            "blue": 255,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 112,
+            "green": 140,
+            "blue": 191,
+            "brightness": 63
+          }
+        }
+      ]
     }
   ]
 }
