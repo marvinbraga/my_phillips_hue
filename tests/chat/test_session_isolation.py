@@ -9,9 +9,13 @@ import pytest
 @pytest.fixture
 def patched_agent(monkeypatch, fake_controller, fake_manager):
     import marvin_hue.chat.agents.react_agent as ra
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
 
+    # Fake REAL (BaseChatModel): SummarizationMiddleware resolve o model na
+    # construção da pilha de middleware.
     class _FakeProvider:
-        model = type("M", (), {"bind_tools": lambda self, *a, **k: self})()
+        model = FakeMessagesListChatModel(responses=[AIMessage(content="x") for _ in range(50)])
 
     monkeypatch.setattr(
         ra.LLMProviderFactory, "create",
@@ -26,13 +30,12 @@ def patched_agent(monkeypatch, fake_controller, fake_manager):
         def invoke(self, payload, config=None):
             tid = (config or {}).get("configurable", {}).get("thread_id")
             self.calls.append(tid)
-            from langchain_core.messages import AIMessage
             return {"messages": [AIMessage(content=f"ok:{tid}")]}
 
         async def ainvoke(self, payload, config=None):
             return self.invoke(payload, config)
 
-    monkeypatch.setattr(ra, "create_react_agent", lambda **kw: _FakeCompiled())
+    monkeypatch.setattr(ra, "create_agent", lambda **kw: _FakeCompiled())
     return ra.HueLightAgent(fake_controller, fake_manager)
 
 
@@ -80,16 +83,21 @@ def test_real_checkpointer_isolates_history(monkeypatch, fake_controller, fake_m
     from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
     from langchain_core.messages import AIMessage
 
-    fake_model = FakeMessagesListChatModel(
-        responses=[AIMessage(content=f"resp{i}") for i in range(6)]
-    )
+    # Fake que aceita bind_tools (a pilha de middleware, ex. TodoList, adiciona
+    # tools que o create_agent vincula ao model). As respostas não têm tool_calls,
+    # então o agente não entra em loop.
+    class _BindableFake(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    fake_model = _BindableFake(responses=[AIMessage(content=f"resp{i}") for i in range(6)])
     monkeypatch.setattr(
         ra.LLMProviderFactory, "create",
         classmethod(lambda cls, **kw: type("P", (), {"model": fake_model})()),
     )
-    # Sem tools: o fake model não suporta bind_tools; o foco é o checkpointer.
-    monkeypatch.setattr(ra, "get_all_tools", lambda: [])
-    # NÃO mockar create_react_agent: grafo real + InMemorySaver real.
+    # Sem light tools próprias: o foco é o isolamento do checkpointer.
+    monkeypatch.setattr(ra, "build_light_tools", lambda *a, **k: [])
+    # NÃO mockar create_agent: grafo real + InMemorySaver real.
     agent = ra.HueLightAgent(fake_controller, fake_manager)
 
     agent.invoke("ALPHA-marker", session_id="A")
@@ -146,14 +154,15 @@ def test_stream_does_not_reinvoke(monkeypatch, fake_controller, fake_manager):
             self.invoked += 1
             return {"messages": [AIMessage(content="x")]}
 
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+
     rec = _Recorder()
+    fake_model = FakeMessagesListChatModel(responses=[AIMessage(content="final")])
     monkeypatch.setattr(
         ra.LLMProviderFactory, "create",
-        classmethod(lambda cls, **kw: type(
-            "P", (), {"model": type("M", (), {"bind_tools": lambda s, *a, **k: s})()}
-        )()),
+        classmethod(lambda cls, **kw: type("P", (), {"model": fake_model})()),
     )
-    monkeypatch.setattr(ra, "create_react_agent", lambda **kw: rec)
+    monkeypatch.setattr(ra, "create_agent", lambda **kw: rec)
     agent = ra.HueLightAgent(fake_controller, fake_manager)
 
     chunks = list(agent.stream("oi", session_id="s"))

@@ -13,8 +13,13 @@ def test_orchestrator_uses_create_agent_with_middleware(monkeypatch, fake_contro
 
     monkeypatch.setattr(ra, "create_agent", fake_create_agent, raising=False)
 
+    # SummarizationMiddleware resolve o model na construção; usa um fake REAL
+    # (BaseChatModel) em vez de object().
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
+
     class _FakeProvider:
-        model = object()
+        model = FakeMessagesListChatModel(responses=[AIMessage(content="ok")])
 
     monkeypatch.setattr(
         ra.LLMProviderFactory, "create",

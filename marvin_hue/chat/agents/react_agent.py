@@ -14,14 +14,17 @@ from abc import ABC, abstractmethod
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
+from langchain.agents.middleware import TodoListMiddleware, SummarizationMiddleware
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.chat.providers import LLMProviderFactory
-from marvin_hue.chat.tools import configure_tools, get_all_tools
+from marvin_hue.chat.tools import build_light_tools
+from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
+from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
 
 
 # Limite de sessões mantidas no checkpointer em memória (eviction LRU).
@@ -30,56 +33,31 @@ from marvin_hue.chat.tools import configure_tools, get_all_tools
 MAX_SESSIONS = 100
 
 
-# System prompt para o agente
+# System prompt para o agente.
+# NOTA: o status vivo das lâmpadas, as restrições físicas (limites de
+# intensidade) e a lista de presets são INJETADOS a cada turno pelo
+# HueContextMiddleware — não são hardcoded aqui. A garantia ocular (<=25% para
+# Fita Led/Led cima) é um INVARIANTE DE CÓDIGO no chokepoint do HueController +
+# EyeSafetyMiddleware; o prompt apenas a reforça.
 SYSTEM_PROMPT = """Você é Marvin, um assistente inteligente especializado em controle de iluminação Philips Hue.
 
-Suas capacidades incluem:
-- Listar todas as lâmpadas disponíveis
-- Verificar o status atual das lâmpadas (cor, brilho, estado)
-- Alterar a cor de lâmpadas individuais usando valores RGB
-- Aplicar configurações de iluminação predefinidas (temas)
-- Ligar e desligar lâmpadas
-- Ajustar o brilho
-- Consultar a localização física das lâmpadas no ambiente
-
-⚠️ RESTRIÇÕES IMPORTANTES DE INTENSIDADE:
-- "Fita Led" (embaixo do monitor): Intensidade MÁXIMA 25% (64/254 brilho Hue)
-- "Led cima" (em cima do monitor): Intensidade MÁXIMA 25% (64/254 brilho Hue)
-- Estas lâmpadas estão muito próximas aos olhos do usuário. Intensidades maiores forçam a vista!
-- SEMPRE respeite esses limites ao configurar essas lâmpadas, mesmo que o usuário não mencione
+Você controla as lâmpadas via ferramentas: listar/ver status, mudar cor (RGB),
+ajustar brilho, ligar/desligar, aplicar e salvar presets, e consultar a
+localização física das lâmpadas.
 
 Diretrizes:
-1. Sempre seja prestativo e amigável
-2. Quando o usuário pedir para mudar cores, use os valores RGB apropriados
-3. Se o usuário mencionar um tema ou ambiente (ex: "relaxante", "festa"), procure uma configuração adequada
-4. Ao listar lâmpadas ou configurações, formate a saída de forma clara
-5. Se houver erro, explique o problema de forma simples
-6. Responda sempre em português brasileiro
-7. Considere a localização física das lâmpadas:
-   - Use a ferramenta get_light_locations_tool quando relevante para entender o posicionamento
-   - Faça sugestões inteligentes baseadas na posição (ex: "teto para ambiente", "atrás do monitor para destaque")
-   - SEMPRE respeite os limites de intensidade das lâmpadas frontais (Fita Led e Led cima: máx 25%)
-   - Lâmpadas do teto podem usar intensidade total
-   - Hue Play (atrás do monitor) são ideais para criar atmosfera
-8. Ao salvar uma nova configuração:
-   - SEMPRE forneça um nome criativo e descritivo (sem espaços, use underscores)
-   - SEMPRE forneça uma descrição de uma linha que capture o mood/ambiente
-   - Base o nome e descrição nas cores atuais das lâmpadas e no contexto da conversa
-   - Exemplos:
-     * Cores vermelhas/verdes → nome: "natal_festivo", descrição: "Tema natalino com cores tradicionais"
-     * Cores azuis/roxas → nome: "noite_relaxante", descrição: "Ambiente calmo para relaxar"
-     * Cores laranjas/amarelas → nome: "por_do_sol", descrição: "Cores quentes inspiradas no pôr do sol"
-
-Cores comuns em RGB:
-- Vermelho: (255, 0, 0)
-- Verde: (0, 255, 0)
-- Azul: (0, 0, 255)
-- Amarelo: (255, 255, 0)
-- Roxo: (128, 0, 128)
-- Rosa: (255, 105, 180)
-- Laranja: (255, 165, 0)
-- Branco quente: (255, 244, 229)
-- Branco frio: (255, 255, 255)
+1. Seja prestativo, amigável e responda sempre em português brasileiro.
+2. As lâmpadas frontais "Fita Led" e "Led cima" ficam muito próximas aos olhos:
+   prefira intensidades baixas. O sistema impõe um teto de segurança por código,
+   mas evite pedir brilho alto para elas mesmo assim.
+3. Para um tema/ambiente (ex: "relaxante", "festa"), procure um preset adequado
+   antes de montar a cena manualmente.
+4. Use o status e as localizações que você recebe no contexto para fazer
+   sugestões inteligentes (teto para ambiente, atrás do monitor para atmosfera).
+5. Se houver erro, explique de forma simples.
+6. Ao salvar uma nova configuração, SEMPRE forneça um nome criativo sem espaços
+   (use underscores) e uma descrição de uma linha capturando o mood — baseados
+   nas cores atuais e no contexto (ex: "noite_relaxante", "por_do_sol").
 """
 
 
@@ -180,7 +158,7 @@ class BaseAgent(ABC):
 class HueLightAgent(BaseAgent):
     """Agente ReAct para controle de lâmpadas Philips Hue.
 
-    Utiliza LangGraph create_react_agent para implementar o padrão ReAct.
+    Utiliza langchain.agents.create_agent com pilha de middleware (harness).
     Suporta múltiplos provedores LLM através do sistema de providers.
 
     Attributes:
@@ -213,9 +191,6 @@ class HueLightAgent(BaseAgent):
         self._session_last_access: dict[str, float] = {}
         self._max_sessions = MAX_SESSIONS
 
-        # Configura as ferramentas com as referências necessárias
-        configure_tools(controller, manager)
-
         # Cria o modelo LLM
         self._llm = self._create_llm()
 
@@ -243,22 +218,40 @@ class HueLightAgent(BaseAgent):
         )
         return provider.model
 
+    def _build_middleware(self) -> list:
+        """Monta a pilha de middleware do harness.
+
+        A instância de HueContextMiddleware é guardada em self._hue_context para
+        ser COMPARTILHADA com os subagents (Fase 4) — compartilha o cache TTL do
+        status e evita I/O redundante na bridge.
+        """
+        self._hue_context = HueContextMiddleware(self._controller, self._manager)
+        stack: list = [
+            self._hue_context,
+            EyeSafetyMiddleware(),
+            TodoListMiddleware(),
+            SummarizationMiddleware(model=self._llm, trigger=("tokens", 3000)),
+        ]
+        # PromptCaching só faz sentido com Anthropic.
+        if self._config.provider == "anthropic":
+            from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+            stack.append(AnthropicPromptCachingMiddleware(ttl="5m"))
+        return stack
+
     def _create_agent(self) -> CompiledStateGraph:
-        """Cria o agente ReAct com LangGraph.
+        """Cria o orquestrador com create_agent + pilha de middleware.
 
         Returns:
             Grafo compilado do agente
         """
-        tools = get_all_tools()
-
-        agent = create_react_agent(
+        tools = build_light_tools(self._controller, self._manager)
+        return create_agent(
             model=self._llm,
             tools=tools,
-            prompt=self._config.system_prompt,
+            system_prompt=self._config.system_prompt,
+            middleware=self._build_middleware(),
             checkpointer=self._checkpointer,
         )
-
-        return agent
 
     def _extract_response(self, result: dict) -> str:
         """Extrai a resposta final do resultado do agente.

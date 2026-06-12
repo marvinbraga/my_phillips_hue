@@ -11,26 +11,22 @@ import pytest
 
 @pytest.mark.legacy
 def test_create_hue_agent_smoke(fake_controller, fake_manager, monkeypatch):
-    """O factory atual instancia sem erro com provider mockado."""
+    """O factory instancia sem erro com provider mockado (smoke)."""
     from marvin_hue.chat import create_hue_agent
 
     # Evita criação de LLM real interceptando o factory de provider.
     import marvin_hue.chat.agents.react_agent as ra
-
-    class _FakeModel:
-        def bind_tools(self, *a, **k):
-            return self
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
 
     class _FakeProvider:
-        model = _FakeModel()
+        model = FakeMessagesListChatModel(responses=[AIMessage(content="ok")])
 
     monkeypatch.setattr(
         ra.LLMProviderFactory, "create",
         classmethod(lambda cls, **kw: _FakeProvider()),
     )
-    monkeypatch.setattr(
-        ra, "create_react_agent", lambda **kw: object()
-    )
+    monkeypatch.setattr(ra, "create_agent", lambda **kw: object())
 
     agent = create_hue_agent(controller=fake_controller, manager=fake_manager)
     assert agent is not None

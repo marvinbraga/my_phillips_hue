@@ -543,7 +543,7 @@ def build_light_tools(
         locations_path: caminho do JSON de localizações físicas (injetável p/ testes).
 
     Returns:
-        Lista de 10 BaseTool prontas para create_agent/create_react_agent.
+        Lista de 10 BaseTool prontas para create_agent.
     """
 
     # ----- schemas de argumentos (guiam o LLM) -----
