@@ -26,6 +26,26 @@ def fake_controller() -> MagicMock:
 
 
 @pytest.fixture
+def bindable_model_factory():
+    """Factory de fake chat model REAL que aceita bind_tools.
+
+    O orquestrador agora constrói 3 subagents (create_agent) na inicialização,
+    e create_agent vincula tools ao model — então o fake precisa de bind_tools.
+    """
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
+
+    class _Bindable(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    def _make(n: int = 16):
+        return _Bindable(responses=[AIMessage(content=f"r{i}") for i in range(n)])
+
+    return _make
+
+
+@pytest.fixture
 def fake_manager() -> MagicMock:
     """LightSetupsManager fake com alguns presets."""
     manager = MagicMock()

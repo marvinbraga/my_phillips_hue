@@ -58,6 +58,12 @@ Diretrizes:
 6. Ao salvar uma nova configuração, SEMPRE forneça um nome criativo sem espaços
    (use underscores) e uma descrição de uma linha capturando o mood — baseados
    nas cores atuais e no contexto (ex: "noite_relaxante", "por_do_sol").
+
+Quando o pedido for complexo, DELEGUE via a tool `task`:
+- Mood/cena multi-lâmpada -> subagent "scene-designer".
+- Buscar/recomendar/salvar presets -> "config-librarian".
+- Status e dúvidas gerais -> "general-purpose" (ou responda direto se trivial).
+Forneça uma description autossuficiente: o subagent não vê o histórico inteiro.
 """
 
 
@@ -239,17 +245,26 @@ class HueLightAgent(BaseAgent):
         return stack
 
     def _create_agent(self) -> CompiledStateGraph:
-        """Cria o orquestrador com create_agent + pilha de middleware.
+        """Cria o orquestrador com create_agent + middleware + tool `task`.
 
         Returns:
             Grafo compilado do agente
         """
-        tools = build_light_tools(self._controller, self._manager)
+        from marvin_hue.chat.subagents.definitions import build_subagents
+        from marvin_hue.chat.subagents.task import build_task_tool
+
+        light_tools = build_light_tools(self._controller, self._manager)
+        middleware = self._build_middleware()  # cria self._hue_context (cache compartilhado)
+        subagents = build_subagents(
+            self._llm, self._controller, self._manager,
+            context_middleware=self._hue_context,  # MESMA instância -> mesmo cache TTL
+        )
+        task_tool = build_task_tool(subagents)
         return create_agent(
             model=self._llm,
-            tools=tools,
+            tools=[*light_tools, task_tool],
             system_prompt=self._config.system_prompt,
-            middleware=self._build_middleware(),
+            middleware=middleware,
             checkpointer=self._checkpointer,
         )
 

@@ -7,15 +7,14 @@ import pytest
 
 
 @pytest.fixture
-def patched_agent(monkeypatch, fake_controller, fake_manager):
+def patched_agent(monkeypatch, fake_controller, fake_manager, bindable_model_factory):
     import marvin_hue.chat.agents.react_agent as ra
-    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
     from langchain_core.messages import AIMessage
 
-    # Fake REAL (BaseChatModel): SummarizationMiddleware resolve o model na
-    # construção da pilha de middleware.
+    # Fake REAL (BaseChatModel) com bind_tools: SummarizationMiddleware resolve o
+    # model na construção, e build_subagents (create_agent real) vincula tools.
     class _FakeProvider:
-        model = FakeMessagesListChatModel(responses=[AIMessage(content="x") for _ in range(50)])
+        model = bindable_model_factory(50)
 
     monkeypatch.setattr(
         ra.LLMProviderFactory, "create",
@@ -136,7 +135,7 @@ def test_clear_history_purges_only_that_session(patched_agent):
     assert "keep" in patched_agent._session_last_access
 
 
-def test_stream_does_not_reinvoke(monkeypatch, fake_controller, fake_manager):
+def test_stream_does_not_reinvoke(monkeypatch, fake_controller, fake_manager, bindable_model_factory):
     """Regressão do BUG #1: stream() NÃO re-invoca o agente após o streaming."""
     import marvin_hue.chat.agents.react_agent as ra
     from langchain_core.messages import AIMessage
@@ -154,10 +153,8 @@ def test_stream_does_not_reinvoke(monkeypatch, fake_controller, fake_manager):
             self.invoked += 1
             return {"messages": [AIMessage(content="x")]}
 
-    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-
     rec = _Recorder()
-    fake_model = FakeMessagesListChatModel(responses=[AIMessage(content="final")])
+    fake_model = bindable_model_factory()
     monkeypatch.setattr(
         ra.LLMProviderFactory, "create",
         classmethod(lambda cls, **kw: type("P", (), {"model": fake_model})()),

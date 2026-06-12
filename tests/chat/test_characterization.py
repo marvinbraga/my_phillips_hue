@@ -10,17 +10,15 @@ import pytest
 
 
 @pytest.mark.legacy
-def test_create_hue_agent_smoke(fake_controller, fake_manager, monkeypatch):
+def test_create_hue_agent_smoke(fake_controller, fake_manager, monkeypatch, bindable_model_factory):
     """O factory instancia sem erro com provider mockado (smoke)."""
     from marvin_hue.chat import create_hue_agent
 
     # Evita criação de LLM real interceptando o factory de provider.
     import marvin_hue.chat.agents.react_agent as ra
-    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-    from langchain_core.messages import AIMessage
 
     class _FakeProvider:
-        model = FakeMessagesListChatModel(responses=[AIMessage(content="ok")])
+        model = bindable_model_factory()
 
     monkeypatch.setattr(
         ra.LLMProviderFactory, "create",
