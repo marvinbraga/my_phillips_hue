@@ -1,0 +1,36 @@
+services:
+  marvin-hue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: marvin-hue:latest
+    container_name: marvin-hue
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      # Porta do host configurável via API_PORT no .env; dentro do container é sempre 5081
+      - "${API_PORT:-5081}:5081"
+    volumes:
+      # Persiste o registro do bridge (phue grava ~/.python_hue);
+      # sem isso, seria preciso apertar o botão do bridge a cada recriação
+      - hue-bridge-data:/home/appuser
+      # Configs editáveis pela UI (posições das luzes, setups)
+      - ./.res:/app/.res
+      # Logs do loguru
+      - hue-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5081/', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+volumes:
+  hue-bridge-data:
+  hue-logs:

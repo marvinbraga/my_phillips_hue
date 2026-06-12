@@ -1,0 +1,36 @@
+# VCS e IDE
+.git
+.gitignore
+.idea
+.claude
+.serena
+.cadence
+
+# Ambientes e caches
+.venv
+__pycache__
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+
+# Segredos — nunca entram na imagem
+.env
+
+# Artefatos de desenvolvimento
+tests
+docs
+scripts
+logs
+note.ipynb
+aula.py
+run.sh
+CHANGELOG.md
+CONTRIBUTING.md
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

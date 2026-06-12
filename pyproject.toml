@@ -10,7 +10,6 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
-    "jupyter>=1.1.1",
     "mss>=10.2.0",
     "pillow>=12.2.0",
     "fastapi>=0.136.3",
@@ -28,6 +27,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "jupyter>=1.1.1",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
