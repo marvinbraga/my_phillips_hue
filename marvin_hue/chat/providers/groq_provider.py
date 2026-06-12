@@ -5,6 +5,8 @@ O Groq expõe uma API compatível com OpenAI, então reutilizamos ChatOpenAI
 com base_url customizada (zero dependência nova).
 """
 
+from typing import Any
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
@@ -37,7 +39,7 @@ class GroqProvider(BaseLLMProvider):
 
     def _create_model(self) -> BaseChatModel:
         """Cria uma instância do ChatOpenAI configurada para Groq."""
-        params = {
+        params: dict[str, Any] = {
             "model": self._config.model,
             "temperature": self._config.temperature,
             "streaming": self._config.streaming,

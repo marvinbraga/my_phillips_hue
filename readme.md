@@ -78,7 +78,12 @@ Marvin: "Espelhamento iniciado com 30 FPS e brilho 200."
 Suporta:
 - **OpenAI**: GPT-4, GPT-4o, GPT-3.5
 - **Anthropic**: Claude 3 Sonnet, Haiku
-- **Ollama**: Modelos locais (llama2, mistral)
+- **xAI** (Grok) e **Groq**
+
+O chat roda sobre um harness `langchain.agents.create_agent` + LangGraph
+(middleware de contexto/segurança, memória por sessão via checkpointer, e
+delegação a subagents). Detalhes em
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#harness-de-chat-middleware--subagents--tools).
 
 ### 4. API REST + WebSocket
 
