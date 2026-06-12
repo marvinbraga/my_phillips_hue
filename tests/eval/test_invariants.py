@@ -74,21 +74,74 @@ def test_prompt_level_invariants_skipped(case):
     )
 
 
-# Invariantes level=="code" ainda NÃO religados a um chokepoint nesta fase.
-# Skip EXPLÍCITO (não silencioso) — religados deterministicamente na Tarefa 5.1.
-_DEFERRED_CODE_INVARIANTS = {"all_off_called"}
+# Invariantes level=="code" exercitados E2E contra o código real (Tarefa 5.1).
+_CODE_INVARIANTS_COVERED = {
+    "eye_safety_clamp", "no_clamp", "eye_safety_clamp_all", "all_off_called",
+}
 
 
-@pytest.mark.parametrize(
-    "case",
-    [c for c in load_cases()
-     if c.get("level") == "code" and c["invariant"] in _DEFERRED_CODE_INVARIANTS],
-)
-def test_deferred_code_invariants_skipped(case):
-    pytest.skip(
-        f"{case['id']}: invariante de código adiado para a Tarefa 5.1 (religa ao "
-        "chokepoint HueController.set_all). Skip explícito — não cobertura silenciosa."
-    )
+def _fwd_request(tool_name, args):
+    """Fake de ToolCallRequest cujo override(tool_call=...) encaminha o tool_call."""
+    from unittest.mock import MagicMock
+    req = MagicMock()
+    req.tool_call = {"name": tool_name, "args": dict(args), "id": "x"}
+
+    def _override(**kw):
+        new = MagicMock()
+        new.tool_call = kw.get("tool_call", req.tool_call)
+        new.override.side_effect = _override
+        return new
+
+    req.override.side_effect = _override
+    return req
+
+
+def test_eval_eye_safety_via_middleware():
+    """Cada caso clamp/no_clamp exercitado ponta-a-ponta no EyeSafetyMiddleware real."""
+    from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
+    mw = EyeSafetyMiddleware()
+    for case in load_cases():
+        if case["invariant"] not in ("eye_safety_clamp", "no_clamp"):
+            continue
+        captured = {}
+
+        def handler(req):
+            captured.update(req.tool_call["args"])
+            return "ok"
+
+        req = _fwd_request(
+            "set_brightness",
+            {"light_name": case["target_light"], "brightness": case["requested_brightness_pct"]},
+        )
+        mw.wrap_tool_call(req, handler)
+        assert captured["brightness"] <= case["max_brightness_pct"], case["id"]
+
+
+def test_eval_turn_off_all_calls_set_all_false():
+    """Caso `turn-off-all` (level=code): a tool com "all" delega a set_all(False)
+    — sem iteração direta sobre controller.lights."""
+    from unittest.mock import MagicMock
+    from marvin_hue.chat.tools.light_tools import build_light_tools
+    controller, manager = MagicMock(), MagicMock()
+    manager.configs = []
+    tools = {t.name: t for t in build_light_tools(controller, manager)}
+    tools["turn_off_lights"].invoke({"light_name": "all"})
+    controller.set_all.assert_called_once_with(False)
+
+
+def test_eval_eye_safety_all_max_via_chokepoint():
+    """Caso `eye-safety-all-max` (level=code), contra o chokepoint REAL:
+    set_all_brightness clampa POR LÂMPADA (Tarefa 2.3)."""
+    from unittest.mock import MagicMock
+    from marvin_hue.controllers import HueController
+    c = HueController.__new__(HueController)  # sem conectar à bridge
+    fita = MagicMock(); fita.name = "Fita Led"
+    teto = MagicMock(); teto.name = "Lâmpada 1"
+    c.lights = [fita, teto]
+    c._light_cache = {fita.name: fita, teto.name: teto}
+    c.set_all_brightness(254)
+    assert fita.brightness <= 64   # 25% de 254 (floor 63)
+    assert teto.brightness == 254  # sem restrição
 
 
 def test_no_silently_uncollected_cases():
@@ -97,11 +150,9 @@ def test_no_silently_uncollected_cases():
     de todos os filtros — evita falsa cobertura silenciosa."""
     consumed = set()
     for c in load_cases():
-        if c["invariant"] in ("eye_safety_clamp", "no_clamp", "eye_safety_clamp_all"):
+        if c.get("level") == "code" and c["invariant"] in _CODE_INVARIANTS_COVERED:
             consumed.add(c["id"])
         elif c.get("level") == "prompt":
-            consumed.add(c["id"])
-        elif c.get("level") == "code" and c["invariant"] in _DEFERRED_CODE_INVARIANTS:
             consumed.add(c["id"])
     all_ids = {c["id"] for c in load_cases()}
     assert consumed == all_ids, f"casos não consumidos por nenhum teste: {all_ids - consumed}"
