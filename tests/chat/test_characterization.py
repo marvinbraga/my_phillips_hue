@@ -35,21 +35,7 @@ def test_create_hue_agent_smoke(fake_controller, fake_manager, monkeypatch):
     agent = create_hue_agent(controller=fake_controller, manager=fake_manager)
     assert agent is not None
 
-
-@pytest.mark.legacy
-def test_conversation_history_is_instance_attribute(fake_controller, fake_manager, monkeypatch):
-    """DOCUMENTA O BUG #2: histórico é atributo de instância (compartilhado)."""
-    import marvin_hue.chat.agents.react_agent as ra
-
-    class _FakeProvider:
-        model = type("M", (), {"bind_tools": lambda self, *a, **k: self})()
-
-    monkeypatch.setattr(
-        ra.LLMProviderFactory, "create",
-        classmethod(lambda cls, **kw: _FakeProvider()),
-    )
-    monkeypatch.setattr(ra, "create_react_agent", lambda **kw: object())
-
-    agent = ra.HueLightAgent(fake_controller, fake_manager)
-    assert hasattr(agent, "_conversation_history")
-    assert agent._conversation_history == []
+# NOTA: o teste que documentava o BUG #2 (_conversation_history de instância)
+# foi removido na Tarefa 1.2 — o bug foi corrigido (memória por thread_id via
+# checkpointer). O comportamento correto é coberto por
+# tests/chat/test_session_isolation.py::test_no_shared_history_attribute.

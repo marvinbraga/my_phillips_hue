@@ -5,19 +5,29 @@ Utiliza LangGraph para implementar o padrão ReAct (Reason + Act)
 para interação inteligente com as lâmpadas.
 """
 
+import time
 from typing import Optional, Any
+from collections.abc import Iterator, AsyncIterator
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.checkpoint.memory import InMemorySaver
 
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.chat.providers import LLMProviderFactory
 from marvin_hue.chat.tools import configure_tools, get_all_tools
+
+
+# Limite de sessões mantidas no checkpointer em memória (eviction LRU).
+# Cada session_id novo cria uma thread que nunca seria coletada -> vazamento
+# monotônico num servidor de longa duração. O LRU descarta a mais antiga.
+MAX_SESSIONS = 100
 
 
 # System prompt para o agente
@@ -166,7 +176,13 @@ class HueLightAgent(BaseAgent):
         self._controller = controller
         self._manager = manager
         self._config = config or AgentConfig()
-        self._conversation_history: list[BaseMessage] = []
+
+        # Memória por sessão via checkpointer (thread_id = session_id).
+        # Substitui o antigo _conversation_history de instância (bug #2: estado
+        # compartilhado entre todas as sessões).
+        self._checkpointer = InMemorySaver()
+        self._session_last_access: dict[str, float] = {}
+        self._max_sessions = MAX_SESSIONS
 
         # Configura as ferramentas com as referências necessárias
         configure_tools(controller, manager)
@@ -210,6 +226,7 @@ class HueLightAgent(BaseAgent):
             model=self._llm,
             tools=tools,
             prompt=self._config.system_prompt,
+            checkpointer=self._checkpointer,
         )
 
         return agent
@@ -236,116 +253,107 @@ class HueLightAgent(BaseAgent):
 
         return "Operação concluída."
 
-    def invoke(self, message: str) -> str:
+    @staticmethod
+    def _config_for(session_id: str) -> RunnableConfig:
+        """Config do checkpointer: thread_id isola o histórico por sessão."""
+        return {"configurable": {"thread_id": session_id}}
+
+    def _touch_session(self, session_id: str) -> None:
+        """Marca a sessão como acessada e aplica eviction LRU se exceder o limite."""
+        self._session_last_access[session_id] = time.monotonic()
+        while len(self._session_last_access) > self._max_sessions:
+            oldest = min(
+                self._session_last_access,
+                key=self._session_last_access.__getitem__,
+            )
+            self._checkpointer.delete_thread(oldest)
+            del self._session_last_access[oldest]
+
+    def invoke(self, message: str, session_id: str = "default") -> str:
         """Processa uma mensagem do usuário.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (thread_id do checkpointer). É o ÚNICO
+                mecanismo de isolamento de histórico — clientes distintos DEVEM
+                enviar ids distintos e estáveis.
 
         Returns:
             Resposta do agente
         """
-        # Adiciona a mensagem do usuário ao histórico
-        self._conversation_history.append(HumanMessage(content=message))
+        self._touch_session(session_id)
+        result = self._agent.invoke(
+            {"messages": [HumanMessage(content=message)]},
+            config=self._config_for(session_id),
+        )
+        return self._extract_response(result)
 
-        # Invoca o agente
-        result = self._agent.invoke({"messages": self._conversation_history})
-
-        # Atualiza o histórico com as novas mensagens
-        new_messages = result.get("messages", [])
-        if new_messages:
-            # Substitui o histórico com as novas mensagens
-            self._conversation_history = new_messages
-
-        # Extrai e retorna a resposta
-        response = self._extract_response(result)
-        return response
-
-    async def ainvoke(self, message: str) -> str:
+    async def ainvoke(self, message: str, session_id: str = "default") -> str:
         """Processa uma mensagem de forma assíncrona.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (thread_id do checkpointer).
 
         Returns:
             Resposta do agente
         """
-        # Adiciona a mensagem do usuário ao histórico
-        self._conversation_history.append(HumanMessage(content=message))
+        self._touch_session(session_id)
+        result = await self._agent.ainvoke(
+            {"messages": [HumanMessage(content=message)]},
+            config=self._config_for(session_id),
+        )
+        return self._extract_response(result)
 
-        # Invoca o agente de forma assíncrona
-        result = await self._agent.ainvoke({"messages": self._conversation_history})
-
-        # Atualiza o histórico com as novas mensagens
-        new_messages = result.get("messages", [])
-        if new_messages:
-            self._conversation_history = new_messages
-
-        # Extrai e retorna a resposta
-        response = self._extract_response(result)
-        return response
-
-    def stream(self, message: str):
+    def stream(self, message: str, session_id: str = "default") -> Iterator[str]:
         """Processa uma mensagem com streaming.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (thread_id do checkpointer).
 
         Yields:
             Chunks da resposta
         """
-        # Adiciona a mensagem do usuário ao histórico
-        self._conversation_history.append(HumanMessage(content=message))
+        self._touch_session(session_id)
+        for chunk in self._agent.stream(
+            {"messages": [HumanMessage(content=message)]},
+            config=self._config_for(session_id),
+            stream_mode="values",
+        ):
+            messages = chunk.get("messages", [])
+            if messages:
+                last = messages[-1]
+                if isinstance(last, AIMessage) and last.content and not last.tool_calls:
+                    yield last.content if isinstance(last.content, str) else str(last.content)
+        # NÃO re-invocar: o checkpointer já persistiu o histórico (corrige bug #1).
 
-        # Stream do agente
-        for event in self._agent.stream({"messages": self._conversation_history}):
-            # Processa eventos do agente
-            if "messages" in event:
-                for msg in event["messages"]:
-                    if (
-                        isinstance(msg, AIMessage)
-                        and msg.content
-                        and not msg.tool_calls
-                    ):
-                        yield msg.content
-
-        # Atualiza histórico após streaming completo
-        result = self._agent.invoke({"messages": self._conversation_history})
-        self._conversation_history = result.get("messages", self._conversation_history)
-
-    async def astream(self, message: str):
+    async def astream(self, message: str, session_id: str = "default") -> AsyncIterator[str]:
         """Processa uma mensagem com streaming assíncrono.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (thread_id do checkpointer).
 
         Yields:
             Chunks da resposta
         """
-        # Adiciona a mensagem do usuário ao histórico
-        self._conversation_history.append(HumanMessage(content=message))
-
-        # Stream assíncrono do agente
-        async for event in self._agent.astream(
-            {"messages": self._conversation_history}
+        self._touch_session(session_id)
+        async for chunk in self._agent.astream(
+            {"messages": [HumanMessage(content=message)]},
+            config=self._config_for(session_id),
+            stream_mode="values",
         ):
-            if "messages" in event:
-                for msg in event["messages"]:
-                    if (
-                        isinstance(msg, AIMessage)
-                        and msg.content
-                        and not msg.tool_calls
-                    ):
-                        yield msg.content
+            messages = chunk.get("messages", [])
+            if messages:
+                last = messages[-1]
+                if isinstance(last, AIMessage) and last.content and not last.tool_calls:
+                    yield last.content if isinstance(last.content, str) else str(last.content)
 
-    def clear_history(self) -> None:
-        """Limpa o histórico de conversação."""
-        self._conversation_history = []
-
-    @property
-    def conversation_history(self) -> list[BaseMessage]:
-        """Retorna o histórico de conversação."""
-        return self._conversation_history.copy()
+    def clear_history(self, session_id: str = "default") -> None:
+        """Limpa o histórico de uma sessão zerando o thread no checkpointer."""
+        self._checkpointer.delete_thread(session_id)
+        self._session_last_access.pop(session_id, None)
 
 
 class HueLightAgentBuilder:
