@@ -14,10 +14,24 @@ def _make_controller():
     return c, fita, teto
 
 
+# 25% de 254 = 63.5 -> floor 63 (24.8%). Asserções EXATAS em 63: um regression
+# que produzisse 64 (25.2%, o valor que o floor evita de propósito) deve FALHAR.
+_FITA_LED_HUE_LIMIT = 63
+
+
 def test_set_light_color_clamps_fita_led():
     c, fita, _ = _make_controller()
     c.set_light_color("Fita Led", Color(255, 0, 0, 254))  # pediu 254 (100%)
-    assert fita.brightness <= 64  # 25% de 254
+    assert fita.brightness == _FITA_LED_HUE_LIMIT
+
+
+def test_set_light_color_clamps_led_cima_direct():
+    """Led cima também é clampada pela entrada DIRETA set_light_color."""
+    c, _, _ = _make_controller()
+    led = MagicMock(); led.name = "Led cima"
+    c.lights.append(led); c._light_cache["Led cima"] = led
+    c.set_light_color("Led cima", Color(255, 255, 255, 254))
+    assert led.brightness == _FITA_LED_HUE_LIMIT
 
 
 def test_apply_config_preset_is_clamped_through_chokepoint():
@@ -31,7 +45,7 @@ def test_apply_config_preset_is_clamped_through_chokepoint():
         description="cena que pede brilho máximo",
     )
     c.apply_light_config(cfg)
-    assert led.brightness <= 64  # clampado na origem
+    assert led.brightness == _FITA_LED_HUE_LIMIT  # clampado na origem
 
 
 def test_set_light_color_no_clamp_for_ceiling():
@@ -40,9 +54,16 @@ def test_set_light_color_no_clamp_for_ceiling():
     assert teto.brightness == 254  # teto não tem restrição
 
 
+def test_set_brightness_public_clamps_restricted_lamp():
+    """O setter público set_brightness aplica o clamp por conta própria."""
+    c, fita, _ = _make_controller()
+    c.set_brightness("Fita Led", 254)
+    assert fita.brightness == _FITA_LED_HUE_LIMIT
+
+
 def test_set_all_brightness_clamps_per_lamp():
     """Fecha o furo do caminho "all": clamp aplicado POR LÂMPADA."""
     c, fita, teto = _make_controller()
     c.set_all_brightness(254)
-    assert fita.brightness <= 64   # 25% de 254
-    assert teto.brightness == 254  # sem restrição
+    assert fita.brightness == _FITA_LED_HUE_LIMIT   # 25% de 254 (floor)
+    assert teto.brightness == 254                   # sem restrição
