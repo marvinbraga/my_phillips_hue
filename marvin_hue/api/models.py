@@ -60,6 +60,7 @@ class ChatMessageRequest(BaseModel):
     )
     session_id: str = Field(
         default="default",
+        max_length=128,
         description=(
             "Id de sessão estável por cliente. É o ÚNICO mecanismo de isolamento "
             "de histórico (thread_id do checkpointer compartilhado). O cliente DEVE "
@@ -77,6 +78,7 @@ class ChatMessageRequest(BaseModel):
 class ChatClearRequest(BaseModel):
     session_id: str = Field(
         default="default",
+        max_length=128,
         description="Id da sessão cujo histórico deve ser limpo (thread_id).",
     )
 

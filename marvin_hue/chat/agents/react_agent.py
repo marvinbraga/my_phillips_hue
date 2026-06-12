@@ -112,11 +112,12 @@ class BaseAgent(ABC):
     """
 
     @abstractmethod
-    def invoke(self, message: str) -> str:
+    def invoke(self, message: str, session_id: str = "default") -> str:
         """Processa uma mensagem e retorna a resposta.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (isolamento de histórico)
 
         Returns:
             Resposta do agente
@@ -124,11 +125,12 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    async def ainvoke(self, message: str) -> str:
+    async def ainvoke(self, message: str, session_id: str = "default") -> str:
         """Processa uma mensagem de forma assíncrona.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (isolamento de histórico)
 
         Returns:
             Resposta do agente
@@ -136,14 +138,41 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    def stream(self, message: str):
+    def stream(self, message: str, session_id: str = "default") -> Iterator[str]:
         """Processa uma mensagem com streaming.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (isolamento de histórico)
 
         Yields:
             Chunks da resposta
+        """
+        pass
+
+    @abstractmethod
+    def astream(self, message: str, session_id: str = "default") -> AsyncIterator[str]:
+        """Processa uma mensagem com streaming assíncrono.
+
+        Declarada como `def` (não `async def`) retornando AsyncIterator: é o
+        padrão para abstrair um async generator sem que mypy a trate como
+        coroutine. A implementação concreta é um `async def` com `yield`.
+
+        Args:
+            message: Mensagem do usuário
+            session_id: Id da sessão (isolamento de histórico)
+
+        Yields:
+            Chunks da resposta
+        """
+        ...
+
+    @abstractmethod
+    def clear_history(self, session_id: str = "default") -> None:
+        """Limpa o histórico de uma sessão.
+
+        Args:
+            session_id: Id da sessão cujo histórico será limpo
         """
         pass
 

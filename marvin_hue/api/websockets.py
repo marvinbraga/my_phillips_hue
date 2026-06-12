@@ -132,7 +132,9 @@ def setup_websockets(app: FastAPI) -> None:
                 # session_id extraído de CADA frame: tolera reconexões e mantém o
                 # frame autossuficiente. É o ÚNICO mecanismo de isolamento de
                 # histórico (thread_id do checkpointer compartilhado).
-                session_id = data.get("session_id", "default")
+                # Coerção defensiva: `null`/tipos exóticos -> "default"; limita o
+                # tamanho (espelha max_length=128 dos modelos REST).
+                session_id = str(data.get("session_id") or "default")[:128]
 
                 if action == "message":
                     message = data.get("message", "")

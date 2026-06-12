@@ -67,3 +67,97 @@ async def test_concurrent_sessions_do_not_mix(patched_agent):
     )
     assert all("sessao-A" in r for r in results[:5])
     assert all("sessao-B" in r for r in results[5:])
+
+
+def test_real_checkpointer_isolates_history(monkeypatch, fake_controller, fake_manager):
+    """Integração: grafo REAL + InMemorySaver REAL isolam histórico por thread.
+
+    Diferente dos testes de plumbing acima (que mockam o agente compilado), aqui
+    exercitamos o caminho real do checkpointer — uma regressão que quebrasse o
+    isolamento de fato (e não só a propagação do thread_id) FALHARIA aqui.
+    """
+    import marvin_hue.chat.agents.react_agent as ra
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
+
+    fake_model = FakeMessagesListChatModel(
+        responses=[AIMessage(content=f"resp{i}") for i in range(6)]
+    )
+    monkeypatch.setattr(
+        ra.LLMProviderFactory, "create",
+        classmethod(lambda cls, **kw: type("P", (), {"model": fake_model})()),
+    )
+    # Sem tools: o fake model não suporta bind_tools; o foco é o checkpointer.
+    monkeypatch.setattr(ra, "get_all_tools", lambda: [])
+    # NÃO mockar create_react_agent: grafo real + InMemorySaver real.
+    agent = ra.HueLightAgent(fake_controller, fake_manager)
+
+    agent.invoke("ALPHA-marker", session_id="A")
+    agent.invoke("BETA-marker", session_id="B")
+
+    def thread_text(thread_id: str) -> str:
+        state = agent._agent.get_state({"configurable": {"thread_id": thread_id}})
+        return " ".join(str(m.content) for m in state.values["messages"])
+
+    a_text, b_text = thread_text("A"), thread_text("B")
+    assert "ALPHA-marker" in a_text and "BETA-marker" not in a_text
+    assert "BETA-marker" in b_text and "ALPHA-marker" not in b_text
+
+
+def test_lru_eviction_drops_oldest(patched_agent):
+    """_touch_session evicta a sessão menos recentemente usada ao exceder o limite."""
+    patched_agent._max_sessions = 3
+    for sid in ["s1", "s2", "s3"]:
+        patched_agent._touch_session(sid)
+    patched_agent._touch_session("s1")   # s1 vira a mais recente; s2 é a mais antiga
+    patched_agent._touch_session("s4")   # excede 3 -> evicta a mais antiga (s2)
+    assert "s2" not in patched_agent._session_last_access
+    assert set(patched_agent._session_last_access) == {"s1", "s3", "s4"}
+
+
+def test_clear_history_purges_only_that_session(patched_agent):
+    """clear_history(session_id) deleta SÓ aquela thread (nunca global)."""
+    patched_agent._checkpointer = MagicMock()
+    patched_agent._touch_session("keep")
+    patched_agent._touch_session("drop")
+
+    patched_agent.clear_history("drop")
+
+    patched_agent._checkpointer.delete_thread.assert_called_once_with("drop")
+    assert "drop" not in patched_agent._session_last_access
+    assert "keep" in patched_agent._session_last_access
+
+
+def test_stream_does_not_reinvoke(monkeypatch, fake_controller, fake_manager):
+    """Regressão do BUG #1: stream() NÃO re-invoca o agente após o streaming."""
+    import marvin_hue.chat.agents.react_agent as ra
+    from langchain_core.messages import AIMessage
+
+    class _Recorder:
+        def __init__(self):
+            self.invoked = 0
+            self.streamed = 0
+
+        def stream(self, payload, config=None, stream_mode=None):
+            self.streamed += 1
+            yield {"messages": [AIMessage(content="final")]}
+
+        def invoke(self, payload, config=None):
+            self.invoked += 1
+            return {"messages": [AIMessage(content="x")]}
+
+    rec = _Recorder()
+    monkeypatch.setattr(
+        ra.LLMProviderFactory, "create",
+        classmethod(lambda cls, **kw: type(
+            "P", (), {"model": type("M", (), {"bind_tools": lambda s, *a, **k: s})()}
+        )()),
+    )
+    monkeypatch.setattr(ra, "create_react_agent", lambda **kw: rec)
+    agent = ra.HueLightAgent(fake_controller, fake_manager)
+
+    chunks = list(agent.stream("oi", session_id="s"))
+
+    assert chunks == ["final"]
+    assert rec.streamed == 1
+    assert rec.invoked == 0  # sem re-invocação pós-stream (bug #1)
