@@ -87,6 +87,10 @@ class AgentConfig:
     streaming: bool = True
     system_prompt: str = SYSTEM_PROMPT
     extra_params: dict[str, Any] = field(default_factory=dict)
+    # HITL opcional: exige aprovação humana para tools de mutação ampla.
+    # Default False — a rota HTTP atual não trata interrupts (resume via Command
+    # é follow-up). Requer checkpointer (já temos).
+    require_approval: bool = False
 
 
 class BaseAgent(ABC):
@@ -249,6 +253,13 @@ class HueLightAgent(BaseAgent):
         if self._config.provider == "anthropic":
             from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
             stack.append(AnthropicPromptCachingMiddleware(ttl="5m"))
+        # HITL opcional para tools de mutação ampla (aprovação humana).
+        if self._config.require_approval:
+            from langchain.agents.middleware import HumanInTheLoopMiddleware
+            stack.append(HumanInTheLoopMiddleware(interrupt_on={
+                "apply_config": {"allowed_decisions": ["approve", "reject"]},
+                "save_current_config": {"allowed_decisions": ["approve", "edit", "reject"]},
+            }))
         return stack
 
     def _create_agent(self) -> CompiledStateGraph:
