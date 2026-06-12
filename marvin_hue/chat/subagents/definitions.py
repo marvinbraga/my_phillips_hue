@@ -27,6 +27,13 @@ GENERAL_PROMPT = (
     "Você é o general-purpose. Responde status e perguntas gerais sobre as lâmpadas."
 )
 
+# Subconjuntos de tools por subagent (least-privilege). Extraídos como
+# constantes para serem testáveis contra typos (um nome inválido seria
+# silenciosamente descartado por _subset).
+SCENE_DESIGNER_TOOLS = ["set_light_color", "apply_config", "get_light_locations", "get_light_status"]
+CONFIG_LIBRARIAN_TOOLS = ["list_configs", "apply_config", "save_current_config", "get_light_status"]
+GENERAL_TOOLS = ["list_lights", "get_light_status", "get_light_locations"]
+
 
 def _subset(tools: list[BaseTool], names: list[str]) -> list[BaseTool]:
     by = {t.name: t for t in tools}
@@ -49,17 +56,17 @@ def build_subagents(
 
     scene = create_agent(
         model=model,
-        tools=_subset(all_tools, ["set_light_color", "apply_config", "get_light_locations", "get_light_status"]),
+        tools=_subset(all_tools, SCENE_DESIGNER_TOOLS),
         system_prompt=SCENE_DESIGNER_PROMPT, middleware=list(safety),
     )
     librarian = create_agent(
         model=model,
-        tools=_subset(all_tools, ["list_configs", "apply_config", "save_current_config", "get_light_status"]),
+        tools=_subset(all_tools, CONFIG_LIBRARIAN_TOOLS),
         system_prompt=CONFIG_LIBRARIAN_PROMPT, middleware=list(safety),
     )
     general = create_agent(
         model=model,
-        tools=_subset(all_tools, ["list_lights", "get_light_status", "get_light_locations"]),
+        tools=_subset(all_tools, GENERAL_TOOLS),
         system_prompt=GENERAL_PROMPT, middleware=list(safety),
     )
     return {

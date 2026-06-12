@@ -13,3 +13,20 @@ def test_build_subagents_three_named(fake_controller, fake_manager):
     assert set(subs) == {"scene-designer", "config-librarian", "general-purpose"}
     for s in subs.values():
         assert "runnable" in s and "description" in s
+
+
+def test_subagent_tool_subsets_have_no_typo(fake_controller, fake_manager):
+    """Cada lista de tools por subagent resolve para nomes REAIS de build_light_tools.
+
+    Guarda contra typo silenciosamente descartado por _subset (if n in by).
+    """
+    from marvin_hue.chat.subagents import definitions as d
+    from marvin_hue.chat.tools.light_tools import build_light_tools
+
+    real = {t.name for t in build_light_tools(fake_controller, fake_manager)}
+    for names in (d.SCENE_DESIGNER_TOOLS, d.CONFIG_LIBRARIAN_TOOLS, d.GENERAL_TOOLS):
+        missing = [n for n in names if n not in real]
+        assert not missing, f"nomes inválidos (seriam descartados): {missing}"
+        # _subset retorna exatamente o subconjunto pedido, sem perdas.
+        got = {t.name for t in d._subset(build_light_tools(fake_controller, fake_manager), names)}
+        assert got == set(names)
