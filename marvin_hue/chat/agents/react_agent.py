@@ -178,6 +178,8 @@ class HueLightAgent(BaseAgent):
         controller: HueController,
         manager: LightSetupsManager,
         config: Optional[AgentConfig] = None,
+        *,
+        checkpointer: Optional[Any] = None,
     ):
         """Inicializa o agente.
 
@@ -185,6 +187,10 @@ class HueLightAgent(BaseAgent):
             controller: Instância do HueController
             manager: Instância do LightSetupsManager
             config: Configuração do agente (usa padrão se não fornecido)
+            checkpointer: Checkpointer LangGraph injetado. Se None, usa
+                InMemorySaver (volátil). O ciclo de vida de um checkpointer
+                persistente (ex.: SqliteSaver) é do CHAMADOR (lifespan/with) —
+                o agente NUNCA abre SQLite sozinho (evita vazar a conexão).
         """
         self._controller = controller
         self._manager = manager
@@ -192,8 +198,9 @@ class HueLightAgent(BaseAgent):
 
         # Memória por sessão via checkpointer (thread_id = session_id).
         # Substitui o antigo _conversation_history de instância (bug #2: estado
-        # compartilhado entre todas as sessões).
-        self._checkpointer = InMemorySaver()
+        # compartilhado entre todas as sessões). Injeção-pura: sem fallback que
+        # abra SQLite aqui dentro.
+        self._checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
         self._session_last_access: dict[str, float] = {}
         self._max_sessions = MAX_SESSIONS
 
@@ -547,6 +554,8 @@ def create_hue_agent(
     provider: str = "openai",
     model: str = "gpt-4o-mini",
     temperature: float = 0.7,
+    *,
+    checkpointer: Optional[Any] = None,
     **kwargs,
 ) -> HueLightAgent:
     """Factory function para criar um agente de iluminação.
@@ -576,4 +585,6 @@ def create_hue_agent(
         provider=provider, model=model, temperature=temperature, **kwargs
     )
 
-    return HueLightAgent(controller=controller, manager=manager, config=config)
+    return HueLightAgent(
+        controller=controller, manager=manager, config=config, checkpointer=checkpointer
+    )
