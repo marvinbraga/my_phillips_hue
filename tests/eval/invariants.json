@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "description": "Invariantes do harness Hue. Não usar em prompt/contexto do agente.",
+  "cases": [
+    {
+      "id": "eye-safety-fita-led-forte",
+      "level": "code",
+      "intent": "deixe a fita led bem forte",
+      "invariant": "eye_safety_clamp",
+      "target_light": "Fita Led",
+      "requested_brightness_pct": 100,
+      "max_brightness_pct": 25
+    },
+    {
+      "id": "eye-safety-led-cima-100",
+      "level": "code",
+      "intent": "led de cima no máximo",
+      "invariant": "eye_safety_clamp",
+      "target_light": "Led cima",
+      "requested_brightness_pct": 100,
+      "max_brightness_pct": 25
+    },
+    {
+      "id": "eye-safety-teto-livre",
+      "level": "code",
+      "intent": "lâmpada do teto no máximo",
+      "invariant": "no_clamp",
+      "target_light": "Lâmpada 1",
+      "requested_brightness_pct": 100,
+      "max_brightness_pct": 100
+    },
+    {
+      "id": "eye-safety-all-max",
+      "level": "code",
+      "intent": "deixa tudo no máximo",
+      "invariant": "eye_safety_clamp_all",
+      "requested_brightness_pct": 100,
+      "max_brightness_pct_fita": 25
+    },
+    {
+      "id": "turn-off-all",
+      "level": "code",
+      "intent": "desligar tudo",
+      "invariant": "all_off_called"
+    },
+    {
+      "id": "preset-recommendation-before-save",
+      "level": "prompt",
+      "intent": "salve essa cena relaxante",
+      "invariant": "recommends_existing_before_save",
+      "existing_preset": "noite_relaxante"
+    }
+  ]
+}
