@@ -38,8 +38,14 @@ class EyeSafetyMiddleware(AgentMiddleware):
         light = args.get("light_name")
         if not isinstance(light, str) or EYE_SAFETY_LIMITS.get(light) is None or field not in args:
             return request
+        raw = args[field]
+        # args vêm do output bruto do modelo (pré-validação pydantic da tool).
+        # Se o brilho não for numérico, deixa a validação da tool reportar — não
+        # quebra no middleware.
+        if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+            return request
         # NÃO mutar in-place (caminho deprecado). Construir override imutável.
-        new_args = {**args, field: clamp_eye_safety(light, int(args[field]), scale=scale)}
+        new_args = {**args, field: clamp_eye_safety(light, int(raw), scale=scale)}
         new_tool_call = cast(ToolCall, {**request.tool_call, "args": new_args})
         return request.override(tool_call=new_tool_call)
 

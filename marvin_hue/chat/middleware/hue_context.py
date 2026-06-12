@@ -1,6 +1,7 @@
 """HueContextMiddleware — injeta contexto vivo no system prompt a cada turno."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import Callable
@@ -28,6 +29,8 @@ class HueContextMiddleware(AgentMiddleware):
         self._status_ttl_s = status_ttl_s
         self._status_cache: Optional[str] = None
         self._status_cache_at = 0.0
+        # Localizações são estáticas: parseia uma vez (memoizado), nunca a cada turno.
+        self._locations_cache: Optional[str] = None
 
     def _status_block(self) -> str:
         now = time.monotonic()
@@ -51,14 +54,24 @@ class HueContextMiddleware(AgentMiddleware):
         return "Presets disponíveis: " + ", ".join(names) if names else ""
 
     def _locations_block(self) -> str:
-        if not self._locations_path or not Path(self._locations_path).exists():
-            return ""
-        data = json.loads(Path(self._locations_path).read_text(encoding="utf-8"))
-        warns = [
-            f"- {l['name']}: máx {l['max_brightness_percent']}% (próxima aos olhos)"
-            for l in data.get("lights", []) if "max_brightness_percent" in l
-        ]
-        return "Restrições físicas:\n" + "\n".join(warns) if warns else ""
+        # Memoizado: o arquivo é estático; não relê/reparseia a cada chamada de
+        # modelo. Falha graciosamente (retorna "") — espelha _status_block.
+        if self._locations_cache is not None:
+            return self._locations_cache
+        block = ""
+        if self._locations_path and Path(self._locations_path).exists():
+            try:
+                data = json.loads(Path(self._locations_path).read_text(encoding="utf-8"))
+                warns = [
+                    f"- {l['name']}: máx {l['max_brightness_percent']}% (próxima aos olhos)"
+                    for l in data.get("lights", [])
+                    if "max_brightness_percent" in l and "name" in l
+                ]
+                block = "Restrições físicas:\n" + "\n".join(warns) if warns else ""
+            except Exception:  # noqa: BLE001
+                block = ""
+        self._locations_cache = block
+        return block
 
     def _augment(self, base: str) -> str:
         blocks = [base, self._status_block(), self._locations_block(), self._presets_block()]
@@ -76,5 +89,8 @@ class HueContextMiddleware(AgentMiddleware):
         self, request: ModelRequest,
         handler: Callable[[ModelRequest], Any],
     ) -> Any:
-        augmented = self._augment(request.system_prompt or "")
+        # _augment faz I/O SÍNCRONO na bridge física (get_lights_status). No
+        # caminho async (FastAPI), executá-lo direto bloquearia o event loop
+        # (compartilhado com o WebSocket /ws/mirror). Offload p/ thread.
+        augmented = await asyncio.to_thread(self._augment, request.system_prompt or "")
         return await handler(request.override(system_message=SystemMessage(content=augmented)))

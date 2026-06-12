@@ -58,7 +58,11 @@ def build_light_tools(
         brightness: int = Field(ge=0, le=100, description="Brilho em porcentagem (0-100)")
 
     class _SaveConfigArgs(BaseModel):
+        # pattern ^\w+$ : letras (incl. acentuadas)/dígitos/underscore — rejeita
+        # espaços e quebras de linha. Além de impor "sem espaços", fecha o vetor
+        # de injeção de prompt via nome de preset reinjetado no system message.
         config_name: str = Field(
+            pattern=r"^\w+$",
             description="Nome único, sem espaços (use underscores). Crie um nome "
             "criativo baseado nas cores atuais (ex: 'sunset_warm', 'natal_festivo')."
         )

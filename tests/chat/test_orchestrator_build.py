@@ -37,3 +37,38 @@ def test_orchestrator_uses_create_agent_with_middleware(monkeypatch, fake_contro
     names = [type(m).__name__ for m in seen["middleware"]]
     assert "EyeSafetyMiddleware" in names
     assert "HueContextMiddleware" in names
+    assert "TodoListMiddleware" in names
+    assert "SummarizationMiddleware" in names
+    # openai (default): SEM PromptCaching da Anthropic.
+    assert "AnthropicPromptCachingMiddleware" not in names
+
+
+def test_anthropic_provider_adds_prompt_caching(monkeypatch, fake_controller, fake_manager):
+    """Com provider=anthropic, a pilha inclui AnthropicPromptCachingMiddleware."""
+    import marvin_hue.chat.agents.react_agent as ra
+
+    seen = {}
+
+    def fake_create_agent(**kw):
+        seen.update(kw)
+        return object()
+
+    monkeypatch.setattr(ra, "create_agent", fake_create_agent, raising=False)
+
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
+
+    class _FakeProvider:
+        model = FakeMessagesListChatModel(responses=[AIMessage(content="ok")])
+
+    monkeypatch.setattr(
+        ra.LLMProviderFactory, "create",
+        classmethod(lambda cls, **kw: _FakeProvider()),
+    )
+
+    ra.HueLightAgent(
+        fake_controller, fake_manager, config=ra.AgentConfig(provider="anthropic")
+    )
+
+    names = [type(m).__name__ for m in seen["middleware"]]
+    assert "AnthropicPromptCachingMiddleware" in names

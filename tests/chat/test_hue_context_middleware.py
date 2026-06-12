@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
 
+import pytest
+
 
 def test_context_injected_into_system_prompt(fake_controller, fake_manager):
     from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
@@ -46,3 +48,45 @@ def test_status_block_is_cached(fake_controller, fake_manager):
 
     # 3 chamadas de modelo, mas só 1 leitura na bridge (cache TTL).
     assert fake_controller.get_lights_status.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_awrap_model_call_injects_context(fake_controller, fake_manager):
+    """O caminho async injeta contexto e não bloqueia (offload via to_thread)."""
+    from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
+
+    mw = HueContextMiddleware(fake_controller, fake_manager, locations_path=None)
+    captured = {}
+
+    async def handler(req):
+        captured["prompt"] = req.system_message.content
+        return "resp"
+
+    req = MagicMock()
+    req.system_prompt = "BASE"
+    req.override.side_effect = lambda **kw: type("R", (), kw)()
+
+    await mw.awrap_model_call(req, handler)
+    assert "BASE" in captured["prompt"]
+    assert "Fita Led" in captured["prompt"]
+
+
+def test_status_block_degrades_on_bridge_error(fake_controller, fake_manager):
+    """Se a bridge falhar, o bloco de status vira "" e o turno NÃO quebra."""
+    from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
+
+    fake_controller.get_lights_status.side_effect = RuntimeError("bridge down")
+    mw = HueContextMiddleware(fake_controller, fake_manager, locations_path=None)
+    captured = {}
+
+    def handler(req):
+        captured["prompt"] = req.system_message.content
+        return "resp"
+
+    req = MagicMock()
+    req.system_prompt = "BASE"
+    req.override.side_effect = lambda **kw: type("R", (), kw)()
+
+    mw.wrap_model_call(req, handler)  # não levanta
+    assert "BASE" in captured["prompt"]
+    assert "Fita Led" not in captured["prompt"]  # status ausente, mas turno vivo
