@@ -557,6 +557,28 @@
         let reconnectAttempts = 0;
         const maxReconnectAttempts = 5;
 
+        // Id de sessão estável por navegador. É o ÚNICO mecanismo de isolamento
+        // de histórico no backend (thread_id do checkpointer). DEVE ir em TODOS
+        // os frames enviados ao /ws/chat — sem ele tudo cai em "default" e as
+        // sessões compartilham histórico (bug #2).
+        function getSessionId() {
+            let sid = localStorage.getItem('marvin_hue_session_id');
+            if (!sid) {
+                if (window.crypto && crypto.randomUUID) {
+                    sid = crypto.randomUUID();
+                } else {
+                    // Fallback UUID v4 para contexto não-seguro (HTTP antigo).
+                    sid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                        const r = (crypto.getRandomValues(new Uint8Array(1))[0]) % 16;
+                        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+                        return v.toString(16);
+                    });
+                }
+                localStorage.setItem('marvin_hue_session_id', sid);
+            }
+            return sid;
+        }
+
         // Conectar ao WebSocket
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -691,7 +713,8 @@
             // Enviar via WebSocket
             ws.send(JSON.stringify({
                 action: 'message',
-                message: message
+                message: message,
+                session_id: getSessionId()
             }));
 
             // Limpar input
@@ -709,7 +732,7 @@
 
         clearBtn.addEventListener('click', () => {
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ action: 'clear' }));
+                ws.send(JSON.stringify({ action: 'clear', session_id: getSessionId() }));
             }
         });
 
