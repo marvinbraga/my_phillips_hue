@@ -5,6 +5,7 @@ Ferramentas para controle de lâmpadas Philips Hue através do agente ReAct.
 """
 
 from marvin_hue.chat.tools.light_tools import (
+    build_light_tools,
     configure_tools,
     get_all_tools,
     list_lights_tool,
@@ -19,6 +20,7 @@ from marvin_hue.chat.tools.light_tools import (
 )
 
 __all__ = [
+    "build_light_tools",
     "configure_tools",
     "get_all_tools",
     "list_lights_tool",
