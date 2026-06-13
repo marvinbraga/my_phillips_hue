@@ -350,7 +350,7 @@ CORS_ORIGINS="*"
 cat .res/setups.json | python -m json.tool
 
 # Testar no app
-curl http://localhost:5000/configurations
+curl http://localhost:5081/configurations
 ```
 
 **Dicas:**
@@ -365,7 +365,7 @@ curl http://localhost:5000/configurations
    - Case-sensitive: `Lâmpada 1` ≠ `lâmpada 1`
    - Para listar lâmpadas disponíveis:
      ```bash
-     curl http://localhost:5000/api/lights/status
+     curl http://localhost:5081/api/lights/status
      ```
 
 3. **Brightness:**
@@ -565,7 +565,7 @@ none = não participa do espelhamento
 cat .res/light_positions.json | python -m json.tool
 
 # Testar no app
-curl http://localhost:5000/positions
+curl http://localhost:5081/positions
 ```
 
 **Dicas:**
@@ -604,7 +604,7 @@ curl http://localhost:5000/positions
 
 4. **Resetar para Padrão:**
    ```bash
-   curl -X POST http://localhost:5000/positions/reset
+   curl -X POST http://localhost:5081/positions/reset
    ```
 
 ---
@@ -646,17 +646,17 @@ curl http://localhost:5000/positions
 python -m json.tool .res/setups.json > /dev/null && echo "✓ JSON válido" || echo "✗ JSON inválido"
 
 # Reiniciar aplicação
-uv run uvicorn app:app --reload --port 5000
+uv run uvicorn app:app --reload --port 5081
 ```
 
 3. **Testar:**
 
 ```bash
 # Listar configurações (deve aparecer "minha_config")
-curl http://localhost:5000/configurations
+curl http://localhost:5081/configurations
 
 # Aplicar
-curl -X POST http://localhost:5000/apply \
+curl -X POST http://localhost:5081/apply \
   -H "Content-Type: application/json" \
   -d '{"config_name": "minha_config"}'
 ```
@@ -666,14 +666,14 @@ curl -X POST http://localhost:5000/apply \
 ### Configurar Posicionamento Customizado
 
 1. **Via Web UI:**
-   - Acesse http://localhost:5000/positions-config
+   - Acesse http://localhost:5081/positions-config
    - Arraste lâmpadas para posições
    - Clique em "Salvar"
 
 2. **Via API:**
 
 ```bash
-curl -X POST http://localhost:5000/positions \
+curl -X POST http://localhost:5081/positions \
   -H "Content-Type: application/json" \
   -d '{
     "lights": [
@@ -697,7 +697,7 @@ nano .res/light_positions.json
 
 ```bash
 # Via API
-curl http://localhost:5000/api/lights/status | python -m json.tool
+curl http://localhost:5081/api/lights/status | python -m json.tool
 
 # Saída:
 {
@@ -768,7 +768,7 @@ ValueError: Lâmpada 'lampada 1' não encontrada
 
 1. **Listar lâmpadas disponíveis:**
    ```bash
-   curl http://localhost:5000/api/lights/status
+   curl http://localhost:5081/api/lights/status
    ```
 
 2. **Copiar nome EXATO:**
@@ -822,7 +822,7 @@ ValueError: Lâmpada 'lampada 1' não encontrada
    # Para aplicação (Ctrl+C)
    # Atualizar .env
    # Reiniciar
-   uv run uvicorn app:app --reload --port 5000
+   uv run uvicorn app:app --reload --port 5081
    ```
 
 ---
@@ -878,21 +878,21 @@ ValueError: Lâmpada 'lampada 1' não encontrada
 
 1. **Ajustar `saturation_boost`:**
    ```bash
-   curl -X POST http://localhost:5000/mirror/settings \
+   curl -X POST http://localhost:5081/mirror/settings \
      -H "Content-Type: application/json" \
      -d '{"saturation_boost": 1.5}'  # Aumentar de 1.2 para 1.5
    ```
 
 2. **Aumentar `brightness`:**
    ```bash
-   curl -X POST http://localhost:5000/mirror/settings \
+   curl -X POST http://localhost:5081/mirror/settings \
      -H "Content-Type: application/json" \
      -d '{"brightness": 254}'
    ```
 
 3. **Reduzir `smoothing_factor`:**
    ```bash
-   curl -X POST http://localhost:5000/mirror/settings \
+   curl -X POST http://localhost:5081/mirror/settings \
      -H "Content-Type: application/json" \
      -d '{"smoothing_factor": 0.3}'  # Mais responsivo
    ```
@@ -909,14 +909,14 @@ ValueError: Lâmpada 'lampada 1' não encontrada
 
 1. **Reduzir FPS:**
    ```bash
-   curl -X POST http://localhost:5000/mirror/settings \
+   curl -X POST http://localhost:5081/mirror/settings \
      -H "Content-Type: application/json" \
      -d '{"fps": 15}'  # De 25 para 15
    ```
 
 2. **Verificar carga da bridge:**
    ```bash
-   curl http://localhost:5000/api/bridge/status
+   curl http://localhost:5081/api/bridge/status
    ```
 
 3. **Reduzir número de lâmpadas ativas:**
@@ -986,7 +986,7 @@ cp backups/setups.20260122.json .res/setups.json
 cp backups/positions.20260122.json .res/light_positions.json
 
 # Reiniciar aplicação
-uv run uvicorn app:app --reload --port 5000
+uv run uvicorn app:app --reload --port 5081
 ```
 
 ---

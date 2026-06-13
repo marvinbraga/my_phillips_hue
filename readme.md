@@ -78,7 +78,12 @@ Marvin: "Espelhamento iniciado com 30 FPS e brilho 200."
 Suporta:
 - **OpenAI**: GPT-4, GPT-4o, GPT-3.5
 - **Anthropic**: Claude 3 Sonnet, Haiku
-- **Ollama**: Modelos locais (llama2, mistral)
+- **xAI** (Grok) e **Groq**
+
+O chat roda sobre um harness `langchain.agents.create_agent` + LangGraph
+(middleware de contexto/segurança, memória por sessão via checkpointer, e
+delegação a subagents). Detalhes em
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#harness-de-chat-middleware--subagents--tools).
 
 ### 4. API REST + WebSocket
 
@@ -213,13 +218,13 @@ uv run python main.py
 
 ```bash
 # Modo desenvolvimento (com auto-reload)
-uv run uvicorn app:app --reload --port 5000
+uv run uvicorn app:app --reload --port 5081
 
 # Ou com script direto
 uv run python app.py
 ```
 
-Acesse: http://localhost:5000
+Acesse: http://localhost:5081
 
 ### Aplicar Configuração (CLI)
 
@@ -232,10 +237,10 @@ uv run python main.py
 
 ```bash
 # Listar configurações disponíveis
-curl http://localhost:5000/configurations
+curl http://localhost:5081/configurations
 
 # Aplicar configuração
-curl -X POST http://localhost:5000/apply \
+curl -X POST http://localhost:5081/apply \
   -H "Content-Type: application/json" \
   -d '{"config_name": "concentration", "transition_time_secs": 2.0}'
 ```
@@ -244,12 +249,12 @@ curl -X POST http://localhost:5000/apply \
 
 ```bash
 # Via API
-curl -X POST http://localhost:5000/mirror/start \
+curl -X POST http://localhost:5081/mirror/start \
   -H "Content-Type: application/json" \
   -d '{"fps": 25, "brightness": 200}'
 
 # Ou acesse a interface web
-# http://localhost:5000/mirror
+# http://localhost:5081/mirror
 ```
 
 ### Chat com IA
@@ -259,12 +264,12 @@ curl -X POST http://localhost:5000/mirror/start \
 echo 'OPENAI_API_KEY="sk-proj-..."' >> .env
 
 # Enviar mensagem
-curl -X POST http://localhost:5000/api/chat/message \
+curl -X POST http://localhost:5081/api/chat/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Ative a configuração de concentração"}'
 
 # Ou acesse a interface web
-# http://localhost:5000/chat
+# http://localhost:5081/chat
 ```
 
 ---
@@ -275,7 +280,7 @@ curl -X POST http://localhost:5000/api/chat/message \
 
 #### Via Interface Web
 
-1. Acesse http://localhost:5000
+1. Acesse http://localhost:5081
 2. Clique em uma configuração
 3. Pronto! Luzes aplicadas com transição suave
 
@@ -290,7 +295,7 @@ uv run python main.py
 
 ```bash
 # Aplicar com transição de 3 segundos
-curl -X POST http://localhost:5000/apply \
+curl -X POST http://localhost:5081/apply \
   -H "Content-Type: application/json" \
   -d '{
     "config_name": "relax",
@@ -304,7 +309,7 @@ curl -X POST http://localhost:5000/apply \
 import requests
 
 response = requests.post(
-    "http://localhost:5000/apply",
+    "http://localhost:5081/apply",
     json={
         "config_name": "cyberpunk_night",
         "transition_time_secs": 2.0
@@ -322,7 +327,7 @@ print(response.json())
 
 **Via Interface Web:**
 
-1. Acesse http://localhost:5000/positions-config
+1. Acesse http://localhost:5081/positions-config
 2. Arraste lâmpadas para as posições desejadas:
    - **Esquerda/Direita**: Ideal para Hue Play
    - **Topo/Base**: Ideal para fitas LED
@@ -348,14 +353,14 @@ Edite `.res/light_positions.json`:
 
 **Via Interface Web:**
 
-1. Acesse http://localhost:5000/mirror
+1. Acesse http://localhost:5081/mirror
 2. Ajuste FPS e brilho (opcional)
 3. Clique em "Iniciar Espelhamento"
 
 **Via API:**
 
 ```bash
-curl -X POST http://localhost:5000/mirror/start \
+curl -X POST http://localhost:5081/mirror/start \
   -H "Content-Type: application/json" \
   -d '{"fps": 25, "brightness": 200}'
 ```
@@ -367,29 +372,29 @@ import requests
 
 # Iniciar
 response = requests.post(
-    "http://localhost:5000/mirror/start",
+    "http://localhost:5081/mirror/start",
     json={"fps": 25, "brightness": 200}
 )
 
 # Parar (após usar)
-requests.post("http://localhost:5000/mirror/stop")
+requests.post("http://localhost:5081/mirror/stop")
 ```
 
 #### 3. Ajustar em Tempo Real
 
 ```bash
 # Aumentar saturação para cores mais vibrantes
-curl -X POST http://localhost:5000/mirror/settings \
+curl -X POST http://localhost:5081/mirror/settings \
   -H "Content-Type: application/json" \
   -d '{"saturation_boost": 1.5}'
 
 # Ajustar FPS
-curl -X POST http://localhost:5000/mirror/settings \
+curl -X POST http://localhost:5081/mirror/settings \
   -H "Content-Type: application/json" \
   -d '{"fps": 30}'
 
 # Ajustar suavização (menor = mais suave)
-curl -X POST http://localhost:5000/mirror/settings \
+curl -X POST http://localhost:5081/mirror/settings \
   -H "Content-Type: application/json" \
   -d '{"smoothing_factor": 0.3}'
 ```
@@ -416,14 +421,14 @@ OPENAI_API_KEY="sk-proj-..."
 
 **Via Interface Web:**
 
-1. Acesse http://localhost:5000/chat
+1. Acesse http://localhost:5081/chat
 2. Digite sua mensagem
 3. Aguarde resposta do agente
 
 **Via API REST:**
 
 ```bash
-curl -X POST http://localhost:5000/api/chat/message \
+curl -X POST http://localhost:5081/api/chat/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Ative um ambiente relaxante"}'
 ```
@@ -431,7 +436,7 @@ curl -X POST http://localhost:5000/api/chat/message \
 **Via WebSocket (JavaScript):**
 
 ```javascript
-const ws = new WebSocket('ws://localhost:5000/ws/chat');
+const ws = new WebSocket('ws://localhost:5081/ws/chat');
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
@@ -517,13 +522,13 @@ Ver documentação completa em: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 
 ```bash
 # Ctrl+C para parar
-uv run uvicorn app:app --reload --port 5000
+uv run uvicorn app:app --reload --port 5081
 ```
 
 3. Aplicar nova configuração
 
 ```bash
-curl -X POST http://localhost:5000/apply \
+curl -X POST http://localhost:5081/apply \
   -H "Content-Type: application/json" \
   -d '{"config_name": "minha_config"}'
 ```
@@ -536,7 +541,7 @@ Sem necessidade de código Python! Apenas edite o JSON.
 
 ### Documentação Completa
 
-Acesse a documentação interativa: http://localhost:5000/docs (Swagger UI)
+Acesse a documentação interativa: http://localhost:5081/docs (Swagger UI)
 
 Ou leia: [docs/API.md](docs/API.md)
 
@@ -711,7 +716,7 @@ Cobertura atual: **70%+**
 
 1. Listar lâmpadas disponíveis:
    ```bash
-   curl http://localhost:5000/api/lights/status
+   curl http://localhost:5081/api/lights/status
    ```
 2. Copiar nome EXATO para o JSON (case-sensitive)
 3. Verificar se lâmpada está online no app Hue

@@ -63,6 +63,11 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Chat checkpointer (persistência opcional do chat — estado de runtime, não código)
+.res/chat_memory.sqlite
+.res/chat_memory.sqlite-wal
+.res/chat_memory.sqlite-shm
+
 # Flask stuff:
 instance/
 .webassets-cache

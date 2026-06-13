@@ -77,7 +77,7 @@ class TestSettingsDefaults:
     def test_default_api_port(self):
         """Verifica porta padrão da API."""
         settings = create_test_settings(bridge_ip="192.168.1.100")
-        assert settings.api_port == 5000
+        assert settings.api_port == 5081
 
     def test_default_chat_provider(self):
         """Verifica provider padrão de chat."""

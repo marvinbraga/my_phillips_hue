@@ -13,6 +13,21 @@ _hue_controller: HueController | None = None
 _manager: LightSetupsManager | None = None
 _screen_mirror: ScreenMirror | None = None
 _chat_agent: HueLightAgent | None = None
+# Checkpointer ativo (cujo ciclo de vida é do lifespan). Guardado para que o
+# reconfigure (/api/chat/configure) reuse o MESMO checkpointer em vez de cair
+# silenciosamente para InMemorySaver quando chat_checkpoint=sqlite.
+_chat_checkpointer: object | None = None
+
+
+def set_chat_checkpointer(checkpointer: object | None) -> None:
+    """Registra o checkpointer ativo (gerenciado pelo lifespan)."""
+    global _chat_checkpointer
+    _chat_checkpointer = checkpointer
+
+
+def get_chat_checkpointer() -> object | None:
+    """Retorna o checkpointer ativo (ou None para InMemorySaver no agente)."""
+    return _chat_checkpointer
 
 
 def set_hue_controller(controller: HueController) -> None:

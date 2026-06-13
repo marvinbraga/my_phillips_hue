@@ -5267,6 +5267,240 @@
           }
         }
       ]
+    },
+    {
+      "name": "festa_multicolor",
+      "description": "Iluminação vibrante com mistura de cores para um ambiente dinâmico e energético",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 80,
+            "green": 0,
+            "blue": 255,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 80,
+            "green": 0,
+            "blue": 255,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 80,
+            "green": 0,
+            "blue": 255,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 234,
+            "green": 222,
+            "blue": 184,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 234,
+            "green": 222,
+            "blue": 184,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 104,
+            "green": 143,
+            "blue": 187,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 80,
+            "green": 0,
+            "blue": 255,
+            "brightness": 190
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 112,
+            "green": 140,
+            "blue": 191,
+            "brightness": 63
+          }
+        }
+      ]
+    },
+    {
+      "name": "programacao_criativa_suave",
+      "description": "Tons quentes suaves inspiradores para programação criativa com descanso visual e proteção ocular.",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 255,
+            "green": 254,
+            "blue": 204,
+            "brightness": 254
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 255,
+            "green": 254,
+            "blue": 204,
+            "brightness": 254
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 203,
+            "green": 203,
+            "blue": 162,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 231,
+            "green": 231,
+            "blue": 184,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 231,
+            "green": 231,
+            "blue": 184,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 134,
+            "green": 134,
+            "blue": 106,
+            "brightness": 60
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 255,
+            "green": 254,
+            "blue": 204,
+            "brightness": 254
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 134,
+            "green": 134,
+            "blue": 106,
+            "brightness": 60
+          }
+        }
+      ]
+    },
+    {
+      "name": "dualidade_criativa_azul_dourado",
+      "description": "Mistura equilibrada de azuis/ciano frios e dourados/marrons quentes para programação criativa com descanso visual.",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 75,
+            "green": 120,
+            "blue": 255,
+            "brightness": 160
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 255,
+            "green": 180,
+            "blue": 80,
+            "brightness": 160
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 244,
+            "green": 164,
+            "blue": 84,
+            "brightness": 130
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 240,
+            "green": 188,
+            "blue": 46,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 49,
+            "green": 232,
+            "blue": 232,
+            "brightness": 150
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 28,
+            "green": 152,
+            "blue": 151,
+            "brightness": 58
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 255,
+            "green": 169,
+            "blue": 86,
+            "brightness": 160
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 52,
+            "green": 140,
+            "blue": 240,
+            "brightness": 58
+          }
+        }
+      ]
     }
   ]
 }

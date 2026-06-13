@@ -5,71 +5,65 @@ Utiliza LangGraph para implementar o padrão ReAct (Reason + Act)
 para interação inteligente com as lâmpadas.
 """
 
+import time
 from typing import Optional, Any
+from collections.abc import Iterator, AsyncIterator
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
-from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.runnables import RunnableConfig
+from langchain.agents import create_agent
+from langchain.agents.middleware import TodoListMiddleware, SummarizationMiddleware
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.checkpoint.memory import InMemorySaver
 
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.chat.providers import LLMProviderFactory
-from marvin_hue.chat.tools import configure_tools, get_all_tools
+from marvin_hue.chat.tools import build_light_tools
+from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
+from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
 
 
-# System prompt para o agente
+# Limite de sessões mantidas no checkpointer em memória (eviction LRU).
+# Cada session_id novo cria uma thread que nunca seria coletada -> vazamento
+# monotônico num servidor de longa duração. O LRU descarta a mais antiga.
+MAX_SESSIONS = 100
+
+
+# System prompt para o agente.
+# NOTA: o status vivo das lâmpadas, as restrições físicas (limites de
+# intensidade) e a lista de presets são INJETADOS a cada turno pelo
+# HueContextMiddleware — não são hardcoded aqui. A garantia ocular (<=25% para
+# Fita Led/Led cima) é um INVARIANTE DE CÓDIGO no chokepoint do HueController +
+# EyeSafetyMiddleware; o prompt apenas a reforça.
 SYSTEM_PROMPT = """Você é Marvin, um assistente inteligente especializado em controle de iluminação Philips Hue.
 
-Suas capacidades incluem:
-- Listar todas as lâmpadas disponíveis
-- Verificar o status atual das lâmpadas (cor, brilho, estado)
-- Alterar a cor de lâmpadas individuais usando valores RGB
-- Aplicar configurações de iluminação predefinidas (temas)
-- Ligar e desligar lâmpadas
-- Ajustar o brilho
-- Consultar a localização física das lâmpadas no ambiente
-
-⚠️ RESTRIÇÕES IMPORTANTES DE INTENSIDADE:
-- "Fita Led" (embaixo do monitor): Intensidade MÁXIMA 25% (64/254 brilho Hue)
-- "Led cima" (em cima do monitor): Intensidade MÁXIMA 25% (64/254 brilho Hue)
-- Estas lâmpadas estão muito próximas aos olhos do usuário. Intensidades maiores forçam a vista!
-- SEMPRE respeite esses limites ao configurar essas lâmpadas, mesmo que o usuário não mencione
+Você controla as lâmpadas via ferramentas: listar/ver status, mudar cor (RGB),
+ajustar brilho, ligar/desligar, aplicar e salvar presets, e consultar a
+localização física das lâmpadas.
 
 Diretrizes:
-1. Sempre seja prestativo e amigável
-2. Quando o usuário pedir para mudar cores, use os valores RGB apropriados
-3. Se o usuário mencionar um tema ou ambiente (ex: "relaxante", "festa"), procure uma configuração adequada
-4. Ao listar lâmpadas ou configurações, formate a saída de forma clara
-5. Se houver erro, explique o problema de forma simples
-6. Responda sempre em português brasileiro
-7. Considere a localização física das lâmpadas:
-   - Use a ferramenta get_light_locations_tool quando relevante para entender o posicionamento
-   - Faça sugestões inteligentes baseadas na posição (ex: "teto para ambiente", "atrás do monitor para destaque")
-   - SEMPRE respeite os limites de intensidade das lâmpadas frontais (Fita Led e Led cima: máx 25%)
-   - Lâmpadas do teto podem usar intensidade total
-   - Hue Play (atrás do monitor) são ideais para criar atmosfera
-8. Ao salvar uma nova configuração:
-   - SEMPRE forneça um nome criativo e descritivo (sem espaços, use underscores)
-   - SEMPRE forneça uma descrição de uma linha que capture o mood/ambiente
-   - Base o nome e descrição nas cores atuais das lâmpadas e no contexto da conversa
-   - Exemplos:
-     * Cores vermelhas/verdes → nome: "natal_festivo", descrição: "Tema natalino com cores tradicionais"
-     * Cores azuis/roxas → nome: "noite_relaxante", descrição: "Ambiente calmo para relaxar"
-     * Cores laranjas/amarelas → nome: "por_do_sol", descrição: "Cores quentes inspiradas no pôr do sol"
+1. Seja prestativo, amigável e responda sempre em português brasileiro.
+2. As lâmpadas frontais "Fita Led" e "Led cima" ficam muito próximas aos olhos:
+   prefira intensidades baixas. O sistema impõe um teto de segurança por código,
+   mas evite pedir brilho alto para elas mesmo assim.
+3. Para um tema/ambiente (ex: "relaxante", "festa"), procure um preset adequado
+   antes de montar a cena manualmente.
+4. Use o status e as localizações que você recebe no contexto para fazer
+   sugestões inteligentes (teto para ambiente, atrás do monitor para atmosfera).
+5. Se houver erro, explique de forma simples.
+6. Ao salvar uma nova configuração, SEMPRE forneça um nome criativo sem espaços
+   (use underscores) e uma descrição de uma linha capturando o mood — baseados
+   nas cores atuais e no contexto (ex: "festa_vibrante", "amanhecer_suave").
 
-Cores comuns em RGB:
-- Vermelho: (255, 0, 0)
-- Verde: (0, 255, 0)
-- Azul: (0, 0, 255)
-- Amarelo: (255, 255, 0)
-- Roxo: (128, 0, 128)
-- Rosa: (255, 105, 180)
-- Laranja: (255, 165, 0)
-- Branco quente: (255, 244, 229)
-- Branco frio: (255, 255, 255)
+Quando o pedido for complexo, DELEGUE via a tool `task`:
+- Mood/cena multi-lâmpada -> subagent "scene-designer".
+- Buscar/recomendar/salvar presets -> "config-librarian".
+- Status e dúvidas gerais -> "general-purpose" (ou responda direto se trivial).
+Forneça uma description autossuficiente: o subagent não vê o histórico inteiro.
 """
 
 
@@ -93,6 +87,10 @@ class AgentConfig:
     streaming: bool = True
     system_prompt: str = SYSTEM_PROMPT
     extra_params: dict[str, Any] = field(default_factory=dict)
+    # HITL opcional: exige aprovação humana para tools de mutação ampla.
+    # Default False — a rota HTTP atual não trata interrupts (resume via Command
+    # é follow-up). Requer checkpointer (já temos).
+    require_approval: bool = False
 
 
 class BaseAgent(ABC):
@@ -102,11 +100,12 @@ class BaseAgent(ABC):
     """
 
     @abstractmethod
-    def invoke(self, message: str) -> str:
+    def invoke(self, message: str, session_id: str = "default") -> str:
         """Processa uma mensagem e retorna a resposta.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (isolamento de histórico)
 
         Returns:
             Resposta do agente
@@ -114,11 +113,12 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    async def ainvoke(self, message: str) -> str:
+    async def ainvoke(self, message: str, session_id: str = "default") -> str:
         """Processa uma mensagem de forma assíncrona.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (isolamento de histórico)
 
         Returns:
             Resposta do agente
@@ -126,14 +126,41 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    def stream(self, message: str):
+    def stream(self, message: str, session_id: str = "default") -> Iterator[str]:
         """Processa uma mensagem com streaming.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (isolamento de histórico)
 
         Yields:
             Chunks da resposta
+        """
+        pass
+
+    @abstractmethod
+    def astream(self, message: str, session_id: str = "default") -> AsyncIterator[str]:
+        """Processa uma mensagem com streaming assíncrono.
+
+        Declarada como `def` (não `async def`) retornando AsyncIterator: é o
+        padrão para abstrair um async generator sem que mypy a trate como
+        coroutine. A implementação concreta é um `async def` com `yield`.
+
+        Args:
+            message: Mensagem do usuário
+            session_id: Id da sessão (isolamento de histórico)
+
+        Yields:
+            Chunks da resposta
+        """
+        ...
+
+    @abstractmethod
+    def clear_history(self, session_id: str = "default") -> None:
+        """Limpa o histórico de uma sessão.
+
+        Args:
+            session_id: Id da sessão cujo histórico será limpo
         """
         pass
 
@@ -141,7 +168,7 @@ class BaseAgent(ABC):
 class HueLightAgent(BaseAgent):
     """Agente ReAct para controle de lâmpadas Philips Hue.
 
-    Utiliza LangGraph create_react_agent para implementar o padrão ReAct.
+    Utiliza langchain.agents.create_agent com pilha de middleware (harness).
     Suporta múltiplos provedores LLM através do sistema de providers.
 
     Attributes:
@@ -155,6 +182,8 @@ class HueLightAgent(BaseAgent):
         controller: HueController,
         manager: LightSetupsManager,
         config: Optional[AgentConfig] = None,
+        *,
+        checkpointer: Optional[Any] = None,
     ):
         """Inicializa o agente.
 
@@ -162,14 +191,22 @@ class HueLightAgent(BaseAgent):
             controller: Instância do HueController
             manager: Instância do LightSetupsManager
             config: Configuração do agente (usa padrão se não fornecido)
+            checkpointer: Checkpointer LangGraph injetado. Se None, usa
+                InMemorySaver (volátil). O ciclo de vida de um checkpointer
+                persistente (ex.: SqliteSaver) é do CHAMADOR (lifespan/with) —
+                o agente NUNCA abre SQLite sozinho (evita vazar a conexão).
         """
         self._controller = controller
         self._manager = manager
         self._config = config or AgentConfig()
-        self._conversation_history: list[BaseMessage] = []
 
-        # Configura as ferramentas com as referências necessárias
-        configure_tools(controller, manager)
+        # Memória por sessão via checkpointer (thread_id = session_id).
+        # Substitui o antigo _conversation_history de instância (bug #2: estado
+        # compartilhado entre todas as sessões). Injeção-pura: sem fallback que
+        # abra SQLite aqui dentro.
+        self._checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
+        self._session_last_access: dict[str, float] = {}
+        self._max_sessions = MAX_SESSIONS
 
         # Cria o modelo LLM
         self._llm = self._create_llm()
@@ -198,21 +235,56 @@ class HueLightAgent(BaseAgent):
         )
         return provider.model
 
+    def _build_middleware(self) -> list:
+        """Monta a pilha de middleware do harness.
+
+        A instância de HueContextMiddleware é guardada em self._hue_context para
+        ser COMPARTILHADA com os subagents (Fase 4) — compartilha o cache TTL do
+        status e evita I/O redundante na bridge.
+        """
+        self._hue_context = HueContextMiddleware(self._controller, self._manager)
+        stack: list = [
+            self._hue_context,
+            EyeSafetyMiddleware(),
+            TodoListMiddleware(),
+            SummarizationMiddleware(model=self._llm, trigger=("tokens", 3000)),
+        ]
+        # PromptCaching só faz sentido com Anthropic.
+        if self._config.provider == "anthropic":
+            from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+            stack.append(AnthropicPromptCachingMiddleware(ttl="5m"))
+        # HITL opcional para tools de mutação ampla (aprovação humana).
+        if self._config.require_approval:
+            from langchain.agents.middleware import HumanInTheLoopMiddleware
+            stack.append(HumanInTheLoopMiddleware(interrupt_on={
+                "apply_config": {"allowed_decisions": ["approve", "reject"]},
+                "save_current_config": {"allowed_decisions": ["approve", "edit", "reject"]},
+            }))
+        return stack
+
     def _create_agent(self) -> CompiledStateGraph:
-        """Cria o agente ReAct com LangGraph.
+        """Cria o orquestrador com create_agent + middleware + tool `task`.
 
         Returns:
             Grafo compilado do agente
         """
-        tools = get_all_tools()
+        from marvin_hue.chat.subagents.definitions import build_subagents
+        from marvin_hue.chat.subagents.task import build_task_tool
 
-        agent = create_react_agent(
-            model=self._llm,
-            tools=tools,
-            prompt=self._config.system_prompt,
+        light_tools = build_light_tools(self._controller, self._manager)
+        middleware = self._build_middleware()  # cria self._hue_context (cache compartilhado)
+        subagents = build_subagents(
+            self._llm, self._controller, self._manager,
+            context_middleware=self._hue_context,  # MESMA instância -> mesmo cache TTL
         )
-
-        return agent
+        task_tool = build_task_tool(subagents)
+        return create_agent(
+            model=self._llm,
+            tools=[*light_tools, task_tool],
+            system_prompt=self._config.system_prompt,
+            middleware=middleware,
+            checkpointer=self._checkpointer,
+        )
 
     def _extract_response(self, result: dict) -> str:
         """Extrai a resposta final do resultado do agente.
@@ -236,116 +308,135 @@ class HueLightAgent(BaseAgent):
 
         return "Operação concluída."
 
-    def invoke(self, message: str) -> str:
+    @staticmethod
+    def _config_for(session_id: str) -> RunnableConfig:
+        """Config do checkpointer: thread_id isola o histórico por sessão."""
+        return {"configurable": {"thread_id": session_id}}
+
+    def _touch_session(self, session_id: str) -> list[str]:
+        """Marca a sessão como acessada e RETORNA as threads a despejar (LRU).
+
+        NÃO deleta aqui: o caller (sync ou async) decide como apagar a thread no
+        checkpointer — `delete_thread` síncrono quebra sob `AsyncSqliteSaver`
+        chamado do event loop. Sync deleta direto; async aguarda `adelete_thread`.
+        """
+        self._session_last_access[session_id] = time.monotonic()
+        evicted: list[str] = []
+        while len(self._session_last_access) > self._max_sessions:
+            oldest = min(
+                self._session_last_access,
+                key=self._session_last_access.__getitem__,
+            )
+            del self._session_last_access[oldest]
+            evicted.append(oldest)
+        return evicted
+
+    async def _adelete_thread(self, session_id: str) -> None:
+        """Apaga a thread de forma async-safe (await adelete_thread se houver)."""
+        adelete = getattr(self._checkpointer, "adelete_thread", None)
+        if adelete is not None:
+            await adelete(session_id)
+        else:
+            self._checkpointer.delete_thread(session_id)
+
+    def invoke(self, message: str, session_id: str = "default") -> str:
         """Processa uma mensagem do usuário.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (thread_id do checkpointer). É o ÚNICO
+                mecanismo de isolamento de histórico — clientes distintos DEVEM
+                enviar ids distintos e estáveis.
 
         Returns:
             Resposta do agente
         """
-        # Adiciona a mensagem do usuário ao histórico
-        self._conversation_history.append(HumanMessage(content=message))
+        for tid in self._touch_session(session_id):
+            self._checkpointer.delete_thread(tid)
+        result = self._agent.invoke(
+            {"messages": [HumanMessage(content=message)]},
+            config=self._config_for(session_id),
+        )
+        return self._extract_response(result)
 
-        # Invoca o agente
-        result = self._agent.invoke({"messages": self._conversation_history})
-
-        # Atualiza o histórico com as novas mensagens
-        new_messages = result.get("messages", [])
-        if new_messages:
-            # Substitui o histórico com as novas mensagens
-            self._conversation_history = new_messages
-
-        # Extrai e retorna a resposta
-        response = self._extract_response(result)
-        return response
-
-    async def ainvoke(self, message: str) -> str:
+    async def ainvoke(self, message: str, session_id: str = "default") -> str:
         """Processa uma mensagem de forma assíncrona.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (thread_id do checkpointer).
 
         Returns:
             Resposta do agente
         """
-        # Adiciona a mensagem do usuário ao histórico
-        self._conversation_history.append(HumanMessage(content=message))
+        for tid in self._touch_session(session_id):
+            await self._adelete_thread(tid)
+        result = await self._agent.ainvoke(
+            {"messages": [HumanMessage(content=message)]},
+            config=self._config_for(session_id),
+        )
+        return self._extract_response(result)
 
-        # Invoca o agente de forma assíncrona
-        result = await self._agent.ainvoke({"messages": self._conversation_history})
-
-        # Atualiza o histórico com as novas mensagens
-        new_messages = result.get("messages", [])
-        if new_messages:
-            self._conversation_history = new_messages
-
-        # Extrai e retorna a resposta
-        response = self._extract_response(result)
-        return response
-
-    def stream(self, message: str):
+    def stream(self, message: str, session_id: str = "default") -> Iterator[str]:
         """Processa uma mensagem com streaming.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (thread_id do checkpointer).
 
         Yields:
             Chunks da resposta
         """
-        # Adiciona a mensagem do usuário ao histórico
-        self._conversation_history.append(HumanMessage(content=message))
+        for tid in self._touch_session(session_id):
+            self._checkpointer.delete_thread(tid)
+        for chunk in self._agent.stream(
+            {"messages": [HumanMessage(content=message)]},
+            config=self._config_for(session_id),
+            stream_mode="values",
+        ):
+            messages = chunk.get("messages", [])
+            if messages:
+                last = messages[-1]
+                if isinstance(last, AIMessage) and last.content and not last.tool_calls:
+                    yield last.content if isinstance(last.content, str) else str(last.content)
+        # NÃO re-invocar: o checkpointer já persistiu o histórico (corrige bug #1).
 
-        # Stream do agente
-        for event in self._agent.stream({"messages": self._conversation_history}):
-            # Processa eventos do agente
-            if "messages" in event:
-                for msg in event["messages"]:
-                    if (
-                        isinstance(msg, AIMessage)
-                        and msg.content
-                        and not msg.tool_calls
-                    ):
-                        yield msg.content
-
-        # Atualiza histórico após streaming completo
-        result = self._agent.invoke({"messages": self._conversation_history})
-        self._conversation_history = result.get("messages", self._conversation_history)
-
-    async def astream(self, message: str):
+    async def astream(self, message: str, session_id: str = "default") -> AsyncIterator[str]:
         """Processa uma mensagem com streaming assíncrono.
 
         Args:
             message: Mensagem do usuário
+            session_id: Id da sessão (thread_id do checkpointer).
 
         Yields:
             Chunks da resposta
         """
-        # Adiciona a mensagem do usuário ao histórico
-        self._conversation_history.append(HumanMessage(content=message))
-
-        # Stream assíncrono do agente
-        async for event in self._agent.astream(
-            {"messages": self._conversation_history}
+        for tid in self._touch_session(session_id):
+            await self._adelete_thread(tid)
+        async for chunk in self._agent.astream(
+            {"messages": [HumanMessage(content=message)]},
+            config=self._config_for(session_id),
+            stream_mode="values",
         ):
-            if "messages" in event:
-                for msg in event["messages"]:
-                    if (
-                        isinstance(msg, AIMessage)
-                        and msg.content
-                        and not msg.tool_calls
-                    ):
-                        yield msg.content
+            messages = chunk.get("messages", [])
+            if messages:
+                last = messages[-1]
+                if isinstance(last, AIMessage) and last.content and not last.tool_calls:
+                    yield last.content if isinstance(last.content, str) else str(last.content)
 
-    def clear_history(self) -> None:
-        """Limpa o histórico de conversação."""
-        self._conversation_history = []
+    def clear_history(self, session_id: str = "default") -> None:
+        """Limpa o histórico de uma sessão (caminho SÍNCRONO — CLI/InMemory).
 
-    @property
-    def conversation_history(self) -> list[BaseMessage]:
-        """Retorna o histórico de conversação."""
-        return self._conversation_history.copy()
+        Para o caminho async (FastAPI) use `aclear_history`: `delete_thread`
+        síncrono quebra sob `AsyncSqliteSaver` chamado do event loop.
+        """
+        self._checkpointer.delete_thread(session_id)
+        self._session_last_access.pop(session_id, None)
+
+    async def aclear_history(self, session_id: str = "default") -> None:
+        """Limpa o histórico de uma sessão (caminho ASYNC — rotas/WS)."""
+        await self._adelete_thread(session_id)
+        self._session_last_access.pop(session_id, None)
 
 
 class HueLightAgentBuilder:
@@ -502,6 +593,8 @@ def create_hue_agent(
     provider: str = "openai",
     model: str = "gpt-4o-mini",
     temperature: float = 0.7,
+    *,
+    checkpointer: Optional[Any] = None,
     **kwargs,
 ) -> HueLightAgent:
     """Factory function para criar um agente de iluminação.
@@ -531,4 +624,6 @@ def create_hue_agent(
         provider=provider, model=model, temperature=temperature, **kwargs
     )
 
-    return HueLightAgent(controller=controller, manager=manager, config=config)
+    return HueLightAgent(
+        controller=controller, manager=manager, config=config, checkpointer=checkpointer
+    )

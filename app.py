@@ -3,7 +3,7 @@ Marvin Hue Controller - FastAPI Application
 Aplicação assíncrona para controle de luzes Philips Hue.
 """
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 
 from dotenv import load_dotenv
 
@@ -49,24 +49,41 @@ async def lifespan(app: FastAPI):
 
     # Inicializa o agente de chat
     logger.info(
-        f"Initializing chat agent with provider='{settings.chat_provider}', model='{settings.chat_model}'"
+        f"Initializing chat agent with provider='{settings.chat_provider}', "
+        f"model='{settings.chat_model}', checkpoint='{settings.chat_checkpoint}'"
     )
 
-    try:
-        chat_agent = create_hue_agent(
-            controller=hue,
-            manager=manager,
-            provider=settings.chat_provider,
-            model=settings.chat_model,
-            temperature=settings.chat_temperature,
-        )
-        dependencies.set_chat_agent(chat_agent)
-        logger.info("Chat agent initialized successfully")
-    except Exception as e:
-        logger.exception(f"Error initializing chat agent: {e}")
-        dependencies.set_chat_agent(None)
+    # O ciclo de vida do checkpointer é do COMPOSITOR (este lifespan), não do
+    # agente. Para sqlite usamos AsyncSqliteSaver — REQUERIDO sob concorrência de
+    # sessões (FastAPI async); o SqliteSaver síncrono daria "database is locked".
+    async with AsyncExitStack() as stack:
+        checkpointer = None
+        if settings.chat_checkpoint == "sqlite":
+            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+            checkpointer = await stack.enter_async_context(
+                AsyncSqliteSaver.from_conn_string(settings.chat_checkpoint_db)
+            )
+        # Registra o checkpointer p/ que o reconfigure reuse o MESMO (não recaia
+        # em InMemorySaver sob sqlite).
+        dependencies.set_chat_checkpointer(checkpointer)
 
-    yield
+        try:
+            chat_agent = create_hue_agent(
+                controller=hue,
+                manager=manager,
+                provider=settings.chat_provider,
+                model=settings.chat_model,
+                temperature=settings.chat_temperature,
+                checkpointer=checkpointer,
+            )
+            dependencies.set_chat_agent(chat_agent)
+            logger.info("Chat agent initialized successfully")
+        except Exception as e:
+            logger.exception(f"Error initializing chat agent: {e}")
+            dependencies.set_chat_agent(None)
+
+        yield
+    # Saída do AsyncExitStack fecha o AsyncSqliteSaver (se usado) no shutdown.
 
     # Shutdown
     logger.info("Shutting down Marvin Hue application")
@@ -111,7 +128,7 @@ setup_websockets(app)
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Página principal."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 if __name__ == "__main__":

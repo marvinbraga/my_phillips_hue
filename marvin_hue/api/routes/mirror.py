@@ -22,7 +22,7 @@ templates = Jinja2Templates(directory="web/templates")
 @router.get("/mirror", response_class=HTMLResponse)
 async def mirror_page(request: Request):
     """Página de espelhamento de tela."""
-    return templates.TemplateResponse("mirror.html", {"request": request})
+    return templates.TemplateResponse(request, "mirror.html")
 
 
 @router.post("/mirror/start")

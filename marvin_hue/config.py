@@ -59,7 +59,7 @@ class Settings(BaseSettings):
         description="CORS allowed origins (separados por vírgula em .env)",
     )
     api_host: str = Field(default="0.0.0.0", description="Host da API")
-    api_port: int = Field(default=5000, ge=1, le=65535, description="Porta da API")
+    api_port: int = Field(default=5081, ge=1, le=65535, description="Porta da API")
 
     # Chat Configuration
     chat_provider: Literal["openai", "anthropic", "xai", "groq"] = Field(
@@ -80,6 +80,17 @@ class Settings(BaseSettings):
     )
     xai_api_key: str | None = Field(default=None, description="API key para xAI")
     groq_api_key: str | None = Field(default=None, description="API key para Groq")
+
+    # Persistência do histórico do chat. "memory" (default) é volátil (perde no
+    # restart); "sqlite" persiste. O ciclo de vida do checkpointer é do
+    # COMPOSITOR (lifespan em app.py / with em CLI), nunca do agente.
+    chat_checkpoint: Literal["memory", "sqlite"] = Field(
+        default="memory", description="Backend de persistência do chat"
+    )
+    chat_checkpoint_db: str = Field(
+        default=".res/chat_memory.sqlite",
+        description="Arquivo SQLite do checkpointer (quando chat_checkpoint=sqlite)",
+    )
 
     # File Paths
     setups_file: str = Field(

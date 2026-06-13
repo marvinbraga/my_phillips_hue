@@ -470,10 +470,105 @@ Philips Hue Bridge
 - **Ollama**: llama2, mistral (local)
 
 **Decisões de Design**:
-- ReAct agent para raciocínio + ação
 - Tools específicas para domínio Hue
-- História de conversação mantida em memória
 - Fallback se API key não disponível
+
+> **Atualizado:** o chat foi migrado de `create_react_agent` (prebuilt) para um
+> harness de primeira classe sobre `langchain.agents.create_agent` + LangGraph.
+> Veja a seção **"Harness de Chat (middleware + subagents + tools)"** abaixo para
+> o design vigente (memória por sessão via checkpointer, middleware de contexto/
+> segurança, e delegação a subagents).
+
+---
+
+## Harness de Chat (middleware + subagents + tools)
+
+O assistente "Marvin" (`marvin_hue/chat/`) roda sobre
+`langchain.agents.create_agent` + LangGraph — não o prebuilt `create_react_agent`.
+
+### Fluxo
+
+```
+Cliente (WebSocket /ws/chat | REST /api/chat/*)
+        │  message + session_id
+        ▼
+HueLightAgent.ainvoke(message, session_id)
+        │  config = {"configurable": {"thread_id": session_id}}
+        ▼
+create_agent(model, tools=[*light_tools, task], middleware=[...], checkpointer)
+        │
+        ├─ middleware (ordem):
+        │   1. HueContextMiddleware    → injeta status vivo + localizações +
+        │                                presets no system message a cada chamada
+        │                                de modelo (cache TTL p/ não marretar a bridge).
+        │   2. EyeSafetyMiddleware     → clampa brilho nas tools diretas (feedback).
+        │   3. TodoListMiddleware      → planejamento de tarefas.
+        │   4. SummarizationMiddleware → resume contexto ao exceder ~3000 tokens.
+        │   5. AnthropicPromptCaching  → só quando provider == "anthropic".
+        │   (+ HumanInTheLoopMiddleware se require_approval — opcional, off)
+        │
+        ├─ light tools (closures sobre controller/manager, sem estado global):
+        │   list_lights, get_light_status, set_light_color, apply_config,
+        │   list_configs, turn_off_lights, turn_on_lights, set_brightness,
+        │   save_current_config, get_light_locations
+        │
+        └─ task tool → delega a subagents isolados:
+            scene-designer | config-librarian | general-purpose
+            (cada um é um create_agent aninhado, com subconjunto restrito de
+             tools + os mesmos middleware de segurança; SEM a tool task → sem
+             recursão de delegação; recursion_limit explícito)
+        ▼
+HueController (chokepoint) → bridge Philips Hue
+```
+
+### Memória por sessão
+
+Histórico mantido por um checkpointer LangGraph keyed por
+`thread_id = session_id` — não há mais `_conversation_history` de instância
+(corrige o estado compartilhado entre sessões). O `session_id` é gerado no
+cliente (`crypto.randomUUID` + `localStorage`) e enviado em TODOS os frames do
+WebSocket e nas rotas REST. Eviction LRU (`MAX_SESSIONS=100`) evita vazamento
+monotônico de memória no `InMemorySaver`.
+
+Persistência é opcional e config-driven (`CHAT_CHECKPOINT=memory|sqlite`). O
+ciclo de vida de um checkpointer persistente é do COMPOSITOR (o `lifespan` em
+`app.py`, via `AsyncExitStack` + `AsyncSqliteSaver`), nunca do agente — o agente
+só RECEBE um checkpointer injetado (ou usa `InMemorySaver` volátil por padrão).
+
+### Invariante de segurança ocular
+
+| Lâmpada    | Limite | Onde é GARANTIDO |
+|------------|--------|------------------|
+| Fita Led   | ≤25% (≤63/254) | `HueController.set_light_color` / `set_brightness` / `set_all_brightness` (chokepoint) |
+| Led cima   | ≤25% (≤63/254) | idem |
+| Demais     | sem limite | — |
+
+A garantia AUTORITATIVA é o chokepoint do `HueController`, cobrindo presets
+(`apply_light_config → set_light_color`), screen-mirror, tools diretas e o
+caminho `"all"` (`set_all_brightness` clampa POR LÂMPADA). O
+`EyeSafetyMiddleware` é defesa em profundidade. Ambos reusam `clamp_eye_safety`
+de `marvin_hue/eye_safety.py` (raiz do pacote — domínio físico, fora de `chat/`),
+que arredonda PARA BAIXO (floor: 25% de 254 = 63, nunca 64). O teste de eval
+reconcilia `EYE_SAFETY_LIMITS` (código, canônico) com
+`.res/light_physical_locations.json` (informativo ao modelo).
+
+### Eval-gate
+
+`tests/eval/` é um golden-set versionado e determinístico (sem LLM, sem
+leakage). Casos `level="code"` (clamp ocular incl. `"all"`, all-off,
+reconciliação) são executados; `level="prompt"` são SKIP explícito.
+**Política:** nenhuma mudança de prompt/modelo é mergeada sem `pytest tests/eval`
+verde E smoke manual dos fluxos de prompt (delegação + recomendação de preset).
+
+### Follow-ups conhecidos (não-bloqueantes)
+
+- **Prompt caching vs contexto vivo (Anthropic):** o `HueContextMiddleware`
+  injeta status volátil no system message a cada turno, reduzindo o ganho do
+  `AnthropicPromptCachingMiddleware`. É otimização de custo (Anthropic), não
+  correção de comportamento; mitigar injetando o contexto vivo como mensagem
+  separada, fora do prefixo cacheado.
+- **HITL end-to-end:** `require_approval=True` insere o `HumanInTheLoopMiddleware`,
+  mas a rota HTTP ainda não trata `interrupt`/`resume` via `Command`. Padrão off.
 
 ---
 

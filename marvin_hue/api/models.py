@@ -58,6 +58,15 @@ class ChatMessageRequest(BaseModel):
     message: str = Field(
         ..., min_length=1, max_length=1000, description="Mensagem para o agente"
     )
+    session_id: str = Field(
+        default="default",
+        max_length=128,
+        description=(
+            "Id de sessão estável por cliente. É o ÚNICO mecanismo de isolamento "
+            "de histórico (thread_id do checkpointer compartilhado). O cliente DEVE "
+            "enviar um id único e estável; 'default' significa SEM isolamento."
+        ),
+    )
 
     @field_validator("message")
     @classmethod
@@ -66,7 +75,17 @@ class ChatMessageRequest(BaseModel):
         return v.strip()
 
 
+class ChatClearRequest(BaseModel):
+    session_id: str = Field(
+        default="default",
+        max_length=128,
+        description="Id da sessão cujo histórico deve ser limpo (thread_id).",
+    )
+
+
 class ChatConfigRequest(BaseModel):
-    provider: str = Field(..., pattern=r"^(openai|anthropic|ollama)$")
+    # Espelha os providers registrados (config.chat_provider Literal). "ollama"
+    # foi removido (sem provider registrado); xai/groq são de primeira classe.
+    provider: str = Field(..., pattern=r"^(openai|anthropic|xai|groq)$")
     model: str = Field(..., min_length=1, max_length=100)
     temperature: float = Field(default=0.7, ge=0, le=2)

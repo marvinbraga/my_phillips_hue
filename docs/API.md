@@ -4,7 +4,7 @@ Esta documentação descreve todos os endpoints REST e protocolos WebSocket disp
 
 ## Informações Gerais
 
-- **Base URL**: `http://localhost:5000`
+- **Base URL**: `http://localhost:5081`
 - **Formato de dados**: JSON
 - **Autenticação**: Não implementada (recomendada para produção)
 - **CORS**: Configurado para aceitar todas as origens (ajustar para produção)
@@ -47,14 +47,14 @@ Retorna o status de conexão com a Philips Hue Bridge.
 
 **Exemplo com curl:**
 ```bash
-curl http://localhost:5000/api/bridge/status
+curl http://localhost:5081/api/bridge/status
 ```
 
 **Exemplo com Python:**
 ```python
 import requests
 
-response = requests.get("http://localhost:5000/api/bridge/status")
+response = requests.get("http://localhost:5081/api/bridge/status")
 status = response.json()
 print(f"Connected: {status['connected']}")
 ```
@@ -97,14 +97,14 @@ Retorna o estado atual de todas as lâmpadas com suas cores RGB.
 
 **Exemplo com curl:**
 ```bash
-curl http://localhost:5000/api/lights/status
+curl http://localhost:5081/api/lights/status
 ```
 
 **Exemplo com Python:**
 ```python
 import requests
 
-response = requests.get("http://localhost:5000/api/lights/status")
+response = requests.get("http://localhost:5081/api/lights/status")
 lights = response.json()["lights"]
 
 for light in lights:
@@ -139,14 +139,14 @@ Lista todas as configurações de iluminação disponíveis.
 
 **Exemplo com curl:**
 ```bash
-curl http://localhost:5000/configurations
+curl http://localhost:5081/configurations
 ```
 
 **Exemplo com Python:**
 ```python
 import requests
 
-response = requests.get("http://localhost:5000/configurations")
+response = requests.get("http://localhost:5081/configurations")
 configs = response.json()
 
 for config in configs:
@@ -209,12 +209,12 @@ Aplica uma configuração de iluminação específica.
 **Exemplo com curl:**
 ```bash
 # Aplicar configuração imediatamente
-curl -X POST http://localhost:5000/apply \
+curl -X POST http://localhost:5081/apply \
   -H "Content-Type: application/json" \
   -d '{"config_name": "concentration"}'
 
 # Com transição suave de 3 segundos
-curl -X POST http://localhost:5000/apply \
+curl -X POST http://localhost:5081/apply \
   -H "Content-Type: application/json" \
   -d '{"config_name": "relax", "transition_time_secs": 3.0}'
 ```
@@ -229,7 +229,7 @@ data = {
     "transition_time_secs": 2.5
 }
 
-response = requests.post("http://localhost:5000/apply", json=data)
+response = requests.post("http://localhost:5081/apply", json=data)
 result = response.json()
 print(result["message"])
 ```
@@ -329,7 +329,7 @@ Retorna a configuração de posicionamento das lâmpadas para espelhamento de te
 
 **Exemplo com curl:**
 ```bash
-curl http://localhost:5000/positions
+curl http://localhost:5081/positions
 ```
 
 ---
@@ -371,7 +371,7 @@ Salva a configuração de posicionamento das lâmpadas.
 
 **Exemplo com curl:**
 ```bash
-curl -X POST http://localhost:5000/positions \
+curl -X POST http://localhost:5081/positions \
   -H "Content-Type: application/json" \
   -d '{
     "lights": [
@@ -393,7 +393,7 @@ data = {
     ]
 }
 
-response = requests.post("http://localhost:5000/positions", json=data)
+response = requests.post("http://localhost:5081/positions", json=data)
 print(response.json()["message"])
 ```
 
@@ -413,7 +413,7 @@ Restaura a configuração padrão de posicionamento.
 
 **Exemplo com curl:**
 ```bash
-curl -X POST http://localhost:5000/positions/reset
+curl -X POST http://localhost:5081/positions/reset
 ```
 
 ---
@@ -469,12 +469,12 @@ Inicia o espelhamento de tela.
 **Exemplo com curl:**
 ```bash
 # Iniciar com configurações padrão
-curl -X POST http://localhost:5000/mirror/start \
+curl -X POST http://localhost:5081/mirror/start \
   -H "Content-Type: application/json" \
   -d '{}'
 
 # Iniciar com 30 FPS e brilho 150
-curl -X POST http://localhost:5000/mirror/start \
+curl -X POST http://localhost:5081/mirror/start \
   -H "Content-Type: application/json" \
   -d '{"fps": 30, "brightness": 150}'
 ```
@@ -489,7 +489,7 @@ data = {
     "brightness": 200
 }
 
-response = requests.post("http://localhost:5000/mirror/start", json=data)
+response = requests.post("http://localhost:5081/mirror/start", json=data)
 status = response.json()
 print(f"Status: {status['message']}")
 ```
@@ -516,7 +516,7 @@ Para o espelhamento de tela.
 
 **Exemplo com curl:**
 ```bash
-curl -X POST http://localhost:5000/mirror/stop
+curl -X POST http://localhost:5081/mirror/stop
 ```
 
 ---
@@ -544,7 +544,7 @@ Retorna o status atual do espelhamento.
 
 **Exemplo com curl:**
 ```bash
-curl http://localhost:5000/mirror/status
+curl http://localhost:5081/mirror/status
 ```
 
 ---
@@ -586,7 +586,7 @@ Atualiza configurações do espelhamento em tempo real (sem parar).
 
 **Exemplo com curl:**
 ```bash
-curl -X POST http://localhost:5000/mirror/settings \
+curl -X POST http://localhost:5081/mirror/settings \
   -H "Content-Type: application/json" \
   -d '{"fps": 30, "saturation_boost": 1.5}'
 ```
@@ -602,7 +602,7 @@ settings = {
     "saturation_boost": 1.5
 }
 
-response = requests.post("http://localhost:5000/mirror/settings", json=settings)
+response = requests.post("http://localhost:5081/mirror/settings", json=settings)
 print(response.json()["message"])
 ```
 
@@ -633,7 +633,7 @@ Retorna o status do agente de chat.
 
 **Exemplo com curl:**
 ```bash
-curl http://localhost:5000/api/chat/status
+curl http://localhost:5081/api/chat/status
 ```
 
 ---
@@ -683,7 +683,7 @@ Envia uma mensagem para o agente e retorna a resposta.
 
 **Exemplo com curl:**
 ```bash
-curl -X POST http://localhost:5000/api/chat/message \
+curl -X POST http://localhost:5081/api/chat/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Quais configurações estão disponíveis?"}'
 ```
@@ -693,7 +693,7 @@ curl -X POST http://localhost:5000/api/chat/message \
 import requests
 
 data = {"message": "Ative um ambiente relaxante"}
-response = requests.post("http://localhost:5000/api/chat/message", json=data)
+response = requests.post("http://localhost:5081/api/chat/message", json=data)
 result = response.json()
 
 if result["success"]:
@@ -715,7 +715,7 @@ Limpa o histórico de conversação.
 
 **Exemplo with curl:**
 ```bash
-curl -X POST http://localhost:5000/api/chat/clear
+curl -X POST http://localhost:5081/api/chat/clear
 ```
 
 ---
@@ -756,7 +756,7 @@ Reconfigura o agente de chat com novos parâmetros.
 
 **Exemplo com curl:**
 ```bash
-curl -X POST http://localhost:5000/api/chat/configure \
+curl -X POST http://localhost:5081/api/chat/configure \
   -H "Content-Type: application/json" \
   -d '{"provider": "anthropic", "model": "claude-3-sonnet", "temperature": 0.5}'
 ```
@@ -812,7 +812,7 @@ Frequência: 10 FPS (a cada 100ms quando espelhamento está ativo)
 **Exemplo com JavaScript:**
 ```javascript
 // Conectar ao WebSocket
-const ws = new WebSocket('ws://localhost:5000/ws/mirror');
+const ws = new WebSocket('ws://localhost:5081/ws/mirror');
 
 // Receber atualizações
 ws.onmessage = (event) => {
@@ -850,7 +850,7 @@ import websockets
 import json
 
 async def mirror_websocket():
-    uri = "ws://localhost:5000/ws/mirror"
+    uri = "ws://localhost:5081/ws/mirror"
 
     async with websockets.connect(uri) as websocket:
         # Iniciar espelhamento
@@ -927,7 +927,7 @@ WebSocket para comunicação em tempo real com o agente de chat.
 
 **Exemplo com JavaScript:**
 ```javascript
-const ws = new WebSocket('ws://localhost:5000/ws/chat');
+const ws = new WebSocket('ws://localhost:5081/ws/chat');
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
@@ -1086,7 +1086,7 @@ Verificar:
 import requests
 import time
 
-BASE_URL = "http://localhost:5000"
+BASE_URL = "http://localhost:5081"
 
 def apply_config(name, transition=0):
     """Aplica uma configuração de iluminação."""
@@ -1128,7 +1128,7 @@ print(f"{result['message']}")
 import requests
 import time
 
-BASE_URL = "http://localhost:5000"
+BASE_URL = "http://localhost:5081"
 
 def start_mirror(fps=25, brightness=200):
     """Inicia o espelhamento."""
@@ -1171,7 +1171,7 @@ print(result["message"])
 
 ```javascript
 class HueChatClient {
-  constructor(url = 'ws://localhost:5000/ws/chat') {
+  constructor(url = 'ws://localhost:5081/ws/chat') {
     this.ws = new WebSocket(url);
     this.setupHandlers();
   }

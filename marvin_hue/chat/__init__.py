@@ -17,7 +17,7 @@ from marvin_hue.chat.providers import (
     LLMProviderFactory,
     LLMProviderBuilder,
 )
-from marvin_hue.chat.tools import configure_tools, get_all_tools
+from marvin_hue.chat.tools import build_light_tools
 
 __all__ = [
     # Agents
@@ -30,6 +30,5 @@ __all__ = [
     "LLMProviderFactory",
     "LLMProviderBuilder",
     # Tools
-    "configure_tools",
-    "get_all_tools",
+    "build_light_tools",
 ]

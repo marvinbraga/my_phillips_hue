@@ -129,6 +129,12 @@ def setup_websockets(app: FastAPI) -> None:
                     continue
 
                 action = data.get("action", "message")
+                # session_id extraído de CADA frame: tolera reconexões e mantém o
+                # frame autossuficiente. É o ÚNICO mecanismo de isolamento de
+                # histórico (thread_id do checkpointer compartilhado).
+                # Coerção defensiva: `null`/tipos exóticos -> "default"; limita o
+                # tamanho (espelha max_length=128 dos modelos REST).
+                session_id = str(data.get("session_id") or "default")[:128]
 
                 if action == "message":
                     message = data.get("message", "")
@@ -138,7 +144,7 @@ def setup_websockets(app: FastAPI) -> None:
                     await websocket.send_json({"type": "typing", "content": True})
 
                     try:
-                        response = await chat_agent.ainvoke(message)
+                        response = await chat_agent.ainvoke(message, session_id=session_id)
                         await websocket.send_json(
                             {"type": "response", "content": response}
                         )
@@ -150,7 +156,7 @@ def setup_websockets(app: FastAPI) -> None:
                         await websocket.send_json({"type": "typing", "content": False})
 
                 elif action == "clear":
-                    chat_agent.clear_history()
+                    await chat_agent.aclear_history(session_id=session_id)
                     await websocket.send_json(
                         {"type": "cleared", "content": "Histórico limpo"}
                     )

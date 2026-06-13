@@ -11,6 +11,7 @@ from marvin_hue.chat.providers.factory import LLMProviderFactory, LLMProviderBui
 from marvin_hue.chat.providers.openai_provider import OpenAIProvider
 from marvin_hue.chat.providers.anthropic_provider import AnthropicProvider
 from marvin_hue.chat.providers.xai_provider import XAIProvider
+from marvin_hue.chat.providers.groq_provider import GroqProvider
 
 __all__ = [
     "BaseLLMProvider",
@@ -21,4 +22,5 @@ __all__ = [
     "OpenAIProvider",
     "AnthropicProvider",
     "XAIProvider",
+    "GroqProvider",
 ]

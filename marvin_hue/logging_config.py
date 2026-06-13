@@ -57,7 +57,10 @@ def setup_logging(
         encoding="utf-8",
         format="{time:YYYY-MM-DD HH:mm:ss} - {name} - {level} - {message}",
         backtrace=True,
-        diagnose=True,
+        # diagnose=False: NÃO renderizar valores de variáveis locais nos
+        # tracebacks gravados em disco — frame-locals dos providers contêm
+        # api_key (e mensagens do usuário). backtrace=True mantém o traceback.
+        diagnose=False,
     )
 
     # Handler de console (opcional)
