@@ -85,3 +85,54 @@ def test_last_ai_text_fallback_when_no_ai_message():
     task = build_task_tool({"scene-designer": {"runnable": fake_sub, "description": "x"}})
     out = task.func(description="oi", subagent_type="scene-designer", runtime=MagicMock(tool_call_id="t1"))
     assert out.update["messages"][0].content == "Tarefa concluída."
+
+
+def test_task_tool_runtime_is_injected_not_in_model_schema():
+    """ToolRuntime deve ser ARG INJETADO: fora do schema do modelo, mas detectado
+    pelo ToolNode (regressão do 'atask() missing runtime')."""
+    from marvin_hue.chat.subagents.task import build_task_tool
+    from langgraph.prebuilt.tool_node import _get_all_injected_args
+
+    task = build_task_tool({"general-purpose": {"runnable": MagicMock(), "description": "g"}})
+    assert "runtime" not in task.args  # não exposto ao modelo
+    assert _get_all_injected_args(task).runtime == "runtime"  # injetável pelo ToolNode
+
+
+@pytest.mark.asyncio
+async def test_task_delegation_through_real_agent_injects_runtime():
+    """E2E: um tool_call `task` atravessa um create_agent REAL e o runtime é
+    injetado (sem 'missing positional argument runtime'). Regressão do bug live."""
+    from langchain.agents import create_agent
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from marvin_hue.chat.subagents.task import build_task_tool
+
+    class _Sub:
+        def invoke(self, payload, config=None):
+            return {"messages": [AIMessage(content="subagent respondeu")]}
+        async def ainvoke(self, payload, config=None):
+            return {"messages": [AIMessage(content="subagent respondeu")]}
+
+    task_tool = build_task_tool({"general-purpose": {"runnable": _Sub(), "description": "geral"}})
+
+    class _Bindable(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    model = _Bindable(responses=[
+        AIMessage(content="", tool_calls=[{
+            "name": "task",
+            "args": {"description": "responda algo", "subagent_type": "general-purpose"},
+            "id": "tc-1",
+        }]),
+        AIMessage(content="feito"),
+    ])
+    agent = create_agent(
+        model=model, tools=[task_tool], system_prompt="s", checkpointer=InMemorySaver(),
+    )
+    out = await agent.ainvoke(
+        {"messages": [("user", "delegue")]},
+        config={"configurable": {"thread_id": "t"}},
+    )
+    blob = " ".join(str(m.content) for m in out["messages"])
+    assert "subagent respondeu" in blob  # o resultado do subagent voltou via ToolMessage
