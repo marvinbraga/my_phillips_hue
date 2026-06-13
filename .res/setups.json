@@ -5501,6 +5501,240 @@
           }
         }
       ]
+    },
+    {
+      "name": "inverno_aconchegante",
+      "description": "Luz quente e suave para noites aconchegantes de inverno",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 212,
+            "green": 212,
+            "blue": 226,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 212,
+            "green": 212,
+            "blue": 226,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 200,
+            "green": 101,
+            "blue": 255,
+            "brightness": 130
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 169,
+            "green": 169,
+            "blue": 132,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 169,
+            "green": 169,
+            "blue": 132,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 88,
+            "green": 153,
+            "blue": 88,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 212,
+            "green": 212,
+            "blue": 226,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 108,
+            "green": 108,
+            "blue": 140,
+            "brightness": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "cafe_chocolate_quente",
+      "description": "Cafeteria aconchegante com tons de chocolate quente e caramelo suave",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 212,
+            "green": 212,
+            "blue": 226,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 212,
+            "green": 212,
+            "blue": 226,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 200,
+            "green": 101,
+            "blue": 255,
+            "brightness": 130
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 169,
+            "green": 169,
+            "blue": 132,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 169,
+            "green": 169,
+            "blue": 132,
+            "brightness": 100
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 88,
+            "green": 153,
+            "blue": 88,
+            "brightness": 63
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 212,
+            "green": 212,
+            "blue": 226,
+            "brightness": 170
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 108,
+            "green": 108,
+            "blue": 140,
+            "brightness": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "cafe_chocolate_natureza",
+      "description": "Cafeteria com tons de chocolate e leve toque de natureza terrosa, suave e aconchegante",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 255,
+            "green": 158,
+            "blue": 67,
+            "brightness": 155
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 255,
+            "green": 143,
+            "blue": 75,
+            "brightness": 140
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 206,
+            "green": 165,
+            "blue": 96,
+            "brightness": 110
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 255,
+            "green": 158,
+            "blue": 85,
+            "brightness": 145
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 255,
+            "green": 158,
+            "blue": 85,
+            "brightness": 145
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 188,
+            "green": 100,
+            "blue": 59,
+            "brightness": 59
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 255,
+            "green": 143,
+            "blue": 75,
+            "brightness": 140
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 188,
+            "green": 100,
+            "blue": 59,
+            "brightness": 59
+          }
+        }
+      ]
     }
   ]
 }
