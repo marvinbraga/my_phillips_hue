@@ -13,6 +13,7 @@ from marvin_hue.config import settings
 from marvin_hue.api.dependencies import (
     get_chat_agent,
     get_chat_checkpointer,
+    get_chat_unavailable_reason,
     get_hue_controller,
     get_manager,
     set_chat_agent,
@@ -42,9 +43,13 @@ async def chat_page(request: Request):
 async def chat_status(chat_agent: HueLightAgent | None = Depends(get_chat_agent)):
     """Retorna o status do agente de chat."""
     if chat_agent is None:
+        reason = get_chat_unavailable_reason()
         return {
             "available": False,
-            "error": "Agente de chat não inicializado. Verifique as chaves de API.",
+            "error": reason
+            or "Agente de chat não inicializado. Verifique as chaves de API.",
+            "provider": settings.chat_provider,
+            "model": settings.chat_model,
         }
 
     return {
@@ -72,9 +77,11 @@ async def send_chat_message(
         HTTPException: Se o agente não estiver disponível ou houver erro
     """
     if chat_agent is None:
+        reason = get_chat_unavailable_reason()
         raise HTTPException(
             status_code=503,
-            detail="Agente de chat não disponível. Verifique as configurações.",
+            detail=reason
+            or "Agente de chat não disponível. Verifique as configurações.",
         )
 
     # Validação adicional da mensagem
@@ -104,7 +111,11 @@ async def clear_chat_history(
     Body é opcional para retrocompatibilidade (clientes antigos sem body).
     """
     if chat_agent is None:
-        raise HTTPException(status_code=503, detail="Agente de chat não disponível.")
+        reason = get_chat_unavailable_reason()
+        raise HTTPException(
+            status_code=503,
+            detail=reason or "Agente de chat não disponível.",
+        )
 
     session_id = request.session_id if request is not None else "default"
     await chat_agent.aclear_history(session_id=session_id)

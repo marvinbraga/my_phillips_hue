@@ -308,30 +308,84 @@ class TestChatEndpoints:
         assert "available" in data
 
     def test_chat_status_unavailable(self, fastapi_test_client):
-        """Test chat status when agent is unavailable."""
+        """Test chat status when agent is unavailable includes diagnostic reason."""
         response = fastapi_test_client.get("/api/chat/status")
         data = response.json()
 
-        # In tests, chat agent is None
+        # In tests, chat agent is None with a diagnostic reason
+        assert response.status_code == 200
         assert data["available"] is False
-        if not data["available"]:
-            assert "error" in data
+        assert "error" in data
+        assert "XAI_API_KEY" in data["error"]
+        assert "provider" in data
+        assert "model" in data
+        # Must not leak secret-looking material beyond env var *names*
+        assert "sk-" not in data["error"].lower()
 
     def test_send_chat_message_unavailable(self, fastapi_test_client):
-        """Test sending message when chat is unavailable."""
+        """Test sending message when chat is unavailable returns diagnostic 503."""
         response = fastapi_test_client.post(
             "/api/chat/message", json={"message": "Test message"}
         )
 
-        # Should return 503 when chat agent not available
         assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert "XAI_API_KEY" in detail
+        assert "Provider" in detail or "provider" in detail.lower()
 
     def test_clear_chat_history_unavailable(self, fastapi_test_client):
-        """Test clearing chat history when unavailable."""
+        """Test clearing chat history when unavailable returns diagnostic 503."""
         response = fastapi_test_client.post("/api/chat/clear")
 
-        # Should return 503 when chat agent not available
         assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert "XAI_API_KEY" in detail
+
+
+class TestDiagnoseChatCredentials:
+    """Unit tests for diagnose_chat_credentials / sanitize helpers."""
+
+    def test_missing_key_mentions_env_var(self, monkeypatch):
+        from marvin_hue.api.dependencies import diagnose_chat_credentials
+        from marvin_hue.config import settings
+
+        monkeypatch.setattr(settings, "xai_api_key", None)
+        msg = diagnose_chat_credentials("xai")
+        assert msg is not None
+        assert "XAI_API_KEY" in msg
+        assert "xai" in msg
+
+    def test_empty_string_counts_as_missing(self, monkeypatch):
+        from marvin_hue.api.dependencies import diagnose_chat_credentials
+        from marvin_hue.config import settings
+
+        for provider, attr, env_var in [
+            ("openai", "openai_api_key", "OPENAI_API_KEY"),
+            ("anthropic", "anthropic_api_key", "ANTHROPIC_API_KEY"),
+            ("xai", "xai_api_key", "XAI_API_KEY"),
+            ("groq", "groq_api_key", "GROQ_API_KEY"),
+        ]:
+            monkeypatch.setattr(settings, attr, "")
+            msg = diagnose_chat_credentials(provider)
+            assert msg is not None, provider
+            assert env_var in msg, provider
+            assert provider in msg
+
+    def test_present_key_returns_none(self, monkeypatch):
+        from marvin_hue.api.dependencies import diagnose_chat_credentials
+        from marvin_hue.config import settings
+
+        monkeypatch.setattr(settings, "openai_api_key", "sk-test-not-real")
+        assert diagnose_chat_credentials("openai") is None
+
+    def test_sanitize_truncates_and_uses_first_line(self):
+        from marvin_hue.api.dependencies import sanitize_chat_init_error
+
+        long = "line one with details\nstacktrace line\n" + ("x" * 300)
+        out = sanitize_chat_init_error(Exception(long), max_len=50)
+        assert "\n" not in out
+        assert len(out) <= 50
+        assert out.startswith("line one")
 
 
 class TestAPIErrorHandling:

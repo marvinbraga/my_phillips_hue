@@ -5,7 +5,11 @@ Gerenciamento de conexões WebSocket para espelhamento e chat.
 
 import asyncio
 from fastapi import WebSocket, WebSocketDisconnect, FastAPI
-from marvin_hue.api.dependencies import get_screen_mirror, get_chat_agent
+from marvin_hue.api.dependencies import (
+    get_chat_agent,
+    get_chat_unavailable_reason,
+    get_screen_mirror,
+)
 from marvin_hue.logging_config import get_logger
 
 logger = get_logger("websockets")
@@ -133,16 +137,19 @@ def setup_websockets(app: FastAPI) -> None:
     async def websocket_chat(websocket: WebSocket):
         """WebSocket para comunicação em tempo real com o chat."""
         await chat_ws_manager.connect(websocket)
-        chat_agent = get_chat_agent()
 
         try:
             while True:
                 data = await websocket.receive_json()
 
+                # Re-fetch a cada mensagem para refletir /api/chat/configure.
+                chat_agent = get_chat_agent()
                 if chat_agent is None:
-                    await websocket.send_json(
-                        {"type": "error", "content": "Agente de chat não disponível."}
+                    reason = (
+                        get_chat_unavailable_reason()
+                        or "Agente de chat não disponível."
                     )
+                    await websocket.send_json({"type": "error", "content": reason})
                     continue
 
                 action = data.get("action", "message")
