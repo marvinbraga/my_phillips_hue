@@ -280,6 +280,32 @@ class HueController:
         """
         return [light.name for light in self.lights]
 
+    def list_bridge_lights(self) -> list[dict[str, Any]]:
+        """Inventory for catalog sync: name + optional stable bridge light id.
+
+        Field mapping:
+        - name ← light.name
+        - bridge_light_id ← uniqueid (preferred, stable) else light_id (volatile)
+
+        Does not hit extra HTTP if lights already cached on the controller.
+        Call refresh_lights() first if topology may have changed.
+        """
+        inventory: list[dict[str, Any]] = []
+        for light in self.lights:
+            bridge_id: str | None = None
+            uniqueid = getattr(light, "uniqueid", None)
+            if uniqueid:
+                bridge_id = str(uniqueid)
+            elif hasattr(light, "light_id") and light.light_id is not None:
+                bridge_id = str(light.light_id)
+            inventory.append(
+                {
+                    "name": light.name,
+                    "bridge_light_id": bridge_id,
+                }
+            )
+        return inventory
+
     def get_lights_status(self) -> list[dict[str, Any]]:
         """
         Retorna o estado atual de todas as lâmpadas com cores RGB.

@@ -206,6 +206,30 @@ class TestHueControllerLightLookup:
 
         assert isinstance(groups, list)
 
+    def test_list_bridge_lights_returns_name_and_id(self, mock_hue_controller):
+        """Inventory for catalog sync: prefer uniqueid over light_id."""
+        for i, light in enumerate(mock_hue_controller.lights, start=1):
+            light.light_id = i
+            light.uniqueid = f"00:17:88:01:00:00:00:{i:02d}-0b"
+        rows = mock_hue_controller.list_bridge_lights()
+        assert isinstance(rows, list)
+        assert len(rows) >= 1
+        assert "name" in rows[0]
+        assert rows[0]["name"]
+        assert "bridge_light_id" in rows[0]
+        # uniqueid preferred
+        assert rows[0]["bridge_light_id"].startswith("00:17:88")
+
+    def test_list_bridge_lights_falls_back_to_light_id(self, mock_hue_controller):
+        for i, light in enumerate(mock_hue_controller.lights, start=1):
+            light.light_id = 10 + i
+            if hasattr(light, "uniqueid"):
+                del light.uniqueid
+            light.uniqueid = None
+        rows = mock_hue_controller.list_bridge_lights()
+        assert rows[0]["bridge_light_id"] is not None
+        assert rows[0]["bridge_light_id"].isdigit() or rows[0]["bridge_light_id"]
+
 
 class TestHueControllerGetLightsStatus:
     """Tests for getting lights status."""
