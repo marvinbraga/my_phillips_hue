@@ -245,9 +245,20 @@ function updateSpectrum(status) {
     const bass = Math.max(0, Math.min(1, Number(status.bass) || 0));
     const mid = Math.max(0, Math.min(1, Number(status.mid) || 0));
     const treble = Math.max(0, Math.min(1, Number(status.treble) || 0));
+    const beat = Math.max(0, Math.min(1, Number(status.beat) || 0));
     $('#bar-bass').css('height', `${Math.max(4, bass * 100)}%`);
     $('#bar-mid').css('height', `${Math.max(4, mid * 100)}%`);
     $('#bar-treble').css('height', `${Math.max(4, treble * 100)}%`);
+    // Beat pulse: glow on spectrum container
+    const glow = Math.round(beat * 28);
+    const opacity = (0.15 + beat * 0.55).toFixed(2);
+    $('#spectrum-bars').css(
+        'box-shadow',
+        glow > 2
+            ? `0 0 ${glow}px rgba(255, 200, 80, ${opacity}), inset 0 0 ${Math.round(glow / 2)}px rgba(255, 255, 255, ${beat * 0.12})`
+            : 'none'
+    );
+    $('#spectrum-bars').toggleClass('beat-hit', beat > 0.45);
 }
 
 function updateUI(status) {
@@ -289,7 +300,7 @@ function updateUI(status) {
 
         $('#color-preview').html('<div class="text-muted">Inicie o espelhamento para ver as cores</div>');
         clearMonitorPreview();
-        updateSpectrum({ bass: 0, mid: 0, treble: 0 });
+        updateSpectrum({ bass: 0, mid: 0, treble: 0, beat: 0 });
     }
 }
 
