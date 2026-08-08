@@ -108,6 +108,16 @@ def test_find_monitor_device_prefers_monitor_name() -> None:
     assert idx == 1
 
 
+def test_find_monitor_device_prefers_pulse_over_alsa_hw() -> None:
+    devices = [
+        {"name": "HD-Audio Generic: ALC1220 Analog (hw:1,0)", "max_input_channels": 2},
+        {"name": "pulse", "max_input_channels": 32},
+        {"name": "HD Pro Webcam C920: USB Audio (hw:3,0)", "max_input_channels": 2},
+    ]
+    idx = find_monitor_device(query_devices=lambda: devices)
+    assert idx == 1
+
+
 def test_find_monitor_device_empty_returns_none() -> None:
     with patch("sounddevice.default") as default:
         default.device = None
@@ -124,6 +134,61 @@ def test_find_monitor_device_fallback_default_input() -> None:
         default.device = (0, 1)
         idx = find_monitor_device(query_devices=lambda: devices)
     assert idx == 0
+
+
+def test_resolve_input_stream_params_uses_device_default_rate() -> None:
+    from marvin_hue.audio_mirror import resolve_input_stream_params
+
+    def query(device=None):
+        if device is None:
+            return []
+        return {
+            "name": "pulse",
+            "max_input_channels": 2,
+            "default_samplerate": 44100.0,
+        }
+
+    accepted: list[int] = []
+
+    def check(**kwargs):
+        rate = int(kwargs["samplerate"])
+        if rate == 22050:
+            raise ValueError("invalid sample rate")
+        accepted.append(rate)
+
+    rate, channels, block = resolve_input_stream_params(
+        0,
+        query_devices=query,
+        check_input_settings=check,
+    )
+    assert rate == 44100
+    assert channels == 2
+    assert block >= 256
+    assert 22050 not in accepted or accepted[0] == 44100
+
+
+def test_resolve_input_stream_params_skips_invalid_rates() -> None:
+    from marvin_hue.audio_mirror import resolve_input_stream_params
+
+    def query(device=None):
+        return {
+            "name": "ALC1220",
+            "max_input_channels": 2,
+            "default_samplerate": 22050.0,  # reported but invalid on check
+        }
+
+    def check(**kwargs):
+        rate = int(kwargs["samplerate"])
+        if rate not in (48000, 44100):
+            raise ValueError(f"Invalid sample rate {rate}")
+
+    rate, channels, _block = resolve_input_stream_params(
+        4,
+        query_devices=query,
+        check_input_settings=check,
+    )
+    assert rate in (48000, 44100)
+    assert channels == 2
 
 
 # ---------------------------------------------------------------------------

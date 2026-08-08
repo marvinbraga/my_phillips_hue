@@ -157,12 +157,43 @@ def compute_band_energies(
     }
 
 
+def _device_field(dev: Any, key: str, default: Any = None) -> Any:
+    if isinstance(dev, dict):
+        return dev.get(key, default)
+    return getattr(dev, key, default)
+
+
+def _device_name(dev: Any) -> str:
+    return str(_device_field(dev, "name", "") or "")
+
+
+def _device_max_in(dev: Any) -> int:
+    try:
+        return int(_device_field(dev, "max_input_channels", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _device_default_rate(dev: Any) -> float | None:
+    try:
+        rate = _device_field(dev, "default_samplerate", None)
+        if rate is None:
+            return None
+        return float(rate)
+    except (TypeError, ValueError):
+        return None
+
+
 def find_monitor_device(
     query_devices: Callable[[], Any] | None = None,
 ) -> int | None:
     """
-    Escolhe device de captura: preferência por nome contendo 'monitor'
-    (sink monitor PulseAudio/PipeWire); fallback para default input.
+    Escolhe device de captura, nesta ordem:
+    1. Nome contendo 'monitor' (sink monitor PA/PW)
+    2. 'pulse' ou 'pipewire' (melhor compatibilidade no Linux)
+    3. Default input (se for pulse/pipewire/monitor)
+    4. Default input qualquer
+    5. Primeiro device com canais de entrada (evita webcams se possível)
 
     Returns:
         Device index ou None se não houver dispositivos.
@@ -178,7 +209,6 @@ def find_monitor_device(
     if devices is None:
         return None
 
-    # sd.query_devices() sem arg retorna lista de dicts (ou DeviceList)
     try:
         dev_list = list(devices)
     except TypeError:
@@ -187,42 +217,132 @@ def find_monitor_device(
     if not dev_list:
         return None
 
+    inputs: list[tuple[int, Any, str]] = []
     for idx, dev in enumerate(dev_list):
-        name = str(dev.get("name", "") if isinstance(dev, dict) else getattr(dev, "name", ""))
-        max_in = int(
-            dev.get("max_input_channels", 0)
-            if isinstance(dev, dict)
-            else getattr(dev, "max_input_channels", 0)
-        )
-        if max_in > 0 and "monitor" in name.lower():
+        max_in = _device_max_in(dev)
+        if max_in <= 0:
+            continue
+        name = _device_name(dev)
+        inputs.append((idx, dev, name))
+
+    if not inputs:
+        return None
+
+    for idx, _dev, name in inputs:
+        if "monitor" in name.lower():
             logger.info(f"Audio device (monitor): index={idx} name={name!r}")
             return idx
 
-    # Fallback: default input
+    for idx, _dev, name in inputs:
+        low = name.lower().strip()
+        if low in {"pulse", "pipewire"} or low.startswith("pulse") or low.startswith("pipewire"):
+            logger.info(f"Audio device (pulse/pipewire): index={idx} name={name!r}")
+            return idx
+
+    default_in: int | None = None
     try:
         default = sd.default.device
         if isinstance(default, (list, tuple)):
-            default_in = default[0]
-        else:
-            default_in = default
-        if default_in is not None and int(default_in) >= 0:
-            logger.info(f"Audio device (default input): index={default_in}")
-            return int(default_in)
+            default_in = int(default[0]) if default[0] is not None else None
+        elif default is not None:
+            default_in = int(default)
     except Exception as exc:
         logger.debug(f"Could not resolve default input: {exc}")
 
-    # Último recurso: primeiro device com input channels
-    for idx, dev in enumerate(dev_list):
-        max_in = int(
-            dev.get("max_input_channels", 0)
-            if isinstance(dev, dict)
-            else getattr(dev, "max_input_channels", 0)
-        )
-        if max_in > 0:
-            logger.info(f"Audio device (first input): index={idx}")
-            return idx
+    if default_in is not None and default_in >= 0:
+        for idx, _dev, name in inputs:
+            if idx != default_in:
+                continue
+            low = name.lower()
+            if "monitor" in low or "pulse" in low or "pipewire" in low:
+                logger.info(f"Audio device (default PA/PW): index={idx} name={name!r}")
+                return idx
+        # Prefer not to use bare ALSA hw:* as first choice when pulse exists — already checked
+        logger.info(f"Audio device (default input): index={default_in}")
+        return default_in
 
-    return None
+    # Evita webcam se houver outra opção
+    for idx, _dev, name in inputs:
+        low = name.lower()
+        if "webcam" in low or "camera" in low or "c920" in low:
+            continue
+        logger.info(f"Audio device (first non-webcam input): index={idx} name={name!r}")
+        return idx
+
+    idx, _dev, name = inputs[0]
+    logger.info(f"Audio device (first input): index={idx} name={name!r}")
+    return idx
+
+
+def resolve_input_stream_params(
+    device: int,
+    *,
+    query_devices: Callable[..., Any] | None = None,
+    check_input_settings: Callable[..., Any] | None = None,
+) -> tuple[int, int, int]:
+    """
+    Resolve (sample_rate, channels, blocksize) aceitos pelo device.
+
+    PortAudio/ALSA rejeita taxas arbitrárias (ex.: 22050 em device 44100-only).
+    Usa default_samplerate do device e tenta fallbacks comuns.
+    """
+    try:
+        import sounddevice as sd
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError(
+            "Biblioteca sounddevice não instalada. Execute: uv add sounddevice"
+        ) from exc
+
+    q = query_devices or sd.query_devices
+    checker = check_input_settings or sd.check_input_settings
+
+    try:
+        info = q(device)
+    except Exception:
+        info = None
+
+    max_in = _device_max_in(info) if info is not None else 1
+    channels = 1 if max_in <= 0 else min(2, max_in)
+
+    preferred: list[int] = []
+    native = _device_default_rate(info) if info is not None else None
+    if native and native > 0:
+        preferred.append(int(round(native)))
+    for candidate in (48000, 44100, 32000, 16000, 22050, 8000):
+        if candidate not in preferred:
+            preferred.append(candidate)
+
+    last_err: Exception | None = None
+    for rate in preferred:
+        try:
+            checker(device=device, channels=channels, samplerate=rate, dtype="float32")
+            logger.info(
+                f"Audio stream params: device={device} rate={rate} channels={channels}"
+            )
+            # block ~23ms at 44.1k → ~1024; scale with rate
+            block = max(256, min(4096, int(rate * 0.023)))
+            # keep power-of-two-ish for FFT friendliness
+            block = 1 << (block - 1).bit_length()
+            block = max(256, min(4096, block))
+            return rate, channels, block
+        except Exception as exc:
+            last_err = exc
+            logger.debug(f"Sample rate {rate} rejected for device {device}: {exc}")
+
+    # Último recurso: confiar no default do device sem check
+    if native and native > 0:
+        rate = int(round(native))
+        block = max(256, min(4096, 1 << (int(rate * 0.023) - 1).bit_length()))
+        logger.warning(
+            f"Using device default rate {rate} without check_input_settings "
+            f"(last error: {last_err})"
+        )
+        return rate, channels, block
+
+    raise RuntimeError(
+        "Nenhuma taxa de amostragem compatível com o dispositivo de áudio. "
+        f"Último erro: {last_err}"
+    ) from last_err
 
 
 class AudioMirror:
@@ -233,7 +353,8 @@ class AudioMirror:
     Reutiliza light_positions.json e eye_safety / enabled_for_app.
     """
 
-    SAMPLE_RATE = 22050
+    # Preferências legadas (taxa real é resolvida por device em start/loop)
+    SAMPLE_RATE = 44100
     BLOCK_SIZE = 1024
 
     def __init__(
@@ -261,6 +382,9 @@ class AudioMirror:
             "treble": 0.0,
         }
         self._device_index: int | None = None
+        self._sample_rate: int = self.SAMPLE_RATE
+        self._channels: int = 1
+        self._block_size: int = self.BLOCK_SIZE
 
     def apply_profile(self, name: str) -> None:
         """Aplica perfil nomeado (party | chill | pulse)."""
@@ -410,20 +534,33 @@ class AudioMirror:
             return
 
         device = self._device_index
-        sample_rate = self.SAMPLE_RATE
-        block = self.BLOCK_SIZE
-        frame_time = 1.0 / max(1, self.fps)
+        if device is None:
+            logger.error("Audio mirror loop started without device index")
+            self.running = False
+            return
+
+        try:
+            sample_rate, channels, block = resolve_input_stream_params(device)
+        except Exception as exc:
+            logger.exception(f"Could not resolve audio stream params: {exc}")
+            self.running = False
+            return
+
+        self._sample_rate = sample_rate
+        self._channels = channels
+        self._block_size = block
 
         try:
             with sd.InputStream(
                 device=device,
-                channels=1,
+                channels=channels,
                 samplerate=sample_rate,
                 blocksize=block,
                 dtype="float32",
             ) as stream:
                 logger.info(
-                    f"Audio stream open device={device} rate={sample_rate} block={block}"
+                    f"Audio stream open device={device} rate={sample_rate} "
+                    f"channels={channels} block={block}"
                 )
                 while self.running:
                     start = time.time()
@@ -431,12 +568,15 @@ class AudioMirror:
                         data, overflowed = stream.read(block)
                         if overflowed:
                             logger.debug("Audio buffer overflow")
-                        mono = np.asarray(data, dtype=np.float32).reshape(-1)
+                        arr = np.asarray(data, dtype=np.float32)
+                        if arr.ndim == 2 and arr.shape[1] > 1:
+                            mono = arr.mean(axis=1)
+                        else:
+                            mono = arr.reshape(-1)
                         self._process_frame(mono, sample_rate)
                     except Exception as frame_exc:
                         logger.debug(f"Audio frame error: {frame_exc}")
 
-                    # FPS pode mudar em runtime
                     frame_time = 1.0 / max(1, self.fps)
                     elapsed = time.time() - start
                     if elapsed < frame_time:
@@ -482,14 +622,31 @@ class AudioMirror:
         if device is None:
             raise RuntimeError(
                 "Nenhum dispositivo de áudio encontrado. "
-                "No Linux, use PulseAudio/PipeWire e garanta um sink monitor "
-                "(o que você ouve). Verifique com: pactl list short sources"
+                "No Linux, use PulseAudio/PipeWire (device 'pulse' ou 'pipewire') "
+                "e garanta um sink monitor (o que você ouve). "
+                "Verifique com: pactl list short sources"
             )
         self._device_index = device
 
+        # Resolve taxa antes da thread para falhar cedo com mensagem clara
+        try:
+            sample_rate, channels, block = resolve_input_stream_params(device)
+            self._sample_rate = sample_rate
+            self._channels = channels
+            self._block_size = block
+        except Exception as exc:
+            self._device_index = None
+            raise RuntimeError(
+                "Não foi possível abrir o dispositivo de áudio com uma taxa "
+                f"de amostragem válida (device={device}). "
+                "Tente o device pulse/pipewire. Detalhe: "
+                f"{exc}"
+            ) from exc
+
         logger.info(
             f"Starting audio mirroring (FPS: {self.fps}, brightness: {self.brightness}"
-            f", profile: {self.active_profile}, device: {device})"
+            f", profile: {self.active_profile}, device: {device}, "
+            f"rate={sample_rate}, ch={channels})"
         )
         self.running = True
         self.thread = threading.Thread(target=self._mirror_loop, daemon=True)
@@ -526,6 +683,9 @@ class AudioMirror:
             "energy_gain": self.energy_gain,
             "active_profile": self.active_profile,
             "colors": self._current_colors.copy(),
+            "sample_rate": self._sample_rate,
+            "channels": self._channels,
+            "device_index": self._device_index,
             "bass": self._levels.get("bass", 0.0),
             "mid": self._levels.get("mid", 0.0),
             "treble": self._levels.get("treble", 0.0),
