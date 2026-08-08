@@ -403,6 +403,43 @@ function toggleTheme() {
     setTheme(newTheme);
 }
 
+function importBackup() {
+    const fileInput = document.getElementById('backup-import-file');
+    const statusEl = $('#backup-status');
+    const strategy = $('#backup-strategy').val() || 'merge';
+    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+        showToast('Selecione um arquivo ZIP de backup', 'warning');
+        return;
+    }
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('strategy', strategy);
+    statusEl.text('Importando...');
+    $('#backup-import-btn').prop('disabled', true);
+    $.ajax({
+        url: '/api/backup/import',
+        method: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false,
+    })
+        .done(function (body) {
+            const created = (body.lights && body.lights.created) || 0;
+            const updated = (body.lights && body.lights.updated) || 0;
+            statusEl.text(`Importação (${body.strategy}): +${created} criadas, ${updated} atualizadas`);
+            showToast('Backup importado com sucesso', 'success');
+            loadLights();
+        })
+        .fail(function (jqXHR) {
+            statusEl.text('');
+            showToast(apiErrorMessage(jqXHR, 'Falha ao importar backup'), 'danger');
+        })
+        .always(function () {
+            $('#backup-import-btn').prop('disabled', false);
+            fileInput.value = '';
+        });
+}
+
 $(document).ready(function () {
     lightModal = new bootstrap.Modal(document.getElementById('lightModal'));
     initTheme();
@@ -415,6 +452,7 @@ $(document).ready(function () {
     $('#sync-btn, #empty-sync-btn').on('click', syncFromBridge);
     $('#new-btn, #empty-new-btn').on('click', openCreateModal);
     $('#light-save-btn').on('click', saveLight);
+    $('#backup-import-btn').on('click', importBackup);
 
     $('#light-form').on('submit', function (e) {
         e.preventDefault();

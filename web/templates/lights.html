@@ -63,14 +63,7 @@
 </div>
 
 <div class="container mt-4">
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="/">Controle</a></li>
-            <li class="breadcrumb-item active" aria-current="page">Lâmpadas</li>
-            <li class="breadcrumb-item"><a href="/positions-config">Posicionamento</a></li>
-            <li class="breadcrumb-item"><a href="/mirror">Espelhamento</a></li>
-        </ol>
-    </nav>
+    {% include "partials/nav.html" %}
 
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div>
@@ -83,6 +76,35 @@
     <p class="text-muted mt-2">
         Gerencie o catálogo de lâmpadas do app: metadados, limites de segurança ocular e sincronização com a bridge.
     </p>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-archive"></i> Backup (import / export)
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Exporta catálogo de lâmpadas, grupos, agendamentos e arquivos
+                <code>setups.json</code> / <code>light_positions.json</code> em um ZIP.
+            </p>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <a id="backup-export-btn" class="btn btn-sm btn-outline-primary" href="/api/backup/export">
+                    <i class="bi bi-download"></i> Exportar ZIP
+                </a>
+                <div class="input-group input-group-sm" style="max-width: 22rem;">
+                    <input type="file" class="form-control" id="backup-import-file" accept=".zip,application/zip">
+                    <button class="btn btn-outline-secondary" type="button" id="backup-import-btn">
+                        <i class="bi bi-upload"></i> Importar
+                    </button>
+                </div>
+                <select class="form-select form-select-sm" id="backup-strategy" style="max-width: 10rem;"
+                        title="Estratégia de importação">
+                    <option value="merge" selected>Merge</option>
+                    <option value="replace">Replace</option>
+                </select>
+            </div>
+            <div id="backup-status" class="form-text mt-2"></div>
+        </div>
+    </div>
 
     <div class="card mb-4">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">

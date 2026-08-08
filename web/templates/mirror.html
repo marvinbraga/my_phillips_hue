@@ -196,11 +196,35 @@
                 </div>
                 <div class="card-body">
                     <div class="mb-3">
+                        <label class="form-label">
+                            <i class="bi bi-stars"></i> Perfil
+                        </label>
+                        <div class="btn-group w-100" role="group" aria-label="Perfis de espelhamento">
+                            <input type="radio" class="btn-check" name="mirror-profile" id="profile-cinema"
+                                   value="cinema" autocomplete="off">
+                            <label class="btn btn-outline-primary" for="profile-cinema" title="Baixo FPS, transições suaves">
+                                Cinema
+                            </label>
+                            <input type="radio" class="btn-check" name="mirror-profile" id="profile-fps"
+                                   value="fps" autocomplete="off">
+                            <label class="btn btn-outline-primary" for="profile-fps" title="Alto FPS, baixa suavização (jogos)">
+                                FPS
+                            </label>
+                            <input type="radio" class="btn-check" name="mirror-profile" id="profile-ambient"
+                                   value="ambient" autocomplete="off">
+                            <label class="btn btn-outline-primary" for="profile-ambient" title="Muito baixo FPS, alta suavização">
+                                Ambiente
+                            </label>
+                        </div>
+                        <div class="form-text">Cinema (suave) · FPS (jogos) · Ambiente (mood). Ajusta FPS, brilho e suavização.</div>
+                    </div>
+
+                    <div class="mb-3">
                         <label for="fps-range" class="form-label">
                             Taxa de Atualização: <span id="fps-value">25</span> FPS
                         </label>
                         <input type="range" class="form-range" id="fps-range"
-                               min="10" max="30" value="25" step="5">
+                               min="5" max="30" value="25" step="1">
                         <div class="form-text">Maior FPS = mais responsivo, mais uso de CPU</div>
                     </div>
 

@@ -41,6 +41,13 @@ class LightRegistryService:
     ) -> None:
         self._repo = repo
         self._bridge = bridge
+        # Set after a successful refresh_and_sync (health dashboard).
+        self.last_sync_at: Optional[datetime] = None
+
+    @property
+    def repository(self) -> LightRegistryRepository:
+        """Expose the light catalog port for backup/import and similar use cases."""
+        return self._repo
 
     async def aclose(self) -> None:
         await self._repo.close()
@@ -309,4 +316,6 @@ class LightRegistryService:
                 raise LightValidationError(
                     "Unable to refresh lights from bridge"
                 ) from exc
-        return await self.sync_from_bridge(reactivate_deleted=reactivate_deleted)
+        result = await self.sync_from_bridge(reactivate_deleted=reactivate_deleted)
+        self.last_sync_at = datetime.now(timezone.utc)
+        return result
