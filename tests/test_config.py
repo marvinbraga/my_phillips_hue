@@ -29,6 +29,8 @@ def isolate_env_vars(monkeypatch):
         "POSITIONS_FILE",
         "LOG_LEVEL",
         "LOG_FILE",
+        "APP_DB_PATH",
+        "CHAT_CHECKPOINT_DB",
     ]
     # Salva valores originais
     original_values = {var: os.environ.get(var) for var in env_vars}
@@ -311,3 +313,37 @@ class TestSettingsCaseInsensitive:
         monkeypatch.setenv("CHAT_PROVIDER", "openai")
         settings = create_test_settings()
         assert settings.chat_provider == "openai"
+
+
+class TestAppDbPathSettings:
+    """App-owned SQLite path (lights registry) — separate from chat_memory.sqlite."""
+
+    def test_default_app_db_path(self):
+        settings = create_test_settings(bridge_ip="192.168.1.100")
+        assert settings.app_db_path == ".res/marvin_hue.sqlite"
+
+    def test_app_db_path_from_env(self, monkeypatch):
+        monkeypatch.setenv("APP_DB_PATH", "/tmp/custom_marvin.sqlite")
+        settings = create_test_settings(bridge_ip="192.168.1.100")
+        assert settings.app_db_path == "/tmp/custom_marvin.sqlite"
+
+    def test_app_db_path_distinct_from_chat_checkpoint_db(self):
+        settings = create_test_settings(bridge_ip="192.168.1.100")
+        assert settings.app_db_path != settings.chat_checkpoint_db
+        assert "chat_memory" not in settings.app_db_path
+
+    def test_app_db_path_rejects_same_as_chat_db(self):
+        with pytest.raises(ValidationError):
+            create_test_settings(
+                bridge_ip="192.168.1.100",
+                app_db_path=".res/chat_memory.sqlite",
+                chat_checkpoint_db=".res/chat_memory.sqlite",
+            )
+
+    def test_app_db_path_rejects_chat_memory_basename(self):
+        with pytest.raises(ValidationError):
+            create_test_settings(
+                bridge_ip="192.168.1.100",
+                app_db_path="/tmp/chat_memory.sqlite",
+            )
+

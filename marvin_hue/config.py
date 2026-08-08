@@ -5,8 +5,10 @@ Este módulo define todas as configurações da aplicação usando Pydantic Sett
 permitindo carregamento a partir de variáveis de ambiente ou arquivo .env.
 """
 
+from pathlib import Path
 from typing import Literal
-from pydantic import Field
+
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -102,6 +104,12 @@ class Settings(BaseSettings):
         description="Caminho para o arquivo JSON de posições",
     )
 
+    # App-owned SQLite (lights registry catalog). Separate from chat_checkpoint_db.
+    app_db_path: str = Field(
+        default=".res/marvin_hue.sqlite",
+        description="Caminho do SQLite da aplicação (catálogo de lâmpadas; NÃO o chat)",
+    )
+
     # Logging Configuration
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO", description="Nível de logging"
@@ -116,6 +124,32 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",  # Ignora variáveis extras não definidas
     )
+
+    @model_validator(mode="after")
+    def validate_app_db_path_isolation(self) -> "Settings":
+        """Refuse collinding app DB with chat checkpointer file."""
+        app_raw = (self.app_db_path or "").strip()
+        chat_raw = (self.chat_checkpoint_db or "").strip()
+        if not app_raw:
+            raise ValueError("app_db_path must be a non-empty path")
+        if Path(app_raw).name == "chat_memory.sqlite":
+            raise ValueError(
+                "app_db_path must not use basename chat_memory.sqlite "
+                "(reserved for chat checkpointer)"
+            )
+        # Prefer project .res/ for relative paths in docs; resolve for equality only.
+        try:
+            app_res = Path(app_raw).expanduser().resolve()
+            chat_res = Path(chat_raw).expanduser().resolve()
+        except OSError:
+            app_res = Path(app_raw).expanduser()
+            chat_res = Path(chat_raw).expanduser()
+        if app_res == chat_res:
+            raise ValueError(
+                "app_db_path must be different from chat_checkpoint_db"
+            )
+        return self
+
 
 
 # Singleton instance - usar esta instância em todo o código

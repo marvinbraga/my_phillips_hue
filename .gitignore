@@ -68,6 +68,12 @@ db.sqlite3-journal
 .res/chat_memory.sqlite-wal
 .res/chat_memory.sqlite-shm
 
+# App-owned SQLite (lights registry catalog)
+.res/marvin_hue.sqlite
+.res/marvin_hue.sqlite-wal
+.res/marvin_hue.sqlite-shm
+
+
 # Flask stuff:
 instance/
 .webassets-cache
@@ -159,3 +165,12 @@ cython_debug/
 .idea/
 .playwright-mcp/
 .serena/
+
+# --- secrets: never commit ---
+.env.*
+!.env.example
+!.env*.example
+.env.local
+.streamlit/secrets.toml
+secrets.toml
+!.streamlit/secrets.toml.example
