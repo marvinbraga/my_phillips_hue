@@ -22,7 +22,14 @@ from marvin_hue.chat import create_hue_agent  # noqa: E402
 from marvin_hue.logging_config import get_logger  # noqa: E402
 from marvin_hue.config import settings  # noqa: E402
 from marvin_hue.api import dependencies  # noqa: E402
-from marvin_hue.api.routes import status, configurations, positions, mirror, chat  # noqa: E402
+from marvin_hue.api.routes import (  # noqa: E402
+    status,
+    configurations,
+    positions,
+    mirror,
+    chat,
+    lights,
+)
 from marvin_hue.api.websockets import setup_websockets  # noqa: E402
 
 logger = get_logger("app")
@@ -46,6 +53,24 @@ async def lifespan(app: FastAPI):
     dependencies.set_hue_controller(hue)
     dependencies.set_manager(manager)
     dependencies.set_screen_mirror(screen_mirror)
+
+    # App-owned lights registry (separate SQLite from chat checkpointer)
+    from marvin_hue.persistence.schema import init_db
+    from marvin_hue.persistence.light_repository import SqliteLightRegistryRepository
+    from marvin_hue.services.light_registry import LightRegistryService
+
+    light_repo: SqliteLightRegistryRepository | None = None
+    try:
+        await init_db(settings.app_db_path)
+        light_repo = await SqliteLightRegistryRepository.open(settings.app_db_path)
+        light_registry = LightRegistryService(light_repo, bridge=hue)
+        dependencies.set_light_registry_service(light_registry)
+        logger.info(f"Light registry initialized at {settings.app_db_path}")
+    except Exception as e:
+        logger.exception(f"Error initializing light registry: {e}")
+        dependencies.set_light_registry_service(None)
+        # Fail closed for registry: hard-fail startup so misconfig is visible.
+        raise
 
     # Inicializa o agente de chat
     logger.info(
@@ -80,9 +105,20 @@ async def lifespan(app: FastAPI):
             logger.info("Chat agent initialized successfully")
         except Exception as e:
             logger.exception(f"Error initializing chat agent: {e}")
-            dependencies.set_chat_agent(None)
+            # Diagnóstico para clientes da API (sem secrets): key ausente tem
+            # prioridade; senão, primeira linha sanitizada da exceção.
+            reason = dependencies.diagnose_chat_credentials(settings.chat_provider)
+            if reason is None:
+                sanitized = dependencies.sanitize_chat_init_error(e)
+                reason = f"Falha ao inicializar agente: {sanitized}"
+            dependencies.set_chat_agent(None, reason=reason)
 
-        yield
+        try:
+            yield
+        finally:
+            if light_repo is not None:
+                await light_repo.close()
+            dependencies.set_light_registry_service(None)
     # Saída do AsyncExitStack fecha o AsyncSqliteSaver (se usado) no shutdown.
 
     # Shutdown
@@ -113,8 +149,9 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
 templates = Jinja2Templates(directory="web/templates")
 
-# Registrar routers
+# Registrar routers (status before lights so GET /api/lights/status is not shadowed)
 app.include_router(status.router)
+app.include_router(lights.router)
 app.include_router(configurations.router)
 app.include_router(positions.router)
 app.include_router(mirror.router)

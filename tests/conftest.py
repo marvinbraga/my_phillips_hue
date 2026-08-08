@@ -213,38 +213,69 @@ def mock_screen_mirror():
 
 @pytest.fixture
 def fastapi_test_client(
-    mock_hue_controller, mock_light_setups_manager, mock_screen_mirror, monkeypatch
-) -> TestClient:
-    """Provides a FastAPI TestClient for integration tests."""
-    # Set environment variables
-    monkeypatch.setenv("BRIDGE_IP", "192.168.1.100")
+    mock_hue_controller,
+    mock_light_setups_manager,
+    mock_screen_mirror,
+    monkeypatch,
+    tmp_path,
+) -> Generator:
+    """Provides a FastAPI TestClient for integration tests.
 
-    # Mock the dependencies in the new architecture
+    Bootstraps light registry on a temp SQLite via asyncio.run (sync fixture;
+    no running loop under TestClient setup).
+    """
+    import asyncio
+
+    monkeypatch.setenv("BRIDGE_IP", "192.168.1.100")
+    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "test_marvin_hue.sqlite"))
+
     from marvin_hue.api import dependencies
     import app
 
-    # Store original values
     original_hue = dependencies._hue_controller
     original_manager = dependencies._manager
     original_mirror = dependencies._screen_mirror
     original_chat = dependencies._chat_agent
+    original_chat_reason = dependencies._chat_unavailable_reason
+    original_registry = getattr(dependencies, "_light_registry_service", None)
 
-    # Set mocked instances using dependency setters
     dependencies.set_hue_controller(mock_hue_controller)
     dependencies.set_manager(mock_light_setups_manager)
     dependencies.set_screen_mirror(mock_screen_mirror)
-    dependencies.set_chat_agent(None)  # Disable chat agent for tests
+    # Disable chat agent; reason simula falha de init sem secrets
+    dependencies.set_chat_agent(
+        None, reason="Provider 'xai' sem XAI_API_KEY configurada."
+    )
 
-    # Create test client
+    db_path = str(tmp_path / "test_marvin_hue.sqlite")
+
+    async def _bootstrap():
+        from marvin_hue.persistence.schema import init_db
+        from marvin_hue.persistence.light_repository import (
+            SqliteLightRegistryRepository,
+        )
+        from marvin_hue.services.light_registry import LightRegistryService
+
+        await init_db(db_path)
+        repo = await SqliteLightRegistryRepository.open(db_path)
+        return LightRegistryService(repo, bridge=mock_hue_controller)
+
+    service = asyncio.run(_bootstrap())
+    dependencies.set_light_registry_service(service)
+
     client = TestClient(app.app)
-
     yield client
 
-    # Restore original values
+    async def _teardown():
+        await service.aclose()
+
+    asyncio.run(_teardown())
     dependencies._hue_controller = original_hue
     dependencies._manager = original_manager
     dependencies._screen_mirror = original_mirror
     dependencies._chat_agent = original_chat
+    dependencies._chat_unavailable_reason = original_chat_reason
+    dependencies._light_registry_service = original_registry
 
 
 @pytest.fixture
