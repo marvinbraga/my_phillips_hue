@@ -30,9 +30,23 @@ GENERAL_PROMPT = (
 # Subconjuntos de tools por subagent (least-privilege). Extraídos como
 # constantes para serem testáveis contra typos (um nome inválido seria
 # silenciosamente descartado por _subset).
-SCENE_DESIGNER_TOOLS = ["set_light_color", "apply_config", "get_light_locations", "get_light_status"]
+SCENE_DESIGNER_TOOLS = [
+    "set_light_color",
+    "apply_config",
+    "get_light_locations",
+    "get_light_status",
+    "list_lights_by_room",
+    "set_room_power",
+    "set_room_brightness",
+]
 CONFIG_LIBRARIAN_TOOLS = ["list_configs", "apply_config", "save_current_config", "get_light_status"]
-GENERAL_TOOLS = ["list_lights", "get_light_status", "get_light_locations"]
+GENERAL_TOOLS = [
+    "list_lights",
+    "get_light_status",
+    "get_light_locations",
+    "get_rooms",
+    "list_lights_by_room",
+]
 
 
 def _subset(tools: list[BaseTool], names: list[str]) -> list[BaseTool]:
@@ -46,8 +60,9 @@ def build_subagents(
     manager: LightSetupsManager,
     *,
     context_middleware: Optional[HueContextMiddleware] = None,
+    room_index: Optional[dict[str, list[str]]] = None,
 ) -> dict[str, dict]:
-    all_tools = build_light_tools(controller, manager)
+    all_tools = build_light_tools(controller, manager, room_index=room_index)
     # REUSA a instância de HueContextMiddleware do orquestrador quando fornecida:
     # compartilha o cache TTL do status (Tarefa 3.3) — sem isso, cada subagent
     # faria seu próprio I/O na bridge a cada chamada de modelo.

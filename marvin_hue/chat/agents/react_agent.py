@@ -184,6 +184,7 @@ class HueLightAgent(BaseAgent):
         config: Optional[AgentConfig] = None,
         *,
         checkpointer: Optional[Any] = None,
+        room_index: Optional[dict[str, list[str]]] = None,
     ):
         """Inicializa o agente.
 
@@ -195,10 +196,14 @@ class HueLightAgent(BaseAgent):
                 InMemorySaver (volátil). O ciclo de vida de um checkpointer
                 persistente (ex.: SqliteSaver) é do CHAMADOR (lifespan/with) —
                 o agente NUNCA abre SQLite sozinho (evita vazar a conexão).
+            room_index: Snapshot sala → nomes (registry). None → tools usam
+                fallback de localizações físicas. Mudanças de room no registry
+                exigem rebuild do agente (lifespan / reconfigure).
         """
         self._controller = controller
         self._manager = manager
         self._config = config or AgentConfig()
+        self._room_index = room_index
 
         # Memória por sessão via checkpointer (thread_id = session_id).
         # Substitui o antigo _conversation_history de instância (bug #2: estado
@@ -271,11 +276,14 @@ class HueLightAgent(BaseAgent):
         from marvin_hue.chat.subagents.definitions import build_subagents
         from marvin_hue.chat.subagents.task import build_task_tool
 
-        light_tools = build_light_tools(self._controller, self._manager)
+        light_tools = build_light_tools(
+            self._controller, self._manager, room_index=self._room_index
+        )
         middleware = self._build_middleware()  # cria self._hue_context (cache compartilhado)
         subagents = build_subagents(
             self._llm, self._controller, self._manager,
             context_middleware=self._hue_context,  # MESMA instância -> mesmo cache TTL
+            room_index=self._room_index,
         )
         task_tool = build_task_tool(subagents)
         return create_agent(
@@ -595,6 +603,7 @@ def create_hue_agent(
     temperature: float = 0.7,
     *,
     checkpointer: Optional[Any] = None,
+    room_index: Optional[dict[str, list[str]]] = None,
     **kwargs,
 ) -> HueLightAgent:
     """Factory function para criar um agente de iluminação.
@@ -607,6 +616,8 @@ def create_hue_agent(
         provider: Nome do provedor LLM
         model: Nome do modelo
         temperature: Temperatura para geração
+        checkpointer: Checkpointer LangGraph opcional
+        room_index: Snapshot sala → lâmpadas do registry (opcional)
         **kwargs: Parâmetros adicionais para o AgentConfig
 
     Returns:
@@ -625,5 +636,9 @@ def create_hue_agent(
     )
 
     return HueLightAgent(
-        controller=controller, manager=manager, config=config, checkpointer=checkpointer
+        controller=controller,
+        manager=manager,
+        config=config,
+        checkpointer=checkpointer,
+        room_index=room_index,
     )

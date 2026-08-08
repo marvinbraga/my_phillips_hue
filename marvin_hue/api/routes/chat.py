@@ -122,6 +122,18 @@ async def configure_chat(
         raise HTTPException(status_code=503, detail="Controlador Hue não inicializado.")
 
     try:
+        room_index: dict[str, list[str]] | None = None
+        try:
+            from marvin_hue.api.dependencies import get_light_registry_service
+            from marvin_hue.chat.tools.light_tools import (
+                build_room_index_from_registry_rows,
+            )
+
+            reg = get_light_registry_service()
+            room_index = build_room_index_from_registry_rows(await reg.list_lights())
+        except Exception:
+            room_index = None
+
         new_agent = create_hue_agent(
             controller=hue,
             manager=manager,
@@ -130,6 +142,7 @@ async def configure_chat(
             temperature=request.temperature,
             # Reusa o checkpointer ativo (lifespan) — sob sqlite, não recai p/ memória.
             checkpointer=get_chat_checkpointer(),
+            room_index=room_index,
         )
         set_chat_agent(new_agent)
         return {
