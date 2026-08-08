@@ -195,6 +195,28 @@ CORS_ORIGINS="https://seudominio.com"
 
 ---
 
+### Persistência do catálogo de lâmpadas
+
+#### `APP_DB_PATH`
+
+Caminho do SQLite da aplicação usado pelo **catálogo de lâmpadas** (registry CRUD + sync). Prefira um arquivo sob `.res/`.
+
+```bash
+APP_DB_PATH=.res/marvin_hue.sqlite
+```
+
+**Padrão:** `.res/marvin_hue.sqlite`
+
+**Importante — isolamento do chat:**
+
+- **Não** use o mesmo arquivo de `CHAT_CHECKPOINT_DB` (padrão: `.res/chat_memory.sqlite`).
+- Settings **rejeita** colisão de path com o checkpointer do chat e o basename `chat_memory.sqlite`.
+- O catálogo (`marvin_hue.sqlite`) guarda metadados app-side; o histórico LangGraph fica só em `chat_memory.sqlite` quando `CHAT_CHECKPOINT=sqlite`.
+
+**Relação com a API:** endpoints em `/api/lights` (exceto `GET /api/lights/status`, que é estado ao vivo da bridge).
+
+---
+
 ### Exemplo Completo de `.env`
 
 ```bash
@@ -215,6 +237,12 @@ CHAT_MODEL="gpt-4o-mini"
 # Chaves de API (escolher de acordo com o provider)
 OPENAI_API_KEY="sk-proj-..."
 # ANTHROPIC_API_KEY="sk-ant-..."
+
+
+# ===== PERSISTÊNCIA DO CATÁLOGO (OPCIONAL) =====
+
+# SQLite do registry de lâmpadas (NÃO use chat_memory.sqlite)
+APP_DB_PATH=.res/marvin_hue.sqlite
 
 
 # ===== CONFIGURAÇÃO DE LOGGING (OPCIONAL) =====

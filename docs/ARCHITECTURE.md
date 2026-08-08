@@ -74,10 +74,12 @@ Marvin Hue é uma aplicação Python que controla luzes Philips Hue através de:
 └─────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────┐
-│      Data Storage (JSON Files)          │
+│      Data Storage                       │
 │                                         │
 │  - setups.json (Configurations)         │
 │  - light_positions.json (Mirror config) │
+│  - marvin_hue.sqlite (Lights registry)  │
+│  - chat_memory.sqlite (chat only; opt.) │
 │  - .env (Environment variables)         │
 └─────────────────────────────────────────┘
 ```
@@ -393,12 +395,13 @@ app = FastAPI(
 
 **Grupos de Endpoints**:
 
-1. **Status**: `/api/bridge/status`, `/api/lights/status`
-2. **Configurations**: `/configurations`, `/apply`
-3. **Positions**: `/positions`, `/positions/reset`
-4. **Mirror**: `/mirror/start`, `/mirror/stop`, `/mirror/status`
-5. **Chat**: `/api/chat/message`, `/api/chat/status`
-6. **WebSockets**: `/ws/mirror`, `/ws/chat`
+1. **Status**: `/api/bridge/status`, `/api/lights/status` (estado ao vivo na bridge)
+2. **Lights Registry**: `/api/lights` CRUD + `POST /api/lights/sync` (catálogo SQLite app-side)
+3. **Configurations**: `/configurations`, `/apply`
+4. **Positions**: `/positions`, `/positions/reset`
+5. **Mirror**: `/mirror/start`, `/mirror/stop`, `/mirror/status`
+6. **Chat**: `/api/chat/message`, `/api/chat/status`
+7. **WebSockets**: `/ws/mirror`, `/ws/chat`
 
 **Validação com Pydantic**:
 
@@ -530,10 +533,17 @@ cliente (`crypto.randomUUID` + `localStorage`) e enviado em TODOS os frames do
 WebSocket e nas rotas REST. Eviction LRU (`MAX_SESSIONS=100`) evita vazamento
 monotônico de memória no `InMemorySaver`.
 
-Persistência é opcional e config-driven (`CHAT_CHECKPOINT=memory|sqlite`). O
+Persistência do **chat** é opcional e config-driven (`CHAT_CHECKPOINT=memory|sqlite`). O
 ciclo de vida de um checkpointer persistente é do COMPOSITOR (o `lifespan` em
 `app.py`, via `AsyncExitStack` + `AsyncSqliteSaver`), nunca do agente — o agente
 só RECEBE um checkpointer injetado (ou usa `InMemorySaver` volátil por padrão).
+
+O **catálogo de lâmpadas** (registry) usa outro arquivo SQLite
+(`APP_DB_PATH`, padrão `.res/marvin_hue.sqlite`), isolado de
+`chat_memory.sqlite`. A bridge continua fonte de verdade do inventário físico e
+do estado ao vivo; o registry guarda metadados app-side (nickname, room, notes,
+soft-delete) e se sincroniza via `POST /api/lights/sync` sem reativar soft-deleted
+por padrão.
 
 ### Invariante de segurança ocular
 
@@ -835,7 +845,9 @@ my_phillips_hue/
 │
 ├── .res/                    # Recursos de dados
 │   ├── setups.json          # Configurações de iluminação
-│   └── light_positions.json # Mapeamento de posições
+│   ├── light_positions.json # Mapeamento de posições
+│   ├── marvin_hue.sqlite    # Catálogo de lâmpadas (APP_DB_PATH)
+│   └── chat_memory.sqlite   # Checkpointer do chat (se CHAT_CHECKPOINT=sqlite)
 │
 ├── tests/                   # Testes
 │   ├── __init__.py

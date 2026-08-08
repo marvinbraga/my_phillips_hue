@@ -14,11 +14,12 @@ Esta documentação descreve todos os endpoints REST e protocolos WebSocket disp
 ## Índice
 
 1. [Status e Informações](#status-e-informações)
-2. [Configurações de Iluminação](#configurações-de-iluminação)
-3. [Posicionamento de Lâmpadas](#posicionamento-de-lâmpadas)
-4. [Espelhamento de Tela](#espelhamento-de-tela)
-5. [Chat com Agente IA](#chat-com-agente-ia)
-6. [WebSockets](#websockets)
+2. [Catálogo de Lâmpadas (Registry)](#catálogo-de-lâmpadas-registry)
+3. [Configurações de Iluminação](#configurações-de-iluminação)
+4. [Posicionamento de Lâmpadas](#posicionamento-de-lâmpadas)
+5. [Espelhamento de Tela](#espelhamento-de-tela)
+6. [Chat com Agente IA](#chat-com-agente-ia)
+7. [WebSockets](#websockets)
 
 ---
 
@@ -63,7 +64,9 @@ print(f"Connected: {status['connected']}")
 
 ### GET /api/lights/status
 
-Retorna o estado atual de todas as lâmpadas com suas cores RGB.
+Retorna o **estado ao vivo** de todas as lâmpadas na bridge (ligado/desligado, brilho, cor RGB, reachability).
+
+> **Não confundir com o catálogo:** metadados app-side (apelido, sala, notes, soft-delete) ficam em [`GET /api/lights`](#get-apilights). Este endpoint não lê nem grava o SQLite do registry.
 
 **Response 200:**
 ```json
@@ -109,6 +112,283 @@ lights = response.json()["lights"]
 
 for light in lights:
     print(f"{light['name']}: {'ON' if light['on'] else 'OFF'} - RGB({light['color']['r']}, {light['color']['g']}, {light['color']['b']})")
+```
+
+---
+
+## Catálogo de Lâmpadas (Registry)
+
+Catálogo app-side em SQLite (padrão: `.res/marvin_hue.sqlite`, configurável via `APP_DB_PATH`). Armazena metadados das lâmpadas (nickname, room, notes, limite de segurança ocular, vínculo com id da bridge). **Não altera o estado físico** das lâmpadas na Philips Hue Bridge.
+
+| Aspecto | Catálogo (`/api/lights`) | Estado ao vivo (`/api/lights/status`) |
+|---------|--------------------------|----------------------------------------|
+| Fonte | SQLite da aplicação | Bridge Hue (via `HueController`) |
+| Conteúdo | Metadados + soft-delete | on/off, brilho, cor RGB |
+| DELETE | Soft-delete no catálogo | — (não existe nestes endpoints) |
+
+**Identidade no sync:** prioriza `bridge_light_id` (preferência pelo Hue `uniqueid` estável; fallback para `light_id` da bridge), depois `name`. Linhas soft-deleted **não** são reativadas no sync por padrão; use `POST /api/lights/sync?reactivate_deleted=true` para reativar.
+
+**Segurança v1:** igual ao restante da API (sem API key obrigatória; assume rede LAN confiável).
+
+---
+
+### GET /api/lights
+
+Lista entradas do catálogo. Por padrão omite soft-deleted.
+
+**Query parameters:**
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|-----------|------|--------|-----------|
+| `include_deleted` | bool | `false` | Se `true`, inclui entradas com `deleted_at` preenchido |
+
+**Response 200:**
+```json
+[
+  {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "name": "Lâmpada 1",
+    "nickname": "Mesa",
+    "room": "Escritório",
+    "notes": null,
+    "bridge_light_id": "00:17:88:01:02:03:04:05-0b",
+    "eye_safety_limit_pct": null,
+    "enabled_for_app": true,
+    "deleted_at": null,
+    "created_at": "2026-08-08T12:00:00+00:00",
+    "updated_at": "2026-08-08T12:00:00+00:00"
+  }
+]
+```
+
+**Exemplo com curl:**
+```bash
+curl "http://localhost:5081/api/lights"
+curl "http://localhost:5081/api/lights?include_deleted=true"
+```
+
+**Exemplo com Python:**
+```python
+import requests
+
+response = requests.get("http://localhost:5081/api/lights")
+for light in response.json():
+    print(f"{light['name']} ({light.get('nickname') or '—'}) room={light.get('room')}")
+```
+
+---
+
+### GET /api/lights/{light_id}
+
+Retorna uma entrada do catálogo pelo UUID da aplicação. Entradas soft-deleted não são retornadas por este endpoint (use listagem com `include_deleted=true`).
+
+**Path parameters:**
+
+| Parâmetro | Tipo | Descrição |
+|-----------|------|-----------|
+| `light_id` | string (UUID) | ID estável da entrada no catálogo |
+
+**Response 200:** mesmo schema de item de `GET /api/lights`.
+
+**Response 404:**
+```json
+{
+  "detail": "..."
+}
+```
+
+**Exemplo com curl:**
+```bash
+curl "http://localhost:5081/api/lights/11111111-1111-1111-1111-111111111111"
+```
+
+---
+
+### POST /api/lights
+
+Cria uma entrada manual no catálogo (sem criar lâmpada na bridge).
+
+**Request body (`LightCreateRequest`):**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|-------|------|-------------|-----------|
+| `name` | string | sim | Nome de exibição / match com setups e bridge (1–100 chars; trim) |
+| `nickname` | string \| null | não | Apelido amigável |
+| `room` | string \| null | não | Rótulo de sala |
+| `notes` | string \| null | não | Anotações livres (até 2000 chars) |
+| `bridge_light_id` | string \| null | não | Id estável da bridge (preferir Hue `uniqueid`) |
+| `eye_safety_limit_pct` | int \| null | não | Limite 0–100 armazenado para uso futuro da app |
+| `enabled_for_app` | bool | não | Padrão `true`; se `false`, features da app podem ignorar a lâmpada |
+
+**Request example:**
+```json
+{
+  "name": "Lâmpada 1",
+  "nickname": "Mesa",
+  "room": "Escritório",
+  "notes": null,
+  "bridge_light_id": null,
+  "eye_safety_limit_pct": null,
+  "enabled_for_app": true
+}
+```
+
+**Response 201:** corpo no schema `LightResponse` (inclui `id`, timestamps).
+
+**Response 409 (nome ativo duplicado):**
+```json
+{
+  "detail": "..."
+}
+```
+
+**Response 400:** validação de domínio (ex.: nome vazio após trim).
+
+**Exemplo com curl:**
+```bash
+curl -X POST "http://localhost:5081/api/lights" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Hue Iris","nickname":"Canto","room":"Sala"}'
+```
+
+**Exemplo com Python:**
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:5081/api/lights",
+    json={
+        "name": "Hue Iris",
+        "nickname": "Canto",
+        "room": "Sala",
+    },
+)
+print(response.status_code, response.json())
+```
+
+---
+
+### PATCH /api/lights/{light_id}
+
+Atualização parcial de metadados. Campo **omitido** permanece inalterado; JSON `null` **limpa** campos anuláveis (`nickname`, `room`, `notes`, `bridge_light_id`, `eye_safety_limit_pct`).
+
+**Request body (`LightUpdateRequest` — todos opcionais):**
+
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| `name` | string \| null | Se enviado, não pode ser string em branco |
+| `nickname` | string \| null | `null` limpa |
+| `room` | string \| null | `null` limpa |
+| `notes` | string \| null | `null` limpa |
+| `bridge_light_id` | string \| null | `null` limpa |
+| `eye_safety_limit_pct` | int \| null | 0–100; `null` limpa |
+| `enabled_for_app` | bool \| null | |
+
+**Request example (limpar nickname e desabilitar na app):**
+```json
+{
+  "nickname": null,
+  "enabled_for_app": false
+}
+```
+
+**Response 200:** `LightResponse` atualizado.
+
+**Response 404:** entrada inexistente ou soft-deleted.
+
+**Response 409:** conflito de nome ativo.
+
+**Exemplo com curl:**
+```bash
+curl -X PATCH "http://localhost:5081/api/lights/11111111-1111-1111-1111-111111111111" \
+  -H "Content-Type: application/json" \
+  -d '{"nickname":"Esquerda","enabled_for_app":false}'
+```
+
+---
+
+### DELETE /api/lights/{light_id}
+
+**Soft-delete** no catálogo: preenche `deleted_at` e remove a entrada das listagens padrão. **Não remove** a lâmpada na bridge Hue e não desliga o dispositivo.
+
+**Response 200:** `LightResponse` com `deleted_at` preenchido.
+
+**Response 404:** id inexistente ou já soft-deleted.
+
+**Exemplo com curl:**
+```bash
+curl -X DELETE "http://localhost:5081/api/lights/11111111-1111-1111-1111-111111111111"
+```
+
+**Exemplo com Python:**
+```python
+import requests
+
+light_id = "11111111-1111-1111-1111-111111111111"
+response = requests.delete(f"http://localhost:5081/api/lights/{light_id}")
+print(response.json()["deleted_at"])  # timestamp ISO, não null
+```
+
+---
+
+### POST /api/lights/sync
+
+Upsert do catálogo a partir do inventário atual da bridge (`HueController.list_bridge_lights` via `LightRegistryService.refresh_and_sync`). Atualiza `name` / `bridge_light_id` de matches ativos; cria entradas novas; por padrão **não** reativa soft-deleted.
+
+**Query parameters:**
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|-----------|------|--------|-----------|
+| `reactivate_deleted` | bool | `false` | Se `true`, reativa matches soft-deleted encontrados no inventário |
+
+**Algoritmo (resumo):**
+1. Match ativo por `bridge_light_id`, senão por `name` → atualiza se necessário
+2. Sem match ativo: se houver soft-deleted com mesmo id/nome e `reactivate_deleted=false` → conta em `skipped_deleted` e **não** cria duplicata
+3. Sem match: cria nova entrada ativa
+4. Conflito de nome ativo único → **409** (não 500)
+
+**Response 200 (`LightsSyncResponse`):**
+```json
+{
+  "created": 2,
+  "updated": 1,
+  "unchanged": 5,
+  "skipped_deleted": 0,
+  "total_bridge": 8
+}
+```
+
+| Campo | Descrição |
+|-------|-----------|
+| `created` | Novas linhas no catálogo |
+| `updated` | Linhas ativas alteradas (ou reativadas com `reactivate_deleted=true`) |
+| `unchanged` | Matches ativos sem mudança de campos |
+| `skipped_deleted` | Itens da bridge que bateram só em soft-deleted e foram ignorados |
+| `total_bridge` | Tamanho do inventário lido da bridge |
+
+**Response 503:** sync indisponível (bridge não configurada / falha ao refresh). Detalhe genérico, sem vazar exceção interna:
+```json
+{
+  "detail": "Light registry sync unavailable"
+}
+```
+
+**Exemplo com curl:**
+```bash
+# Sync seguro (não reativa soft-deleted)
+curl -X POST "http://localhost:5081/api/lights/sync"
+
+# Sync reativando soft-deleted que ainda existem na bridge
+curl -X POST "http://localhost:5081/api/lights/sync?reactivate_deleted=true"
+```
+
+**Exemplo com Python:**
+```python
+import requests
+
+r = requests.post("http://localhost:5081/api/lights/sync")
+print(r.json())
+# {'created': 2, 'updated': 0, 'unchanged': 6, 'skipped_deleted': 0, 'total_bridge': 8}
 ```
 
 ---
@@ -1006,10 +1286,12 @@ Interface de chat para controlar as lâmpadas por linguagem natural.
 | Código | Significado | Uso |
 |--------|-------------|-----|
 | 200 | OK | Requisição bem-sucedida |
+| 201 | Created | Recurso criado (ex: `POST /api/lights`) |
 | 400 | Bad Request | Parâmetros inválidos ou estado inválido |
-| 404 | Not Found | Recurso não encontrado |
+| 404 | Not Found | Recurso não encontrado (ex: light id inexistente no catálogo) |
+| 409 | Conflict | Conflito de recurso (ex: nome ativo duplicado no catálogo) |
 | 500 | Internal Server Error | Erro no servidor |
-| 503 | Service Unavailable | Serviço não disponível (ex: chat agent não inicializado) |
+| 503 | Service Unavailable | Serviço não disponível (ex: chat agent não inicializado; sync do registry indisponível) |
 
 ---
 
