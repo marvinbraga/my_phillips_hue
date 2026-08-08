@@ -9,15 +9,75 @@ bloqueado por CÓDIGO, independentemente do que o modelo solicitar. Reusado por:
     set_all_brightness (garantia real no chokepoint, cobre presets,
     screen-mirror e o caminho "all") — Fase 2.3/3.x;
   - eval-set de invariantes (tests/eval) — Fase 0.3.
+
+Hardcoded EYE_SAFETY_LIMITS remains the offline fallback.
+Runtime policy (from SQLite lights registry) may override limits and
+mark lights as disabled for app features (enabled_for_app=False).
 """
 from __future__ import annotations
 
-# Limite por lâmpada, em PERCENTUAL (0-100). Fonte: .res/light_physical_locations.json
+# Limite por lâmpada, em PERCENTUAL (0-100). Fallback when registry silent.
 EYE_SAFETY_LIMITS: dict[str, int] = {"Fita Led": 25, "Led cima": 25}
+
+# Runtime overlays (name -> pct or None meaning "no extra row limit")
+_runtime_limits_pct: dict[str, int | None] | None = None
+_runtime_disabled: set[str] | None = None
+
+
+def set_runtime_policy(
+    *,
+    limits_pct: dict[str, int | None],
+    disabled_names: set[str],
+) -> None:
+    """Install policy from registry (sync cache). Call from async layer after load."""
+    global _runtime_limits_pct, _runtime_disabled
+    _runtime_limits_pct = dict(limits_pct)
+    _runtime_disabled = set(disabled_names)
+
+
+def set_runtime_limits(limits_pct: dict[str, int | None]) -> None:
+    """Override only brightness limits (keeps current disabled set)."""
+    global _runtime_limits_pct
+    _runtime_limits_pct = dict(limits_pct)
+
+
+def set_runtime_enabled(enabled_by_name: dict[str, bool]) -> None:
+    """Set enabled_for_app map; False names go into the disabled set."""
+    global _runtime_disabled
+    _runtime_disabled = {name for name, enabled in enabled_by_name.items() if not enabled}
+
+
+def clear_runtime_policy() -> None:
+    """Clear runtime overlays (tests / shutdown)."""
+    global _runtime_limits_pct, _runtime_disabled
+    _runtime_limits_pct = None
+    _runtime_disabled = None
+
+
+def is_enabled_for_app(light_name: str) -> bool:
+    """False only when registry marks the light disabled."""
+    if _runtime_disabled is None:
+        return True
+    return light_name not in _runtime_disabled
+
+
+def is_light_enabled_for_app(light_name: str) -> bool:
+    """Alias matching API naming in home-features plan / requirements."""
+    return is_enabled_for_app(light_name)
+
+
+def get_effective_limit(light_name: str) -> int | None:
+    """Effective eye-safety limit percent (runtime overlay on defaults)."""
+    return eye_safety_limit_pct(light_name)
 
 
 def eye_safety_limit_pct(light_name: str) -> int | None:
     """Limite percentual da lâmpada, ou None se não houver restrição."""
+    if _runtime_limits_pct is not None and light_name in _runtime_limits_pct:
+        runtime = _runtime_limits_pct[light_name]
+        if runtime is not None:
+            return runtime
+        # Explicit null in DB → fall back to hardcoded for that name
     return EYE_SAFETY_LIMITS.get(light_name)
 
 
@@ -31,7 +91,7 @@ def clamp_eye_safety(light_name: str, value: int, scale: str = "pct") -> int:
     Returns:
         O brilho clampado (na MESMA escala de entrada). Sem restrição -> inalterado.
     """
-    limit_pct = EYE_SAFETY_LIMITS.get(light_name)
+    limit_pct = eye_safety_limit_pct(light_name)
     if limit_pct is None:
         return value
     if scale == "pct":

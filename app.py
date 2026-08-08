@@ -66,7 +66,9 @@ async def lifespan(app: FastAPI):
         light_repo = await SqliteLightRegistryRepository.open(settings.app_db_path)
         light_registry = LightRegistryService(light_repo, bridge=hue)
         dependencies.set_light_registry_service(light_registry)
+        await light_registry.refresh_runtime_policy()
         logger.info(f"Light registry initialized at {settings.app_db_path}")
+        logger.info("Eye-safety / enabled_for_app policy loaded from registry")
     except Exception as e:
         logger.exception(f"Error initializing light registry: {e}")
         dependencies.set_light_registry_service(None)
@@ -120,6 +122,9 @@ async def lifespan(app: FastAPI):
             if light_repo is not None:
                 await light_repo.close()
             dependencies.set_light_registry_service(None)
+            from marvin_hue.eye_safety import clear_runtime_policy
+
+            clear_runtime_policy()
     # Saída do AsyncExitStack fecha o AsyncSqliteSaver (se usado) no shutdown.
 
     # Shutdown

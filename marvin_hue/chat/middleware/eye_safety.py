@@ -14,7 +14,7 @@ from typing import Any, cast
 from langchain.agents.middleware import AgentMiddleware, ToolCallRequest
 from langchain_core.messages import ToolCall
 
-from marvin_hue.eye_safety import EYE_SAFETY_LIMITS, clamp_eye_safety
+from marvin_hue.eye_safety import clamp_eye_safety, eye_safety_limit_pct
 
 # Tools cujos args carregam brilho e a escala de cada uma.
 # "pct"  -> brightness é 0-100 (set_brightness)
@@ -36,7 +36,11 @@ class EyeSafetyMiddleware(AgentMiddleware):
         field, scale = spec
         args = request.tool_call["args"]
         light = args.get("light_name")
-        if not isinstance(light, str) or EYE_SAFETY_LIMITS.get(light) is None or field not in args:
+        if (
+            not isinstance(light, str)
+            or eye_safety_limit_pct(light) is None
+            or field not in args
+        ):
             return request
         raw = args[field]
         # args vêm do output bruto do modelo (pré-validação pydantic da tool).

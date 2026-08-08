@@ -3,7 +3,7 @@ from phue import Bridge, Light
 
 from marvin_hue.colors import Color
 from marvin_hue.basics import LightConfig
-from marvin_hue.eye_safety import clamp_eye_safety
+from marvin_hue.eye_safety import clamp_eye_safety, is_enabled_for_app
 from marvin_hue.utils import RGBtoXYAdapter, ColorConverter
 from marvin_hue.logging_config import get_logger
 
@@ -71,6 +71,14 @@ class HueController:
                 f"Lâmpada '{light_name}' não encontrada. Lâmpadas disponíveis: {self.list_lights()}"
             )
 
+        if not is_enabled_for_app(light_name):
+            logger.warning(
+                f"Light '{light_name}' desabilitada no app (enabled_for_app=false); skip set_light_color"
+            )
+            raise ValueError(
+                f"Lâmpada '{light_name}' desabilitada no app (enabled_for_app=false)"
+            )
+
         try:
             # Converte RGB para XY (já validado em RGBtoXYAdapter)
             xy = RGBtoXYAdapter.convert(color.red, color.green, color.blue)
@@ -130,6 +138,11 @@ class HueController:
 
         errors = []
         for setting in light_config.settings:
+            if not is_enabled_for_app(setting.light_name):
+                logger.debug(
+                    f"Skipping disabled light '{setting.light_name}' in apply_light_config"
+                )
+                continue
             try:
                 light = self.set_light_color(setting.light_name, setting.color)
                 if transition_time_secs > 0:
@@ -188,7 +201,10 @@ class HueController:
         return self._light_cache.get(light_name)
 
     def turn_on(self, light_name: str) -> bool:
-        """Liga uma lâmpada pelo nome. Retorna False se não encontrada."""
+        """Liga uma lâmpada pelo nome. Retorna False se não encontrada ou desabilitada."""
+        if not is_enabled_for_app(light_name):
+            logger.debug(f"turn_on skipped: '{light_name}' desabilitada no app")
+            return False
         light = self._get_light_by_name(light_name)
         if light is None:
             return False
@@ -196,7 +212,10 @@ class HueController:
         return True
 
     def turn_off(self, light_name: str) -> bool:
-        """Desliga uma lâmpada pelo nome. Retorna False se não encontrada."""
+        """Desliga uma lâmpada pelo nome. Retorna False se não encontrada ou desabilitada."""
+        if not is_enabled_for_app(light_name):
+            logger.debug(f"turn_off skipped: '{light_name}' desabilitada no app")
+            return False
         light = self._get_light_by_name(light_name)
         if light is None:
             return False
@@ -206,8 +225,11 @@ class HueController:
     def set_brightness(self, light_name: str, hue_brightness: int) -> bool:
         """Define o brilho (0-254) de uma lâmpada, clampado pelo invariante ocular.
 
-        Retorna False se a lâmpada não for encontrada.
+        Retorna False se a lâmpada não for encontrada ou estiver desabilitada no app.
         """
+        if not is_enabled_for_app(light_name):
+            logger.debug(f"set_brightness skipped: '{light_name}' desabilitada no app")
+            return False
         light = self._get_light_by_name(light_name)
         if light is None:
             return False
@@ -216,12 +238,15 @@ class HueController:
         return True
 
     def set_all(self, on: bool) -> None:
-        """Liga/desliga TODAS as lâmpadas."""
+        """Liga/desliga lâmpadas habilitadas no app."""
         for light in self.lights:
+            if not is_enabled_for_app(light.name):
+                logger.debug(f"set_all skipped: '{light.name}' desabilitada no app")
+                continue
             light.on = on
 
     def set_all_brightness(self, hue_brightness: int) -> None:
-        """Brilho de TODAS as lâmpadas — clampado POR LÂMPADA (fecha o furo "all")."""
+        """Brilho de lâmpadas habilitadas — clampado POR LÂMPADA (fecha o furo "all")."""
         for light in self.lights:
             self.set_brightness(light.name, hue_brightness)
 

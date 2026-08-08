@@ -45,6 +45,19 @@ class LightRegistryService:
     async def aclose(self) -> None:
         await self._repo.close()
 
+    async def refresh_runtime_policy(self) -> None:
+        """Push active registry eye limits + disabled names into eye_safety cache."""
+        from marvin_hue.eye_safety import set_runtime_policy
+
+        lights = await self._repo.list_all(include_deleted=False)
+        limits: dict[str, int | None] = {}
+        disabled: set[str] = set()
+        for light in lights:
+            limits[light.name] = light.eye_safety_limit_pct
+            if not light.enabled_for_app:
+                disabled.add(light.name)
+        set_runtime_policy(limits_pct=limits, disabled_names=disabled)
+
     async def list_lights(
         self, *, include_deleted: bool = False
     ) -> list[RegisteredLight]:
@@ -86,13 +99,15 @@ class LightRegistryService:
             updated_at=now,
         )
         try:
-            return await self._repo.create(light)
+            created = await self._repo.create(light)
         except LightValidationError as exc:
             # Repo maps IntegrityError → LightValidationError; promote conflicts.
             msg = str(exc).lower()
             if "already exists" in msg or "unique" in msg:
                 raise LightConflictError(str(exc)) from exc
             raise
+        await self.refresh_runtime_policy()
+        return created
 
     async def update_light(
         self,
@@ -154,16 +169,20 @@ class LightRegistryService:
             updated_at=datetime.now(timezone.utc),
         )
         try:
-            return await self._repo.update(light)
+            updated = await self._repo.update(light)
         except LightValidationError as exc:
             msg = str(exc).lower()
             if "already exists" in msg or "unique" in msg:
                 raise LightConflictError(str(exc)) from exc
             raise
+        await self.refresh_runtime_policy()
+        return updated
 
     async def delete_light(self, light_id: str) -> RegisteredLight:
         """Soft-delete catalog entry only. Never deletes on Hue bridge."""
-        return await self._repo.soft_delete(light_id)
+        deleted = await self._repo.soft_delete(light_id)
+        await self.refresh_runtime_policy()
+        return deleted
 
     async def sync_from_bridge(
         self, *, reactivate_deleted: bool = False
@@ -256,10 +275,12 @@ class LightRegistryService:
                 updated += 1
                 continue
 
-            # Unknown: create
+            # Unknown: create (create_light already refreshes runtime policy)
             await self.create_light(name=name, bridge_light_id=bridge_id_str)
             created += 1
 
+        # Refresh once after bulk mutations (update path does not auto-refresh)
+        await self.refresh_runtime_policy()
         return {
             "created": created,
             "updated": updated,

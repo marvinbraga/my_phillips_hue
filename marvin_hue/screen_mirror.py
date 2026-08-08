@@ -14,6 +14,7 @@ from PIL import Image
 
 from marvin_hue.colors import Color
 from marvin_hue.controllers import HueController
+from marvin_hue.eye_safety import is_enabled_for_app
 from marvin_hue.logging_config import get_logger
 
 logger = get_logger("screen_mirror")
@@ -131,7 +132,9 @@ class ScreenMirror:
                 lights = [
                     light
                     for light in data.get("lights", [])
-                    if light.get("enabled") and light.get("position") != "none"
+                    if light.get("enabled")
+                    and light.get("position") != "none"
+                    and is_enabled_for_app(str(light.get("name", "")))
                 ]
                 logger.debug(f"Loaded {len(lights)} active lights from positions file")
                 return lights
@@ -297,6 +300,11 @@ class ScreenMirror:
 
     def _apply_color_to_light(self, light_name: str, r: int, g: int, b: int) -> None:
         """Aplica uma cor a uma lâmpada específica."""
+        if not is_enabled_for_app(light_name):
+            logger.debug(
+                f"_apply_color_to_light skipped: '{light_name}' desabilitada no app"
+            )
+            return
         target = (r, g, b)
 
         # Interpola a cor para suavizar a transição
