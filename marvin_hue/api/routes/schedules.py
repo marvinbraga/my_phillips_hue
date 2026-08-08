@@ -31,7 +31,9 @@ templates = Jinja2Templates(directory="web/templates")
 @router.get("/schedules", response_class=HTMLResponse)
 async def schedules_page(request: Request):
     """Página HTML de agendamentos."""
-    return templates.TemplateResponse(request, "schedules.html")
+    return templates.TemplateResponse(
+        request, "schedules.html", {"active": "agendamentos"}
+    )
 
 
 def _dt_iso(value: Optional[datetime]) -> Optional[str]:

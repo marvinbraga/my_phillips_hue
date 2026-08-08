@@ -125,7 +125,7 @@ class TestHealthPage:
         assert "text/html" in response.headers.get("content-type", "")
         body = response.text
         assert "Saúde" in body
-        assert "partials" not in body or "breadcrumb" in body or "Controle" in body
+        assert "navbar" in body
         assert "Controle" in body
         assert "Lâmpadas" in body
         assert "/api/health" in body or "health.js" in body
@@ -134,7 +134,9 @@ class TestHealthPage:
         response = fastapi_test_client.get("/")
         assert response.status_code == 200
         body = response.text
+        assert "navbar" in body
         assert 'href="/health"' in body
         assert 'href="/groups"' in body
         assert 'href="/schedules"' in body
         assert 'href="/chat"' in body
+        assert 'href="/mirror"' in body

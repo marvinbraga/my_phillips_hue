@@ -42,7 +42,7 @@ templates = Jinja2Templates(directory="web/templates")
 @router.get("/groups", response_class=HTMLResponse)
 async def groups_page(request: Request):
     """Página HTML de grupos de lâmpadas."""
-    return templates.TemplateResponse(request, "groups.html")
+    return templates.TemplateResponse(request, "groups.html", {"active": "grupos"})
 
 
 def _dt_iso(value: Optional[datetime]) -> Optional[str]:

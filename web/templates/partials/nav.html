@@ -1,30 +1,77 @@
 {# expects optional `active` in context:
    controle|lampadas|grupos|agendamentos|posicoes|espelhamento|saude|chat #}
-<nav aria-label="breadcrumb" class="mb-3">
-  <ol class="breadcrumb">
-    <li class="breadcrumb-item {% if active == 'controle' %}active{% endif %}" {% if active == 'controle' %}aria-current="page"{% endif %}>
-      {% if active != 'controle' %}<a href="/">Controle</a>{% else %}Controle{% endif %}
-    </li>
-    <li class="breadcrumb-item {% if active == 'lampadas' %}active{% endif %}" {% if active == 'lampadas' %}aria-current="page"{% endif %}>
-      {% if active != 'lampadas' %}<a href="/lights">Lâmpadas</a>{% else %}Lâmpadas{% endif %}
-    </li>
-    <li class="breadcrumb-item {% if active == 'grupos' %}active{% endif %}" {% if active == 'grupos' %}aria-current="page"{% endif %}>
-      {% if active != 'grupos' %}<a href="/groups">Grupos</a>{% else %}Grupos{% endif %}
-    </li>
-    <li class="breadcrumb-item {% if active == 'agendamentos' %}active{% endif %}" {% if active == 'agendamentos' %}aria-current="page"{% endif %}>
-      {% if active != 'agendamentos' %}<a href="/schedules">Agendamentos</a>{% else %}Agendamentos{% endif %}
-    </li>
-    <li class="breadcrumb-item {% if active == 'posicoes' %}active{% endif %}" {% if active == 'posicoes' %}aria-current="page"{% endif %}>
-      {% if active != 'posicoes' %}<a href="/positions-config">Posicionamento</a>{% else %}Posicionamento{% endif %}
-    </li>
-    <li class="breadcrumb-item {% if active == 'espelhamento' %}active{% endif %}" {% if active == 'espelhamento' %}aria-current="page"{% endif %}>
-      {% if active != 'espelhamento' %}<a href="/mirror">Espelhamento</a>{% else %}Espelhamento{% endif %}
-    </li>
-    <li class="breadcrumb-item {% if active == 'saude' %}active{% endif %}" {% if active == 'saude' %}aria-current="page"{% endif %}>
-      {% if active != 'saude' %}<a href="/health">Saúde</a>{% else %}Saúde{% endif %}
-    </li>
-    <li class="breadcrumb-item {% if active == 'chat' %}active{% endif %}" {% if active == 'chat' %}aria-current="page"{% endif %}>
-      {% if active != 'chat' %}<a href="/chat">Chat</a>{% else %}Chat{% endif %}
-    </li>
-  </ol>
+<nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom sticky-top mb-3"
+     aria-label="Navegação principal">
+  <div class="container-fluid">
+    <a class="navbar-brand d-flex align-items-center gap-1" href="/">
+      <i class="bi bi-lightbulb" aria-hidden="true"></i>
+      <span>Marvin Hue</span>
+    </a>
+    <button class="navbar-toggler" type="button"
+            data-bs-toggle="collapse" data-bs-target="#mainNav"
+            aria-controls="mainNav" aria-expanded="false"
+            aria-label="Alternar navegação">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="mainNav">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        <li class="nav-item">
+          <a class="nav-link{% if active == 'controle' %} active{% endif %}"
+             href="/"
+             {% if active == 'controle' %}aria-current="page"{% endif %}>
+            <i class="bi bi-sliders" aria-hidden="true"></i> Controle
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{% if active == 'lampadas' %} active{% endif %}"
+             href="/lights"
+             {% if active == 'lampadas' %}aria-current="page"{% endif %}>
+            <i class="bi bi-lamp" aria-hidden="true"></i> Lâmpadas
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{% if active == 'grupos' %} active{% endif %}"
+             href="/groups"
+             {% if active == 'grupos' %}aria-current="page"{% endif %}>
+            <i class="bi bi-collection" aria-hidden="true"></i> Grupos
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{% if active == 'agendamentos' %} active{% endif %}"
+             href="/schedules"
+             {% if active == 'agendamentos' %}aria-current="page"{% endif %}>
+            <i class="bi bi-clock-history" aria-hidden="true"></i> Agendamentos
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{% if active == 'posicoes' %} active{% endif %}"
+             href="/positions-config"
+             {% if active == 'posicoes' %}aria-current="page"{% endif %}>
+            <i class="bi bi-grid-3x3-gap" aria-hidden="true"></i> Posicionamento
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{% if active == 'espelhamento' %} active{% endif %}"
+             href="/mirror"
+             {% if active == 'espelhamento' %}aria-current="page"{% endif %}>
+            <i class="bi bi-display" aria-hidden="true"></i> Espelhamento
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{% if active == 'saude' %} active{% endif %}"
+             href="/health"
+             {% if active == 'saude' %}aria-current="page"{% endif %}>
+            <i class="bi bi-heart-pulse" aria-hidden="true"></i> Saúde
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{% if active == 'chat' %} active{% endif %}"
+             href="/chat"
+             {% if active == 'chat' %}aria-current="page"{% endif %}>
+            <i class="bi bi-chat-dots" aria-hidden="true"></i> Chat
+          </a>
+        </li>
+      </ul>
+    </div>
+  </div>
 </nav>
