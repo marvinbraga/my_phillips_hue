@@ -195,6 +195,60 @@ CORS_ORIGINS="https://seudominio.com"
 
 ---
 
+### Segurança da API (Opcional)
+
+#### `API_KEY`
+
+Chave compartilhada opcional para proteger rotas **`/api/*`** (clientes machine-to-machine, curl, automações).
+
+```bash
+# Sem autenticação (padrão — rede LAN confiável)
+API_KEY=
+
+# Com autenticação em /api/*
+API_KEY="troque-por-um-segredo-longo"
+```
+
+**Comportamento:**
+
+| `API_KEY` | Efeito |
+|-----------|--------|
+| vazio / não definido | Sem auth (comportamento atual) |
+| valor não vazio | `GET/POST/...` em `/api/*` exigem a chave; **401** se ausente/errada |
+
+**Como enviar a chave:**
+
+```bash
+# Header dedicado
+curl -H "X-API-Key: $API_KEY" http://localhost:5081/api/lights/status
+
+# Ou Bearer
+curl -H "Authorization: Bearer $API_KEY" http://localhost:5081/api/bridge/status
+```
+
+**O que NÃO exige chave (UX local):**
+
+- Páginas HTML (`/`, `/lights`, `/mirror`, `/chat`, `/positions-config`, `/health`, etc.)
+- Arquivos estáticos (`/static/*`)
+- WebSocket do mirror
+- JSON legado fora de `/api` (`/apply`, `/configurations`, `/mirror/*`, `/positions`)
+
+A UI no browser na LAN continua usável sem prompt de chave; só clientes que batem em `/api/*` precisam do header.
+
+#### `API_HOST` e risco de LAN
+
+```bash
+# Padrão: escuta em todas as interfaces (acessível na LAN)
+API_HOST=0.0.0.0
+
+# Mais seguro se só o host local precisa acessar
+API_HOST=127.0.0.1
+```
+
+**Atenção:** `API_HOST=0.0.0.0` (padrão) expõe a API a **qualquer dispositivo na sua rede local**. Para uso doméstico isso é conveniente; se a rede não for totalmente confiável, combine `API_HOST=127.0.0.1` e/ou defina `API_KEY`. O default **não** é alterado no código (seria breaking para quem usa pela LAN).
+
+---
+
 ### Persistência do catálogo de lâmpadas
 
 #### `APP_DB_PATH`
@@ -258,6 +312,12 @@ LOG_FILE="logs/marvin_hue.log"
 
 # CORS
 CORS_ORIGINS="*"
+
+# Protege apenas /api/* (vazio = aberto). Páginas HTML e WS ficam livres.
+# API_KEY="troque-por-um-segredo-longo"
+
+# 0.0.0.0 = LAN; 127.0.0.1 = só localhost (mais seguro)
+API_HOST=0.0.0.0
 ```
 
 ---

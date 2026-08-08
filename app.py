@@ -22,6 +22,7 @@ from marvin_hue.chat import create_hue_agent  # noqa: E402
 from marvin_hue.logging_config import get_logger  # noqa: E402
 from marvin_hue.config import settings  # noqa: E402
 from marvin_hue.api import dependencies  # noqa: E402
+from marvin_hue.api.middleware.api_key import ApiKeyMiddleware  # noqa: E402
 from marvin_hue.api.routes import (  # noqa: E402
     status,
     configurations,
@@ -144,6 +145,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Optional API key for /api/* only (no-op when settings.api_key is empty).
+# Starlette: last added middleware is outermost; add after CORS so CORS runs first.
+app.add_middleware(ApiKeyMiddleware, api_key=settings.api_key)
 
 # Configurar arquivos estáticos e templates
 app.mount("/static", StaticFiles(directory="web/static"), name="static")

@@ -6,20 +6,61 @@ Esta documentação descreve todos os endpoints REST e protocolos WebSocket disp
 
 - **Base URL**: `http://localhost:5081`
 - **Formato de dados**: JSON
-- **Autenticação**: Não implementada (recomendada para produção)
+- **Autenticação**: opcional via `API_KEY` (só rotas `/api/*`) — ver [Autenticação opcional](#autenticação-opcional-api_key)
 - **CORS**: Configurado para aceitar todas as origens (ajustar para produção)
+- **Host padrão**: `API_HOST=0.0.0.0` (LAN). Para só localhost use `127.0.0.1` no `.env`.
+
+---
+
+## Autenticação opcional (`API_KEY`)
+
+Quando a variável de ambiente `API_KEY` está **vazia ou ausente**, a API permanece aberta (rede LAN confiável).
+
+Quando `API_KEY` está **definida**, requisições a caminhos que começam com **`/api/`** devem incluir a chave:
+
+```http
+X-API-Key: <sua-chave>
+```
+
+ou
+
+```http
+Authorization: Bearer <sua-chave>
+```
+
+**Resposta 401** se a chave faltar ou estiver errada:
+
+```json
+{"detail": "Invalid or missing API key"}
+```
+
+**Não exigem chave** (UI local e legado): páginas HTML, `/static/*`, WebSocket do mirror, e endpoints JSON fora de `/api` (`/apply`, `/configurations`, `/mirror/*`, `/positions`).
+
+Exemplos:
+
+```bash
+# Sem API_KEY no servidor — aberto
+curl http://localhost:5081/api/lights/status
+
+# Com API_KEY configurada
+curl -H "X-API-Key: $API_KEY" http://localhost:5081/api/lights/status
+curl -H "Authorization: Bearer $API_KEY" http://localhost:5081/api/bridge/status
+```
+
+Detalhes de configuração: `docs/CONFIGURATION.md` (seção *Segurança da API*).
 
 ---
 
 ## Índice
 
-1. [Status e Informações](#status-e-informações)
-2. [Catálogo de Lâmpadas (Registry)](#catálogo-de-lâmpadas-registry)
-3. [Configurações de Iluminação](#configurações-de-iluminação)
-4. [Posicionamento de Lâmpadas](#posicionamento-de-lâmpadas)
-5. [Espelhamento de Tela](#espelhamento-de-tela)
-6. [Chat com Agente IA](#chat-com-agente-ia)
-7. [WebSockets](#websockets)
+1. [Autenticação opcional](#autenticação-opcional-api_key)
+2. [Status e Informações](#status-e-informações)
+3. [Catálogo de Lâmpadas (Registry)](#catálogo-de-lâmpadas-registry)
+4. [Configurações de Iluminação](#configurações-de-iluminação)
+5. [Posicionamento de Lâmpadas](#posicionamento-de-lâmpadas)
+6. [Espelhamento de Tela](#espelhamento-de-tela)
+7. [Chat com Agente IA](#chat-com-agente-ia)
+8. [WebSockets](#websockets)
 
 ---
 
