@@ -35,25 +35,25 @@ const MIRROR_PROFILES = {
 // Defaults de marvin_hue.audio_mirror.AUDIO_MIRROR_PROFILES
 const AUDIO_PROFILES = {
     party: {
-        fps: 30,
-        brightness: 220,
+        fps: 28,
+        brightness: 230,
         smoothing_factor: 0.55,
         transition_time: 0,
-        energy_gain: 1.4,
+        energy_gain: 1.0,
     },
     chill: {
-        fps: 20,
-        brightness: 140,
-        smoothing_factor: 0.2,
-        transition_time: 3,
+        fps: 18,
+        brightness: 150,
+        smoothing_factor: 0.25,
+        transition_time: 2,
         energy_gain: 0.85,
     },
     pulse: {
-        fps: 35,
-        brightness: 240,
+        fps: 32,
+        brightness: 250,
         smoothing_factor: 0.75,
         transition_time: 0,
-        energy_gain: 1.6,
+        energy_gain: 1.1,
     },
 };
 

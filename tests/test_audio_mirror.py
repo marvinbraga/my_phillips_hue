@@ -95,12 +95,25 @@ def test_compute_band_energies_treble_tone() -> None:
     assert levels["treble"] > levels["bass"]
 
 
-def test_peak_tracker_has_dynamics() -> None:
-    tracker = PeakTracker(decay=0.99, floor=1e-4)
-    loud = tracker.normalize({"bass": 1.0, "mid": 0.5, "treble": 0.2, "rms": 0.1})
-    soft = tracker.normalize({"bass": 0.1, "mid": 0.05, "treble": 0.02, "rms": 0.01})
-    assert loud["bass"] > soft["bass"]
-    assert 0.0 <= soft["bass"] <= 1.0
+def test_peak_tracker_gates_noise_without_rescaling() -> None:
+    tracker = PeakTracker(gate=0.1)
+    out = tracker.normalize({"bass": 0.05, "mid": 0.5, "treble": 0.9})
+    assert out["bass"] == 0.0  # abaixo do gate
+    assert 0.4 < out["mid"] < 0.55  # preserva proporção (não empurra a 1.0)
+    assert out["treble"] > out["mid"]
+
+
+def test_power_to_level_has_range() -> None:
+    from marvin_hue.audio_mirror import power_to_level
+
+    silence = power_to_level(0.0)
+    quiet = power_to_level(1e-6)
+    mid = power_to_level(1e-3)
+    loud = power_to_level(5e-2)
+    assert silence == 0.0
+    assert quiet < mid < loud
+    assert loud <= 1.0
+    assert mid < 0.95
 
 
 def test_find_pulse_monitor_source_prefers_default_sink_monitor() -> None:

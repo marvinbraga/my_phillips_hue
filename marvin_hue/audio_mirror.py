@@ -31,23 +31,24 @@ AUDIO_MIRROR_PROFILES: dict[str, dict[str, float | int]] = {
     "party": {
         "fps": 28,
         "brightness": 230,
-        "smoothing_factor": 0.65,
+        "smoothing_factor": 0.55,
         "transition_time": 0,
-        "energy_gain": 1.15,
+        # sensitivity na escala dB (1.0 = neutro; >1 empurra um pouco para cima)
+        "energy_gain": 1.0,
     },
     "chill": {
         "fps": 18,
         "brightness": 150,
-        "smoothing_factor": 0.28,
+        "smoothing_factor": 0.25,
         "transition_time": 2,
-        "energy_gain": 0.95,
+        "energy_gain": 0.85,
     },
     "pulse": {
         "fps": 32,
         "brightness": 250,
-        "smoothing_factor": 0.85,
+        "smoothing_factor": 0.75,
         "transition_time": 0,
-        "energy_gain": 1.25,
+        "energy_gain": 1.1,
     },
 }
 
@@ -119,22 +120,27 @@ def compute_band_powers(
     samples: np.ndarray,
     sample_rate: int,
 ) -> dict[str, float]:
-    """Energia bruta (não normalizada) por banda — para AGC externo."""
+    """Energia bruta (não normalizada) por banda — para AGC/escala dB."""
     if samples.size < 8:
         return {"bass": 0.0, "mid": 0.0, "treble": 0.0, "rms": 0.0}
 
     mono = np.asarray(samples, dtype=np.float64).reshape(-1)
-    rms = float(np.sqrt(np.mean(mono * mono)) + 1e-12)
+    rms = float(np.sqrt(np.mean(mono * mono)))
 
+    # Energia espectral real (soma de potências), não magnitude média —
+    # a média achatava as bandas e empurrava tudo para o teto no AGC.
     window = np.hanning(mono.size)
-    spectrum = np.abs(np.fft.rfft(mono * window))
+    spectrum = np.fft.rfft(mono * window)
+    power_spec = (np.abs(spectrum) ** 2) / max(mono.size, 1)
     freqs = np.fft.rfftfreq(mono.size, d=1.0 / sample_rate)
 
     def _band_power(f_lo: float, f_hi: float) -> float:
         mask = (freqs >= f_lo) & (freqs < f_hi)
-        if not np.any(mask):
+        n = int(np.count_nonzero(mask))
+        if n <= 0:
             return 0.0
-        return float(np.sqrt(np.mean(spectrum[mask] ** 2)) + 1e-12)
+        # Densidade média por bin — bandas largas (mid) não “ganham” só por largura
+        return float(np.sum(power_spec[mask]) / n)
 
     return {
         "bass": _band_power(20.0, _BASS_MAX_HZ),
@@ -144,60 +150,102 @@ def compute_band_powers(
     }
 
 
+def power_to_level(
+    power: float,
+    *,
+    ref: float = 1e-2,
+    floor_db: float = -45.0,
+    ceiling_db: float = 6.0,
+    sensitivity: float = 1.0,
+) -> float:
+    """
+    Mapeia potência linear (densidade |FFT|²) → 0..1 em escala dB.
+
+    Calibrado para densidade média por bin ~1e-5 (silêncio) … ~1e-1 (forte).
+    sensitivity > 1 sobe o mapeamento; < 1 exige mais volume.
+    """
+    p = max(float(power), 0.0)
+    if p <= 0.0:
+        return 0.0
+    sens = max(0.25, min(3.0, float(sensitivity)))
+    db = 10.0 * float(np.log10(p / ref + 1e-15))
+    db += 6.0 * float(np.log2(sens))
+    if db <= floor_db:
+        return 0.0
+    if db >= ceiling_db:
+        return 1.0
+    return (db - floor_db) / (ceiling_db - floor_db)
+
+
 def compute_band_energies(
     samples: np.ndarray,
     sample_rate: int,
     *,
     peak_tracker: "PeakTracker | None" = None,
+    sensitivity: float = 1.0,
 ) -> dict[str, float]:
     """
-    Energia 0–1 por banda.
+    Energia 0–1 por banda em escala **absoluta dB**.
 
-    Usa peak-tracker adaptativo (AGC) para manter dinâmica real; sem tracker,
-    normaliza relativamente ao total + RMS do frame (útil em testes).
+    Não usa AGC v/peak (isso colava o espectro no máximo). O PeakTracker
+    opcional só aplica um noise-gate suave e clamp final.
     """
     powers = compute_band_powers(samples, sample_rate)
     if powers["rms"] < 1e-5:
         return {"bass": 0.0, "mid": 0.0, "treble": 0.0}
 
-    if peak_tracker is not None:
-        return peak_tracker.normalize(powers)
-
-    # Fallback sem estado: peso relativo × loudness do frame
-    total = powers["bass"] + powers["mid"] + powers["treble"] + 1e-12
-    # RMS ~0.02–0.2 típico em float32 → escala para 0–1 com curva suave
-    loud = min(1.0, float(np.sqrt(powers["rms"] * 12.0)))
-    return {
-        "bass": min(1.0, (powers["bass"] / total) * loud * 2.2),
-        "mid": min(1.0, (powers["mid"] / total) * loud * 2.2),
-        "treble": min(1.0, (powers["treble"] / total) * loud * 2.2),
+    absolute = {
+        "bass": power_to_level(powers["bass"], sensitivity=sensitivity),
+        "mid": power_to_level(powers["mid"], sensitivity=sensitivity),
+        "treble": power_to_level(powers["treble"], sensitivity=sensitivity),
     }
+
+    if peak_tracker is not None:
+        return peak_tracker.normalize(absolute, powers)
+
+    return absolute
 
 
 class PeakTracker:
-    """AGC por banda: picos decaem lentamente para preservar batidas/variação."""
+    """
+    Pós-processamento leve: noise gate + histórico de pico só para UI/stats.
 
-    def __init__(self, decay: float = 0.985, floor: float = 1e-4) -> None:
-        self.decay = decay
-        self.floor = floor
-        self.peaks: dict[str, float] = {
-            "bass": floor,
-            "mid": floor,
-            "treble": floor,
-            "rms": floor,
+    NÃO renormaliza para encher a escala (isso causava barras sempre no topo).
+    """
+
+    def __init__(
+        self,
+        gate: float = 0.04,
+        release: float = 0.995,
+    ) -> None:
+        self.gate = gate
+        self.release = release
+        self.ceilings: dict[str, float] = {
+            "bass": gate,
+            "mid": gate,
+            "treble": gate,
         }
+        self.peaks = self.ceilings
 
-    def normalize(self, powers: dict[str, float]) -> dict[str, float]:
+    def normalize(
+        self,
+        absolute_levels: dict[str, float],
+        _raw_powers: dict[str, float] | None = None,
+    ) -> dict[str, float]:
         out: dict[str, float] = {}
         for key in ("bass", "mid", "treble"):
-            v = float(powers.get(key, 0.0))
-            peak = max(self.peaks[key] * self.decay, v, self.floor)
-            self.peaks[key] = peak
-            # leve compressão para não apagar nuts mas manter range
-            ratio = v / peak
-            out[key] = max(0.0, min(1.0, float(ratio**0.85)))
-        rms = float(powers.get("rms", 0.0))
-        self.peaks["rms"] = max(self.peaks["rms"] * self.decay, rms, self.floor)
+            v = max(0.0, min(1.0, float(absolute_levels.get(key, 0.0))))
+            # atualiza pico só para status/debug
+            if v > self.ceilings[key]:
+                self.ceilings[key] = v
+            else:
+                self.ceilings[key] = max(self.gate, self.ceilings[key] * self.release)
+            # noise gate suave
+            if v < self.gate:
+                v = 0.0
+            else:
+                v = (v - self.gate) / (1.0 - self.gate)
+            out[key] = max(0.0, min(1.0, v))
         return out
 
 
@@ -576,14 +624,14 @@ class AudioMirror:
 
     def _smooth_levels(self, raw: dict[str, float]) -> dict[str, float]:
         # smoothing_factor alto = reage mais; baixo = mais inércia
+        # energy_gain já entrou como sensitivity na escala dB — NÃO multiplica de novo.
         alpha = max(0.05, min(1.0, float(self.smoothing_factor)))
         out: dict[str, float] = {}
         for key in ("bass", "mid", "treble"):
             prev = self._smoothed_levels.get(key, 0.0)
             val = prev + (raw[key] - prev) * alpha
-            val = max(0.0, min(1.0, val * float(self.energy_gain)))
-            out[key] = val
-            self._smoothed_levels[key] = val
+            out[key] = max(0.0, min(1.0, val))
+            self._smoothed_levels[key] = out[key]
         return out
 
     def _mix_full_spectrum(self, levels: dict[str, float]) -> tuple[int, int, int]:
@@ -606,7 +654,10 @@ class AudioMirror:
 
     def _process_frame(self, mono: np.ndarray, sample_rate: int) -> None:
         raw = compute_band_energies(
-            mono, sample_rate, peak_tracker=self._peak_tracker
+            mono,
+            sample_rate,
+            peak_tracker=self._peak_tracker,
+            sensitivity=float(self.energy_gain),
         )
         levels = self._smooth_levels(raw)
         self._levels = levels
