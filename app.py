@@ -30,6 +30,9 @@ from marvin_hue.api.routes import (  # noqa: E402
     mirror,
     chat,
     lights,
+    groups,
+    history,
+    schedules,
     health,
     backup,
 )
@@ -57,24 +60,63 @@ async def lifespan(app: FastAPI):
     dependencies.set_manager(manager)
     dependencies.set_screen_mirror(screen_mirror)
 
-    # App-owned lights registry (separate SQLite from chat checkpointer)
+    # App-owned SQLite services (separate connections per repo; same DB file)
     from marvin_hue.persistence.schema import init_db
     from marvin_hue.persistence.light_repository import SqliteLightRegistryRepository
+    from marvin_hue.persistence.group_repository import SqliteGroupRepository
+    from marvin_hue.persistence.scene_history_repository import (
+        SqliteSceneHistoryRepository,
+    )
+    from marvin_hue.persistence.schedule_repository import SqliteScheduleRepository
     from marvin_hue.services.light_registry import LightRegistryService
+    from marvin_hue.services.group_service import GroupService
+    from marvin_hue.services.scene_history import SceneHistoryService
+    from marvin_hue.services.schedule_service import ScheduleService
+    from marvin_hue.services.schedule_runner import ScheduleRunner
 
     light_repo: SqliteLightRegistryRepository | None = None
+    group_repo: SqliteGroupRepository | None = None
+    history_repo: SqliteSceneHistoryRepository | None = None
+    schedule_repo: SqliteScheduleRepository | None = None
+    schedule_runner: ScheduleRunner | None = None
+    light_registry: LightRegistryService | None = None
     try:
         await init_db(settings.app_db_path)
         light_repo = await SqliteLightRegistryRepository.open(settings.app_db_path)
+        group_repo = await SqliteGroupRepository.open(settings.app_db_path)
+        history_repo = await SqliteSceneHistoryRepository.open(settings.app_db_path)
+        schedule_repo = await SqliteScheduleRepository.open(settings.app_db_path)
+
         light_registry = LightRegistryService(light_repo, bridge=hue)
+        group_service = GroupService(group_repo)
+        history_service = SceneHistoryService(history_repo)
+        schedule_service = ScheduleService(
+            schedule_repo,
+            hue=hue,
+            manager=manager,
+            group_service=group_service,
+        )
+
         dependencies.set_light_registry_service(light_registry)
+        dependencies.set_group_service(group_service)
+        dependencies.set_scene_history_service(history_service)
+        dependencies.set_schedule_service(schedule_service)
+
         await light_registry.refresh_runtime_policy()
-        logger.info(f"Light registry initialized at {settings.app_db_path}")
+        logger.info(f"App DB services initialized at {settings.app_db_path}")
         logger.info("Eye-safety / enabled_for_app policy loaded from registry")
+
+        schedule_runner = ScheduleRunner(schedule_service, poll_seconds=30.0)
+        dependencies.set_schedule_runner(schedule_runner)
+        await schedule_runner.start()
     except Exception as e:
-        logger.exception(f"Error initializing light registry: {e}")
+        logger.exception(f"Error initializing app DB services: {e}")
         dependencies.set_light_registry_service(None)
-        # Fail closed for registry: hard-fail startup so misconfig is visible.
+        dependencies.set_group_service(None)
+        dependencies.set_scene_history_service(None)
+        dependencies.set_schedule_service(None)
+        dependencies.set_schedule_runner(None)
+        # Fail closed: hard-fail startup so misconfig is visible.
         raise
 
     # Inicializa o agente de chat
@@ -142,8 +184,20 @@ async def lifespan(app: FastAPI):
         try:
             yield
         finally:
+            if schedule_runner is not None:
+                await schedule_runner.stop()
+            dependencies.set_schedule_runner(None)
+            if schedule_repo is not None:
+                await schedule_repo.close()
+            if history_repo is not None:
+                await history_repo.close()
+            if group_repo is not None:
+                await group_repo.close()
             if light_repo is not None:
                 await light_repo.close()
+            dependencies.set_schedule_service(None)
+            dependencies.set_scene_history_service(None)
+            dependencies.set_group_service(None)
             dependencies.set_light_registry_service(None)
             from marvin_hue.eye_safety import clear_runtime_policy
 
@@ -185,6 +239,9 @@ templates = Jinja2Templates(directory="web/templates")
 # Registrar routers (status before lights so GET /api/lights/status is not shadowed)
 app.include_router(status.router)
 app.include_router(lights.router)
+app.include_router(groups.router)
+app.include_router(history.router)
+app.include_router(schedules.router)
 app.include_router(configurations.router)
 app.include_router(positions.router)
 app.include_router(mirror.router)

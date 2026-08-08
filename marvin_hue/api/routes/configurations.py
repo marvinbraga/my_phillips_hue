@@ -7,9 +7,14 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Depends
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
-from marvin_hue.api.dependencies import get_hue_controller, get_manager
+from marvin_hue.api.dependencies import (
+    get_hue_controller,
+    get_manager,
+    get_scene_history_service,
+)
 from marvin_hue.api.models import ApplyConfigRequest
 from marvin_hue.logging_config import get_logger
+from marvin_hue.services.scene_history import SceneHistoryService
 
 logger = get_logger("configurations")
 
@@ -36,6 +41,7 @@ async def apply_configuration(
     request: ApplyConfigRequest,
     hue: HueController = Depends(get_hue_controller),
     manager: LightSetupsManager = Depends(get_manager),
+    history: SceneHistoryService = Depends(get_scene_history_service),
 ):
     """
     Aplica uma configuração de iluminação.
@@ -71,6 +77,16 @@ async def apply_configuration(
         )
 
     try:
+        # Snapshot before apply so /api/history/undo can restore
+        try:
+            await history.snapshot(
+                hue,
+                source="apply",
+                label=f"before apply {request.config_name}",
+            )
+        except Exception as snap_exc:
+            logger.warning(f"Scene snapshot before apply failed: {snap_exc}")
+
         # Aplica em uma task separada para não bloquear
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(

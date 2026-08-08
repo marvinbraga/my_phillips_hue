@@ -175,3 +175,151 @@ class LightsSyncResponse(BaseModel):
     skipped_deleted: int = 0
     total_bridge: int
 
+
+# --- Light groups ---
+
+
+class GroupCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    room: str | None = Field(default=None, max_length=100)
+    notes: str | None = Field(default=None, max_length=2000)
+    light_ids: list[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("name must be non-empty")
+        return cleaned
+
+
+class GroupUpdateRequest(BaseModel):
+    """Partial update. Omitted fields stay unchanged; explicit null clears nullables."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    room: str | None = Field(default=None, max_length=100)
+    notes: str | None = Field(default=None, max_length=2000)
+    light_ids: list[str] | None = Field(default=None, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def strip_name_optional(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("name must be non-empty")
+        return cleaned
+
+
+class GroupResponse(BaseModel):
+    id: str
+    name: str
+    room: str | None
+    notes: str | None
+    light_ids: list[str]
+    deleted_at: str | None
+    created_at: str
+    updated_at: str
+
+
+class GroupApplyRequest(BaseModel):
+    config_name: str = Field(..., min_length=1, max_length=100)
+    transition_time_secs: float = Field(default=0, ge=0, le=60)
+
+    @field_validator("config_name")
+    @classmethod
+    def sanitize_config_name(cls, v: str) -> str:
+        sanitized = re.sub(r"[^\w\s\-]", "", v)
+        return sanitized.strip()
+
+
+class GroupPowerRequest(BaseModel):
+    on: bool
+
+
+# --- Scene history ---
+
+
+class HistorySnapshotRequest(BaseModel):
+    label: str | None = Field(default=None, max_length=200)
+    source: str = Field(default="manual", max_length=32)
+
+
+class SceneSnapshotResponse(BaseModel):
+    id: int | None
+    label: str | None
+    source: str
+    created_at: str
+    light_count: int
+
+
+class HistoryUndoResponse(BaseModel):
+    snapshot_id: int | None
+    source: str
+    label: str | None
+    created_at: str
+    restored_lights: list[str]
+    restored_count: int
+
+
+# --- Schedules ---
+
+
+class ScheduleCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    time_hhmm: str = Field(..., pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+    action_type: str = Field(
+        ...,
+        pattern=r"^(apply_config|power_on|power_off|apply_group|turn_on|turn_off)$",
+    )
+    enabled: bool = True
+    days_of_week: str = Field(default="", max_length=32)
+    action_payload: dict = Field(default_factory=dict)
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("name must be non-empty")
+        return cleaned
+
+
+class ScheduleUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    time_hhmm: str | None = Field(
+        default=None, pattern=r"^([01]\d|2[0-3]):([0-5]\d)$"
+    )
+    action_type: str | None = Field(
+        default=None,
+        pattern=r"^(apply_config|power_on|power_off|apply_group|turn_on|turn_off)$",
+    )
+    enabled: bool | None = None
+    days_of_week: str | None = Field(default=None, max_length=32)
+    action_payload: dict | None = None
+
+    @field_validator("name")
+    @classmethod
+    def strip_name_optional(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("name must be non-empty")
+        return cleaned
+
+
+class ScheduleResponse(BaseModel):
+    id: str
+    name: str
+    enabled: bool
+    time_hhmm: str
+    days_of_week: str
+    action_type: str
+    action_payload: dict
+    last_run_at: str | None
+    created_at: str
+    updated_at: str
+

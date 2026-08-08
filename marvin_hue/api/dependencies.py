@@ -7,7 +7,11 @@ from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.screen_mirror import ScreenMirror
 from marvin_hue.chat import HueLightAgent
+from marvin_hue.services.group_service import GroupService
 from marvin_hue.services.light_registry import LightRegistryService
+from marvin_hue.services.scene_history import SceneHistoryService
+from marvin_hue.services.schedule_runner import ScheduleRunner
+from marvin_hue.services.schedule_service import ScheduleService
 
 # Instâncias globais (inicializadas no lifespan)
 _hue_controller: HueController | None = None
@@ -23,6 +27,10 @@ _chat_unavailable_reason: str | None = None
 _chat_checkpointer: object | None = None
 # App-owned lights catalog (SQLite) — separate from chat checkpointer DB.
 _light_registry_service: LightRegistryService | None = None
+_group_service: GroupService | None = None
+_scene_history_service: SceneHistoryService | None = None
+_schedule_service: ScheduleService | None = None
+_schedule_runner: ScheduleRunner | None = None
 
 # Mapa provider → (nome da env var, atributo em settings)
 _PROVIDER_KEY_ENV: dict[str, tuple[str, str]] = {
@@ -148,3 +156,53 @@ def get_light_registry_service() -> LightRegistryService:
     if _light_registry_service is None:
         raise RuntimeError("LightRegistryService não inicializado")
     return _light_registry_service
+
+
+def set_group_service(service: GroupService | None) -> None:
+    """Define a instância global do GroupService."""
+    global _group_service
+    _group_service = service
+
+
+def get_group_service() -> GroupService:
+    """Retorna a instância do GroupService."""
+    if _group_service is None:
+        raise RuntimeError("GroupService não inicializado")
+    return _group_service
+
+
+def set_scene_history_service(service: SceneHistoryService | None) -> None:
+    """Define a instância global do SceneHistoryService."""
+    global _scene_history_service
+    _scene_history_service = service
+
+
+def get_scene_history_service() -> SceneHistoryService:
+    """Retorna a instância do SceneHistoryService."""
+    if _scene_history_service is None:
+        raise RuntimeError("SceneHistoryService não inicializado")
+    return _scene_history_service
+
+
+def set_schedule_service(service: ScheduleService | None) -> None:
+    """Define a instância global do ScheduleService."""
+    global _schedule_service
+    _schedule_service = service
+
+
+def get_schedule_service() -> ScheduleService:
+    """Retorna a instância do ScheduleService."""
+    if _schedule_service is None:
+        raise RuntimeError("ScheduleService não inicializado")
+    return _schedule_service
+
+
+def set_schedule_runner(runner: ScheduleRunner | None) -> None:
+    """Define a instância global do ScheduleRunner."""
+    global _schedule_runner
+    _schedule_runner = runner
+
+
+def get_schedule_runner() -> ScheduleRunner | None:
+    """Retorna o ScheduleRunner (pode ser None se não iniciado)."""
+    return _schedule_runner

@@ -178,6 +178,36 @@ function checkBridgeStatus() {
     });
 }
 
+function undoLastScene() {
+    const btn = $('#undo-btn');
+    const originalHtml = btn.html();
+    btn.html('<i class="bi bi-hourglass-split"></i> Desfazendo...').prop('disabled', true);
+    $.ajax({
+        type: 'POST',
+        url: '/api/history/undo',
+        success: function (data) {
+            btn.html('<i class="bi bi-check-circle"></i> Desfeito!');
+            setTimeout(function () {
+                btn.html(originalHtml).prop('disabled', false);
+            }, 2000);
+            loadLightsStatus();
+            const count = data && data.restored_count != null ? data.restored_count : '?';
+            // soft feedback without blocking UI
+            console.info('Undo restored lights:', count);
+        },
+        error: function (jqXHR) {
+            btn.html(originalHtml).prop('disabled', false);
+            let detail = 'Erro ao desfazer';
+            try {
+                if (jqXHR.responseJSON && jqXHR.responseJSON.detail) {
+                    detail = jqXHR.responseJSON.detail;
+                }
+            } catch (e) { /* ignore */ }
+            alert(detail);
+        }
+    });
+}
+
 function initTheme() {
     const savedTheme = localStorage.getItem('theme') || 'light';
     setTheme(savedTheme);
@@ -209,6 +239,7 @@ $(document).ready(function () {
     startLightsAutoRefresh();
     $('#apply-btn').click(applyConfiguration);
     $('#off-btn').click(turnOffAllLights);
+    $('#undo-btn').click(undoLastScene);
     $('#theme-btn').click(toggleTheme);
     $('#refresh-lights-btn').click(function() {
         const btn = $(this);

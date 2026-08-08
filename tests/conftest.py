@@ -249,25 +249,56 @@ def fastapi_test_client(
 
     db_path = str(tmp_path / "test_marvin_hue.sqlite")
 
+    original_group = getattr(dependencies, "_group_service", None)
+    original_history = getattr(dependencies, "_scene_history_service", None)
+    original_schedule = getattr(dependencies, "_schedule_service", None)
+    original_runner = getattr(dependencies, "_schedule_runner", None)
+
     async def _bootstrap():
         from marvin_hue.persistence.schema import init_db
         from marvin_hue.persistence.light_repository import (
             SqliteLightRegistryRepository,
         )
+        from marvin_hue.persistence.group_repository import SqliteGroupRepository
+        from marvin_hue.persistence.scene_history_repository import (
+            SqliteSceneHistoryRepository,
+        )
+        from marvin_hue.persistence.schedule_repository import SqliteScheduleRepository
         from marvin_hue.services.light_registry import LightRegistryService
+        from marvin_hue.services.group_service import GroupService
+        from marvin_hue.services.scene_history import SceneHistoryService
+        from marvin_hue.services.schedule_service import ScheduleService
 
         await init_db(db_path)
-        repo = await SqliteLightRegistryRepository.open(db_path)
-        return LightRegistryService(repo, bridge=mock_hue_controller)
+        light_repo = await SqliteLightRegistryRepository.open(db_path)
+        group_repo = await SqliteGroupRepository.open(db_path)
+        history_repo = await SqliteSceneHistoryRepository.open(db_path)
+        schedule_repo = await SqliteScheduleRepository.open(db_path)
+        light_svc = LightRegistryService(light_repo, bridge=mock_hue_controller)
+        group_svc = GroupService(group_repo)
+        history_svc = SceneHistoryService(history_repo)
+        schedule_svc = ScheduleService(
+            schedule_repo,
+            hue=mock_hue_controller,
+            manager=mock_light_setups_manager,
+            group_service=group_svc,
+        )
+        return light_svc, group_svc, history_svc, schedule_svc
 
-    service = asyncio.run(_bootstrap())
-    dependencies.set_light_registry_service(service)
+    light_svc, group_svc, history_svc, schedule_svc = asyncio.run(_bootstrap())
+    dependencies.set_light_registry_service(light_svc)
+    dependencies.set_group_service(group_svc)
+    dependencies.set_scene_history_service(history_svc)
+    dependencies.set_schedule_service(schedule_svc)
 
     client = TestClient(app.app)
     yield client
 
     async def _teardown():
-        await service.aclose()
+        await schedule_svc.aclose()
+        await history_svc.aclose()
+        await group_svc.aclose()
+        await light_svc.aclose()
 
     asyncio.run(_teardown())
     dependencies._hue_controller = original_hue
@@ -276,6 +307,10 @@ def fastapi_test_client(
     dependencies._chat_agent = original_chat
     dependencies._chat_unavailable_reason = original_chat_reason
     dependencies._light_registry_service = original_registry
+    dependencies._group_service = original_group
+    dependencies._scene_history_service = original_history
+    dependencies._schedule_service = original_schedule
+    dependencies._schedule_runner = original_runner
 
 
 @pytest.fixture

@@ -7,13 +7,19 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from marvin_hue.screen_mirror import MIRROR_PROFILES, ScreenMirror
-from marvin_hue.api.dependencies import get_screen_mirror
+from marvin_hue.api.dependencies import (
+    get_hue_controller,
+    get_scene_history_service,
+    get_screen_mirror,
+)
 from marvin_hue.api.models import (
     MirrorProfileRequest,
     MirrorSettingsRequest,
     MirrorStartRequest,
 )
+from marvin_hue.controllers import HueController
 from marvin_hue.logging_config import get_logger
+from marvin_hue.services.scene_history import SceneHistoryService
 
 logger = get_logger("mirror")
 
@@ -74,10 +80,19 @@ async def start_mirror(
 
 
 @router.post("/mirror/stop")
-async def stop_mirror(screen_mirror: ScreenMirror = Depends(get_screen_mirror)):
-    """Para o espelhamento de tela."""
+async def stop_mirror(
+    screen_mirror: ScreenMirror = Depends(get_screen_mirror),
+    hue: HueController = Depends(get_hue_controller),
+    history: SceneHistoryService = Depends(get_scene_history_service),
+):
+    """Para o espelhamento de tela (snapshot before stop for undo)."""
     if not screen_mirror.is_running():
         raise HTTPException(status_code=400, detail="Espelhamento não está ativo")
+
+    try:
+        await history.snapshot(hue, source="mirror_stop", label="before mirror stop")
+    except Exception as snap_exc:
+        logger.warning(f"Scene snapshot before mirror stop failed: {snap_exc}")
 
     screen_mirror.stop()
     return {"message": "Espelhamento parado"}

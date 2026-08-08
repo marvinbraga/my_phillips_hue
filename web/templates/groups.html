@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grupos - Marvin Hue</title>
+    <link rel="icon" href="/static/favicon.png" type="image/png">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet"
+          crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .theme-toggle {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+        }
+        .theme-toggle .btn {
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+        .toast-container-fixed {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 1100;
+        }
+        #groups-empty { display: none; }
+        .member-check { max-height: 220px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+<div class="theme-toggle">
+    <button id="theme-btn" class="btn btn-outline-secondary" title="Alternar tema" type="button">
+        <i id="theme-icon" class="bi bi-moon-fill"></i>
+    </button>
+</div>
+
+<div class="container mt-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/">Controle</a></li>
+            <li class="breadcrumb-item"><a href="/lights">Lâmpadas</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Grupos</li>
+            <li class="breadcrumb-item"><a href="/schedules">Agendamentos</a></li>
+            <li class="breadcrumb-item"><a href="/mirror">Espelhamento</a></li>
+        </ol>
+    </nav>
+
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <h1><i class="bi bi-collection"></i> Grupos de Lâmpadas</h1>
+            <p class="text-muted mb-0">Organize lâmpadas por cômodo e aplique energia ou cenas em conjunto.</p>
+        </div>
+    </div>
+
+    <div class="card mt-4 mb-4">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <span><i class="bi bi-list-ul"></i> Grupos</span>
+            <div class="d-flex flex-wrap gap-2">
+                <button id="new-btn" type="button" class="btn btn-sm btn-primary">
+                    <i class="bi bi-plus-lg"></i> Novo grupo
+                </button>
+                <button id="refresh-btn" type="button" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-arrow-clockwise"></i> Atualizar
+                </button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="groups-table">
+                    <thead class="table-light">
+                    <tr>
+                        <th>Nome</th>
+                        <th>Cômodo</th>
+                        <th>Membros</th>
+                        <th class="text-end">Ações</th>
+                    </tr>
+                    </thead>
+                    <tbody id="groups-tbody"></tbody>
+                </table>
+            </div>
+            <div id="groups-empty" class="text-center text-muted py-5">
+                <i class="bi bi-collection display-6 d-block mb-2"></i>
+                Nenhum grupo cadastrado.
+            </div>
+            <div id="groups-loading" class="text-center text-muted py-4">
+                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                Carregando...
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="groupModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="group-modal-title">Novo grupo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <form id="group-form" novalidate>
+                    <input type="hidden" id="group-id" value="">
+                    <div class="mb-3">
+                        <label for="group-name" class="form-label">Nome <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="group-name" required maxlength="100">
+                    </div>
+                    <div class="mb-3">
+                        <label for="group-room" class="form-label">Cômodo</label>
+                        <input type="text" class="form-control" id="group-room" maxlength="100">
+                    </div>
+                    <div class="mb-3">
+                        <label for="group-notes" class="form-label">Notas</label>
+                        <textarea class="form-control" id="group-notes" rows="2" maxlength="2000"></textarea>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">Lâmpadas</label>
+                        <div id="group-members" class="member-check border rounded p-2"></div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="group-save-btn">
+                    <i class="bi bi-check-lg"></i> Salvar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="applyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Aplicar configuração ao grupo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="apply-group-id" value="">
+                <label for="apply-config" class="form-label">Configuração</label>
+                <select class="form-select" id="apply-config"></select>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="apply-confirm-btn">Aplicar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast-container-fixed">
+    <div id="app-toast" class="toast align-items-center text-bg-success border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body" id="app-toast-body"></div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"
+        crossorigin="anonymous"></script>
+<script src="/static/groups.js"></script>
+</body>
+</html>
