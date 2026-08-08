@@ -9,6 +9,8 @@ posição configurada (mesmo mapeamento de light_positions.json do screen mirror
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import threading
 import time
 from typing import Any, Callable
@@ -27,25 +29,25 @@ logger = get_logger("audio_mirror")
 # pulse: beat-ish, alto contraste / resposta rápida
 AUDIO_MIRROR_PROFILES: dict[str, dict[str, float | int]] = {
     "party": {
-        "fps": 30,
-        "brightness": 220,
-        "smoothing_factor": 0.55,
+        "fps": 28,
+        "brightness": 230,
+        "smoothing_factor": 0.65,
         "transition_time": 0,
-        "energy_gain": 1.4,
+        "energy_gain": 1.15,
     },
     "chill": {
-        "fps": 20,
-        "brightness": 140,
-        "smoothing_factor": 0.2,
-        "transition_time": 3,
-        "energy_gain": 0.85,
+        "fps": 18,
+        "brightness": 150,
+        "smoothing_factor": 0.28,
+        "transition_time": 2,
+        "energy_gain": 0.95,
     },
     "pulse": {
-        "fps": 35,
-        "brightness": 240,
-        "smoothing_factor": 0.75,
+        "fps": 32,
+        "brightness": 250,
+        "smoothing_factor": 0.85,
         "transition_time": 0,
-        "energy_gain": 1.6,
+        "energy_gain": 1.25,
     },
 }
 
@@ -113,48 +115,90 @@ def band_color(band: str, energy: float) -> tuple[int, int, int]:
     )
 
 
-def compute_band_energies(
+def compute_band_powers(
     samples: np.ndarray,
     sample_rate: int,
 ) -> dict[str, float]:
-    """
-    Calcula energia normalizada (0–1) para bass, mid e treble via FFT.
-
-    Args:
-        samples: array 1D float mono
-        sample_rate: taxa de amostragem em Hz
-    """
+    """Energia bruta (não normalizada) por banda — para AGC externo."""
     if samples.size < 8:
-        return {"bass": 0.0, "mid": 0.0, "treble": 0.0}
+        return {"bass": 0.0, "mid": 0.0, "treble": 0.0, "rms": 0.0}
 
-    # Janela Hann para reduzir leakage
-    window = np.hanning(samples.size)
-    spectrum = np.abs(np.fft.rfft(samples * window))
-    freqs = np.fft.rfftfreq(samples.size, d=1.0 / sample_rate)
+    mono = np.asarray(samples, dtype=np.float64).reshape(-1)
+    rms = float(np.sqrt(np.mean(mono * mono)) + 1e-12)
+
+    window = np.hanning(mono.size)
+    spectrum = np.abs(np.fft.rfft(mono * window))
+    freqs = np.fft.rfftfreq(mono.size, d=1.0 / sample_rate)
 
     def _band_power(f_lo: float, f_hi: float) -> float:
         mask = (freqs >= f_lo) & (freqs < f_hi)
         if not np.any(mask):
             return 0.0
-        # RMS-ish da magnitude
-        return float(np.sqrt(np.mean(spectrum[mask] ** 2)))
-
-    bass_raw = _band_power(20.0, _BASS_MAX_HZ)
-    mid_raw = _band_power(_BASS_MAX_HZ, _MID_MAX_HZ)
-    treble_raw = _band_power(_MID_MAX_HZ, min(sample_rate / 2.0, 12_000.0))
-
-    # Normalização log-ish: comprime picos sem zerar baixos
-    def _norm(v: float) -> float:
-        if v <= 0.0:
-            return 0.0
-        # escala empírica para magnitudes típicas de float32 [-1,1]
-        return max(0.0, min(1.0, float(np.log1p(v * 8.0) / np.log1p(8.0))))
+        return float(np.sqrt(np.mean(spectrum[mask] ** 2)) + 1e-12)
 
     return {
-        "bass": _norm(bass_raw),
-        "mid": _norm(mid_raw),
-        "treble": _norm(treble_raw),
+        "bass": _band_power(20.0, _BASS_MAX_HZ),
+        "mid": _band_power(_BASS_MAX_HZ, _MID_MAX_HZ),
+        "treble": _band_power(_MID_MAX_HZ, min(sample_rate / 2.0, 12_000.0)),
+        "rms": rms,
     }
+
+
+def compute_band_energies(
+    samples: np.ndarray,
+    sample_rate: int,
+    *,
+    peak_tracker: "PeakTracker | None" = None,
+) -> dict[str, float]:
+    """
+    Energia 0–1 por banda.
+
+    Usa peak-tracker adaptativo (AGC) para manter dinâmica real; sem tracker,
+    normaliza relativamente ao total + RMS do frame (útil em testes).
+    """
+    powers = compute_band_powers(samples, sample_rate)
+    if powers["rms"] < 1e-5:
+        return {"bass": 0.0, "mid": 0.0, "treble": 0.0}
+
+    if peak_tracker is not None:
+        return peak_tracker.normalize(powers)
+
+    # Fallback sem estado: peso relativo × loudness do frame
+    total = powers["bass"] + powers["mid"] + powers["treble"] + 1e-12
+    # RMS ~0.02–0.2 típico em float32 → escala para 0–1 com curva suave
+    loud = min(1.0, float(np.sqrt(powers["rms"] * 12.0)))
+    return {
+        "bass": min(1.0, (powers["bass"] / total) * loud * 2.2),
+        "mid": min(1.0, (powers["mid"] / total) * loud * 2.2),
+        "treble": min(1.0, (powers["treble"] / total) * loud * 2.2),
+    }
+
+
+class PeakTracker:
+    """AGC por banda: picos decaem lentamente para preservar batidas/variação."""
+
+    def __init__(self, decay: float = 0.985, floor: float = 1e-4) -> None:
+        self.decay = decay
+        self.floor = floor
+        self.peaks: dict[str, float] = {
+            "bass": floor,
+            "mid": floor,
+            "treble": floor,
+            "rms": floor,
+        }
+
+    def normalize(self, powers: dict[str, float]) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for key in ("bass", "mid", "treble"):
+            v = float(powers.get(key, 0.0))
+            peak = max(self.peaks[key] * self.decay, v, self.floor)
+            self.peaks[key] = peak
+            # leve compressão para não apagar nuts mas manter range
+            ratio = v / peak
+            out[key] = max(0.0, min(1.0, float(ratio**0.85)))
+        rms = float(powers.get("rms", 0.0))
+        self.peaks["rms"] = max(self.peaks["rms"] * self.decay, rms, self.floor)
+        return out
 
 
 def _device_field(dev: Any, key: str, default: Any = None) -> Any:
@@ -184,13 +228,68 @@ def _device_default_rate(dev: Any) -> float | None:
         return None
 
 
+def find_pulse_monitor_source(
+    *,
+    run_cmd: Callable[..., Any] | None = None,
+) -> str | None:
+    """
+    Resolve o source monitor do sink padrão (o que você OUVE), via pactl.
+
+    O default source do Pulse costuma ser o microfone — inútil para música.
+    """
+    runner = run_cmd or subprocess.run
+
+    def _run(args: list[str]) -> str:
+        try:
+            proc = runner(args, capture_output=True, text=True, check=False, timeout=3)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            logger.debug(f"pactl unavailable: {exc}")
+            return ""
+        if proc.returncode != 0:
+            return ""
+        return (proc.stdout or "").strip()
+
+    sources_txt = _run(["pactl", "list", "short", "sources"])
+    if not sources_txt:
+        return None
+
+    source_names: list[str] = []
+    running_monitors: list[str] = []
+    all_monitors: list[str] = []
+    for line in sources_txt.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        name = parts[1]
+        source_names.append(name)
+        if ".monitor" in name:
+            all_monitors.append(name)
+            if "RUNNING" in line:
+                running_monitors.append(name)
+
+    sink = _run(["pactl", "get-default-sink"])
+    if sink:
+        candidate = f"{sink}.monitor"
+        if candidate in source_names:
+            logger.info(f"Pulse monitor (default sink): {candidate}")
+            return candidate
+
+    if running_monitors:
+        logger.info(f"Pulse monitor (RUNNING): {running_monitors[0]}")
+        return running_monitors[0]
+    if all_monitors:
+        logger.info(f"Pulse monitor (first): {all_monitors[0]}")
+        return all_monitors[0]
+    return None
+
+
 def find_monitor_device(
     query_devices: Callable[[], Any] | None = None,
 ) -> int | None:
     """
     Escolhe device de captura, nesta ordem:
     1. Nome contendo 'monitor' (sink monitor PA/PW)
-    2. 'pulse' ou 'pipewire' (melhor compatibilidade no Linux)
+    2. 'pulse' ou 'pipewire' (com PULSE_SOURCE=monitor no open)
     3. Default input (se for pulse/pipewire/monitor)
     4. Default input qualquer
     5. Primeiro device com canais de entrada (evita webcams se possível)
@@ -257,11 +356,9 @@ def find_monitor_device(
             if "monitor" in low or "pulse" in low or "pipewire" in low:
                 logger.info(f"Audio device (default PA/PW): index={idx} name={name!r}")
                 return idx
-        # Prefer not to use bare ALSA hw:* as first choice when pulse exists — already checked
         logger.info(f"Audio device (default input): index={default_in}")
         return default_in
 
-    # Evita webcam se houver outra opção
     for idx, _dev, name in inputs:
         low = name.lower()
         if "webcam" in low or "camera" in low or "c920" in low:
@@ -385,6 +482,8 @@ class AudioMirror:
         self._sample_rate: int = self.SAMPLE_RATE
         self._channels: int = 1
         self._block_size: int = self.BLOCK_SIZE
+        self._pulse_source: str | None = None
+        self._peak_tracker = PeakTracker()
 
     def apply_profile(self, name: str) -> None:
         """Aplica perfil nomeado (party | chill | pulse)."""
@@ -396,17 +495,27 @@ class AudioMirror:
         logger.info(f"Applied audio mirror profile '{name}': {AUDIO_MIRROR_PROFILES[name]}")
 
     def load_light_positions(self) -> list[dict[str, Any]]:
-        """Carrega lâmpadas ativas do JSON (enabled, position != none, enabled_for_app)."""
+        """
+        Carrega lâmpadas ativas para o espelhamento de áudio.
+
+        Diferente da tela: position ``none`` ainda participa como ``ambient``
+        (full spectrum), senão só 2–3 lâmpadas reagem e o resto fica morto.
+        """
         try:
             with open(self.positions_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                lights = [
-                    light
-                    for light in data.get("lights", [])
-                    if light.get("enabled")
-                    and light.get("position") != "none"
-                    and is_enabled_for_app(str(light.get("name", "")))
-                ]
+                lights: list[dict[str, Any]] = []
+                for light in data.get("lights", []):
+                    if not light.get("enabled", True):
+                        continue
+                    name = str(light.get("name", ""))
+                    if not is_enabled_for_app(name):
+                        continue
+                    entry = dict(light)
+                    pos = str(entry.get("position") or "none")
+                    if pos == "none":
+                        entry["position"] = "ambient"
+                    lights.append(entry)
                 logger.debug(f"Audio mirror: {len(lights)} active lights")
                 return lights
         except FileNotFoundError:
@@ -427,7 +536,7 @@ class AudioMirror:
         )
 
     def _color_changed_significantly(
-        self, light_name: str, new_color: tuple[int, int, int], threshold: int = 12
+        self, light_name: str, new_color: tuple[int, int, int], threshold: int = 6
     ) -> bool:
         if light_name not in self._smoothed_colors:
             return True
@@ -453,7 +562,10 @@ class AudioMirror:
 
         self._smoothed_colors[light_name] = smoothed
         try:
-            color = Color(smoothed[0], smoothed[1], smoothed[2], self.brightness)
+            # Brilho da lâmpada escala com a luminância do RGB alvo (mais batida = mais claro)
+            lum = (smoothed[0] + smoothed[1] + smoothed[2]) / (3.0 * 255.0)
+            bri = max(8, min(254, int(self.brightness * (0.25 + 0.75 * lum))))
+            color = Color(smoothed[0], smoothed[1], smoothed[2], bri)
             light = self.hue.set_light_color(light_name, color)
             if light:
                 light.transitiontime = int(round(self.transition_time))
@@ -469,51 +581,47 @@ class AudioMirror:
         for key in ("bass", "mid", "treble"):
             prev = self._smoothed_levels.get(key, 0.0)
             val = prev + (raw[key] - prev) * alpha
-            # energy_gain e clamp
             val = max(0.0, min(1.0, val * float(self.energy_gain)))
             out[key] = val
             self._smoothed_levels[key] = val
         return out
 
+    def _mix_full_spectrum(self, levels: dict[str, float]) -> tuple[int, int, int]:
+        total = levels["bass"] + levels["mid"] + levels["treble"]
+        if total < 0.04:
+            return band_color("mid", total)
+        r = g = b = 0.0
+        for bname in ("bass", "mid", "treble"):
+            w = levels[bname]
+            cr, cg, cb = band_color(bname, w)
+            r += cr * w
+            g += cg * w
+            b += cb * w
+        inv = 1.0 / max(total, 1e-6)
+        return (
+            max(0, min(255, int(r * inv))),
+            max(0, min(255, int(g * inv))),
+            max(0, min(255, int(b * inv))),
+        )
+
     def _process_frame(self, mono: np.ndarray, sample_rate: int) -> None:
-        raw = compute_band_energies(mono, sample_rate)
+        raw = compute_band_energies(
+            mono, sample_rate, peak_tracker=self._peak_tracker
+        )
         levels = self._smooth_levels(raw)
         self._levels = levels
 
         lights = self.load_light_positions()
         for light in lights:
             name = str(light.get("name", ""))
+            if not name:
+                continue
             position = str(light.get("position", "ambient"))
-            band = position_to_band(position)
-            # ambient / unknown: média full spectrum
             if position == "ambient" or position not in POSITION_TO_BAND:
-                energy = (levels["bass"] + levels["mid"] + levels["treble"]) / 3.0
-                # cor full-spectrum: mistura ponderada
-                r = g = b = 0
-                for bname, weight in (
-                    ("bass", levels["bass"]),
-                    ("mid", levels["mid"]),
-                    ("treble", levels["treble"]),
-                ):
-                    cr, cg, cb = band_color(bname, weight)
-                    r += cr
-                    g += cg
-                    b += cb
-                total_w = max(
-                    levels["bass"] + levels["mid"] + levels["treble"], 1e-6
-                )
-                # média simples se silêncio; senão média das bandas coloridas
-                if total_w < 0.05:
-                    rgb = band_color("mid", energy)
-                else:
-                    rgb = (
-                        max(0, min(255, r // 3)),
-                        max(0, min(255, g // 3)),
-                        max(0, min(255, b // 3)),
-                    )
+                rgb = self._mix_full_spectrum(levels)
             else:
-                energy = levels[band]
-                rgb = band_color(band, energy)
+                band = position_to_band(position)
+                rgb = band_color(band, levels[band])
 
             self._apply_color_to_light(name, rgb[0], rgb[1], rgb[2])
             if name in self._smoothed_colors:
@@ -550,6 +658,13 @@ class AudioMirror:
         self._channels = channels
         self._block_size = block
 
+        # Força Pulse/PipeWire a capturar o MONITOR do sink (música), não o mic.
+        prev_pulse_source = os.environ.get("PULSE_SOURCE")
+        pulse_source = self._pulse_source
+        if pulse_source:
+            os.environ["PULSE_SOURCE"] = pulse_source
+            logger.info(f"PULSE_SOURCE={pulse_source}")
+
         try:
             with sd.InputStream(
                 device=device,
@@ -560,7 +675,7 @@ class AudioMirror:
             ) as stream:
                 logger.info(
                     f"Audio stream open device={device} rate={sample_rate} "
-                    f"channels={channels} block={block}"
+                    f"channels={channels} block={block} pulse_source={pulse_source!r}"
                 )
                 while self.running:
                     start = time.time()
@@ -584,6 +699,12 @@ class AudioMirror:
         except Exception as exc:
             logger.exception(f"Audio mirror stream failed: {exc}")
             self.running = False
+        finally:
+            if pulse_source is not None:
+                if prev_pulse_source is None:
+                    os.environ.pop("PULSE_SOURCE", None)
+                else:
+                    os.environ["PULSE_SOURCE"] = prev_pulse_source
 
     def start(
         self,
@@ -627,6 +748,8 @@ class AudioMirror:
                 "Verifique com: pactl list short sources"
             )
         self._device_index = device
+        self._pulse_source = find_pulse_monitor_source()
+        self._peak_tracker = PeakTracker()
 
         # Resolve taxa antes da thread para falhar cedo com mensagem clara
         try:
@@ -636,6 +759,7 @@ class AudioMirror:
             self._block_size = block
         except Exception as exc:
             self._device_index = None
+            self._pulse_source = None
             raise RuntimeError(
                 "Não foi possível abrir o dispositivo de áudio com uma taxa "
                 f"de amostragem válida (device={device}). "
@@ -646,7 +770,7 @@ class AudioMirror:
         logger.info(
             f"Starting audio mirroring (FPS: {self.fps}, brightness: {self.brightness}"
             f", profile: {self.active_profile}, device: {device}, "
-            f"rate={sample_rate}, ch={channels})"
+            f"rate={sample_rate}, ch={channels}, pulse_source={self._pulse_source!r})"
         )
         self.running = True
         self.thread = threading.Thread(target=self._mirror_loop, daemon=True)
@@ -665,6 +789,7 @@ class AudioMirror:
         self._levels = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
         self._smoothed_levels = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
         self._device_index = None
+        self._pulse_source = None
         logger.info("Audio mirroring stopped successfully")
         return True
 
@@ -686,6 +811,7 @@ class AudioMirror:
             "sample_rate": self._sample_rate,
             "channels": self._channels,
             "device_index": self._device_index,
+            "pulse_source": self._pulse_source,
             "bass": self._levels.get("bass", 0.0),
             "mid": self._levels.get("mid", 0.0),
             "treble": self._levels.get("treble", 0.0),

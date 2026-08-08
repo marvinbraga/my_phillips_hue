@@ -11,9 +11,11 @@ import pytest
 from marvin_hue.audio_mirror import (
     AUDIO_MIRROR_PROFILES,
     AudioMirror,
+    PeakTracker,
     band_color,
     compute_band_energies,
     find_monitor_device,
+    find_pulse_monitor_source,
     position_to_band,
 )
 
@@ -91,6 +93,35 @@ def test_compute_band_energies_treble_tone() -> None:
     samples = (0.8 * np.sin(2 * np.pi * 5000 * t)).astype(np.float32)
     levels = compute_band_energies(samples, sr)
     assert levels["treble"] > levels["bass"]
+
+
+def test_peak_tracker_has_dynamics() -> None:
+    tracker = PeakTracker(decay=0.99, floor=1e-4)
+    loud = tracker.normalize({"bass": 1.0, "mid": 0.5, "treble": 0.2, "rms": 0.1})
+    soft = tracker.normalize({"bass": 0.1, "mid": 0.05, "treble": 0.02, "rms": 0.01})
+    assert loud["bass"] > soft["bass"]
+    assert 0.0 <= soft["bass"] <= 1.0
+
+
+def test_find_pulse_monitor_source_prefers_default_sink_monitor() -> None:
+    class Result:
+        def __init__(self, stdout: str, returncode: int = 0) -> None:
+            self.stdout = stdout
+            self.returncode = returncode
+
+    def fake_run(args, **_kwargs):
+        if args[:3] == ["pactl", "get-default-sink"]:
+            return Result("alsa_output.pci-0000_09_00.4.analog-stereo\n")
+        if args[:3] == ["pactl", "list", "short"]:
+            return Result(
+                "66\talsa_input.mic\tPipeWire\ts16le 1ch 48000Hz\tRUNNING\n"
+                "67\talsa_output.pci-0000_09_00.4.analog-stereo.monitor\t"
+                "PipeWire\ts32le 2ch 48000Hz\tRUNNING\n"
+            )
+        return Result("", 1)
+
+    src = find_pulse_monitor_source(run_cmd=fake_run)
+    assert src == "alsa_output.pci-0000_09_00.4.analog-stereo.monitor"
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +275,20 @@ def test_load_light_positions_filters(mirror: AudioMirror) -> None:
     assert len(lights) == 3
 
 
+def test_load_light_positions_maps_none_to_ambient(tmp_path: Path) -> None:
+    path = tmp_path / "pos.json"
+    path.write_text(
+        '{"lights":[{"name":"Lâmpada 1","position":"none","enabled":true}]}',
+        encoding="utf-8",
+    )
+    hue = MagicMock()
+    m = AudioMirror(hue, str(path))
+    with patch("marvin_hue.audio_mirror.is_enabled_for_app", return_value=True):
+        lights = m.load_light_positions()
+    assert len(lights) == 1
+    assert lights[0]["position"] == "ambient"
+
+
 def test_start_fails_without_device(mirror: AudioMirror) -> None:
     with pytest.raises(RuntimeError, match="Nenhum dispositivo de áudio"):
         mirror.start(device_resolver=lambda: None)
@@ -252,12 +297,23 @@ def test_start_fails_without_device(mirror: AudioMirror) -> None:
 
 def test_start_with_mock_device_and_stop(mirror: AudioMirror) -> None:
     """Start without opening real stream: stub _mirror_loop."""
-    with patch.object(mirror, "_mirror_loop"):
+    with (
+        patch.object(mirror, "_mirror_loop"),
+        patch(
+            "marvin_hue.audio_mirror.resolve_input_stream_params",
+            return_value=(44100, 2, 1024),
+        ),
+        patch(
+            "marvin_hue.audio_mirror.find_pulse_monitor_source",
+            return_value="alsa_output.demo.monitor",
+        ),
+    ):
         ok = mirror.start(profile="chill", device_resolver=lambda: 0)
     assert ok is True
     assert mirror.is_running() is True
     assert mirror.active_profile == "chill"
     assert mirror.fps == AUDIO_MIRROR_PROFILES["chill"]["fps"]
+    assert mirror._pulse_source == "alsa_output.demo.monitor"
 
     mirror.stop()
     assert mirror.is_running() is False
@@ -268,7 +324,14 @@ def test_start_with_mock_device_and_stop(mirror: AudioMirror) -> None:
 
 
 def test_start_already_running_returns_false(mirror: AudioMirror) -> None:
-    with patch.object(mirror, "_mirror_loop"):
+    with (
+        patch.object(mirror, "_mirror_loop"),
+        patch(
+            "marvin_hue.audio_mirror.resolve_input_stream_params",
+            return_value=(44100, 1, 1024),
+        ),
+        patch("marvin_hue.audio_mirror.find_pulse_monitor_source", return_value=None),
+    ):
         mirror.start(device_resolver=lambda: 0)
         second = mirror.start(device_resolver=lambda: 0)
     assert second is False
