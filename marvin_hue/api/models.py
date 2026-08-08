@@ -89,3 +89,69 @@ class ChatConfigRequest(BaseModel):
     provider: str = Field(..., pattern=r"^(openai|anthropic|xai|groq)$")
     model: str = Field(..., min_length=1, max_length=100)
     temperature: float = Field(default=0.7, ge=0, le=2)
+
+
+# --- Lights registry (SQLite catalog) ---
+
+
+class LightCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    nickname: str | None = Field(default=None, max_length=100)
+    room: str | None = Field(default=None, max_length=100)
+    notes: str | None = Field(default=None, max_length=2000)
+    bridge_light_id: str | None = Field(default=None, max_length=64)
+    eye_safety_limit_pct: int | None = Field(default=None, ge=0, le=100)
+    enabled_for_app: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("name must be non-empty")
+        return cleaned
+
+
+class LightUpdateRequest(BaseModel):
+    """Partial update. Omitted fields stay unchanged; explicit null clears nullables."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    nickname: str | None = Field(default=None, max_length=100)
+    room: str | None = Field(default=None, max_length=100)
+    notes: str | None = Field(default=None, max_length=2000)
+    bridge_light_id: str | None = Field(default=None, max_length=64)
+    eye_safety_limit_pct: int | None = Field(default=None, ge=0, le=100)
+    enabled_for_app: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def strip_name_optional(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("name must be non-empty")
+        return cleaned
+
+
+class LightResponse(BaseModel):
+    id: str
+    name: str
+    nickname: str | None
+    room: str | None
+    notes: str | None
+    bridge_light_id: str | None
+    eye_safety_limit_pct: int | None
+    enabled_for_app: bool
+    deleted_at: str | None
+    created_at: str
+    updated_at: str
+
+
+class LightsSyncResponse(BaseModel):
+    created: int
+    updated: int
+    unchanged: int
+    skipped_deleted: int = 0
+    total_bridge: int
+
