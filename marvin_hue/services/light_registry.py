@@ -7,6 +7,7 @@ from bridge inventory without hard-deleting Hue lights.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Optional, Protocol
 from uuid import uuid4
@@ -281,7 +282,8 @@ class LightRegistryService:
         refresh = getattr(self._bridge, "refresh_lights", None)
         if callable(refresh):
             try:
-                refresh()
+                # refresh_lights is sync network I/O — keep the event loop free
+                await asyncio.to_thread(refresh)
             except Exception as exc:
                 raise LightValidationError(
                     "Unable to refresh lights from bridge"

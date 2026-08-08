@@ -24,9 +24,11 @@ from marvin_hue.domain.lights import (
     LightValidationError,
     RegisteredLight,
 )
+from marvin_hue.logging_config import get_logger
 from marvin_hue.services.light_registry import LightRegistryService
 
 router = APIRouter(tags=["Lights Registry"])
+logger = get_logger("api.lights")
 
 
 def _dt_iso(value: Optional[datetime]) -> Optional[str]:
@@ -101,6 +103,12 @@ async def sync_lights_from_bridge(
     """
     try:
         result = await svc.refresh_and_sync(reactivate_deleted=reactivate_deleted)
+    except LightConflictError as exc:
+        # LightConflictError subclasses LightValidationError — must be caught first
+        raise HTTPException(
+            status_code=409,
+            detail="Light name conflict during sync",
+        ) from exc
     except LightValidationError as exc:
         # Missing bridge / refresh failure — generic 503, no raw internal strings
         raise HTTPException(
@@ -108,6 +116,7 @@ async def sync_lights_from_bridge(
             detail="Light registry sync unavailable",
         ) from exc
     except Exception:
+        logger.exception("Unexpected error during light registry sync")
         raise HTTPException(
             status_code=500,
             detail="Internal error during light registry sync",

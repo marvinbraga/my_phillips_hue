@@ -359,3 +359,17 @@ async def test_refresh_failure_maps_to_validation_error():
     )
     with pytest.raises(LightValidationError, match="Unable to refresh"):
         await svc.refresh_and_sync()
+
+
+@pytest.mark.asyncio
+async def test_sync_rename_conflict_raises_conflict_error():
+    """Updating name from bridge into an existing active name → LightConflictError."""
+    repo = FakeRepo()
+    svc = LightRegistryService(repo, bridge=None)
+    await svc.create_light(name="Target")
+    await svc.create_light(name="Other", bridge_light_id="conflict-uid")
+    svc._bridge = FakeBridge(
+        [{"name": "Target", "bridge_light_id": "conflict-uid"}]
+    )
+    with pytest.raises(LightConflictError):
+        await svc.sync_from_bridge()

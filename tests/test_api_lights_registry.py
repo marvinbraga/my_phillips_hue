@@ -161,3 +161,27 @@ class TestLightsSync:
         assert r.status_code == 200
         active_ids = {x["id"] for x in fastapi_test_client.get("/api/lights").json()}
         assert lid in active_ids
+
+    def test_sync_name_conflict_returns_409(
+        self, fastapi_test_client, mock_hue_controller
+    ):
+        """Rename-on-bridge into an existing active name must surface as 409."""
+        from types import SimpleNamespace
+
+        fastapi_test_client.post("/api/lights", json={"name": "Target"})
+        fastapi_test_client.post(
+            "/api/lights",
+            json={"name": "Other", "bridge_light_id": "conflict-uid"},
+        )
+        # Bridge reports the uid formerly "Other" now named "Target".
+        # Update get_light_objects so refresh_and_sync does not restore defaults.
+        conflict_light = SimpleNamespace(
+            name="Target",
+            uniqueid="conflict-uid",
+            light_id=99,
+        )
+        mock_hue_controller.bridge.get_light_objects.return_value = [conflict_light]
+        mock_hue_controller.lights = [conflict_light]
+        r = fastapi_test_client.post("/api/lights/sync")
+        assert r.status_code == 409, r.text
+        assert "conflict" in r.json()["detail"].lower()
