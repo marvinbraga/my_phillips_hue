@@ -30,6 +30,7 @@ from marvin_hue.api.routes import (  # noqa: E402
     mirror,
     chat,
     lights,
+    health,
     backup,
 )
 from marvin_hue.api.websockets import setup_websockets  # noqa: E402
@@ -97,6 +98,26 @@ async def lifespan(app: FastAPI):
         dependencies.set_chat_checkpointer(checkpointer)
 
         try:
+            # Room snapshot at agent build time (tools stay sync). Room edits
+            # in the registry need agent rebuild (reconfigure / restart).
+            from marvin_hue.chat.tools.light_tools import (
+                build_room_index_from_registry_rows,
+            )
+
+            room_index: dict[str, list[str]] | None = None
+            try:
+                room_index = build_room_index_from_registry_rows(
+                    await light_registry.list_lights()
+                )
+                logger.info(
+                    f"Chat room_index built: {len(room_index)} room(s) from registry"
+                )
+            except Exception as room_exc:
+                logger.warning(
+                    f"Chat room_index unavailable (locations fallback): {room_exc}"
+                )
+                room_index = None
+
             chat_agent = create_hue_agent(
                 controller=hue,
                 manager=manager,
@@ -104,6 +125,7 @@ async def lifespan(app: FastAPI):
                 model=settings.chat_model,
                 temperature=settings.chat_temperature,
                 checkpointer=checkpointer,
+                room_index=room_index,
             )
             dependencies.set_chat_agent(chat_agent)
             logger.info("Chat agent initialized successfully")
@@ -167,6 +189,7 @@ app.include_router(configurations.router)
 app.include_router(positions.router)
 app.include_router(mirror.router)
 app.include_router(chat.router)
+app.include_router(health.router)
 app.include_router(backup.router)
 
 # Configurar WebSockets
@@ -177,7 +200,7 @@ setup_websockets(app)
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Página principal."""
-    return templates.TemplateResponse(request, "index.html")
+    return templates.TemplateResponse(request, "index.html", {"active": "controle"})
 
 
 if __name__ == "__main__":
