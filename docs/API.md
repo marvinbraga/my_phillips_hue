@@ -749,13 +749,22 @@ Inicia o espelhamento de tela.
 ```json
 {
   "fps": 25,
-  "brightness": 200
+  "brightness": 200,
+  "profile": "cinema"
 }
 ```
 
 **Parâmetros:**
-- `fps` (int, optional): Taxa de atualização em FPS (1-60, padrão: 25)
-- `brightness` (int, optional): Brilho das lâmpadas (0-254, padrão: 200)
+- `fps` (int, optional): Taxa de atualização em FPS (1-60). Se omitido com profile, usa o do profile; sem profile, padrão 25
+- `brightness` (int, optional): Brilho das lâmpadas (0-254). Se omitido com profile, usa o do profile; sem profile, padrão 200
+- `profile` (string, optional): `cinema` | `fps` | `ambient` — aplica defaults de fps/brilho/suavização antes de `fps`/`brightness` explícitos
+
+**Perfis:**
+| Perfil | fps | brightness | sat | smoothing | transition |
+|--------|-----|------------|-----|-----------|------------|
+| cinema | 12 | 160 | 1.1 | 0.35 | 2 |
+| fps | 30 | 200 | 1.4 | 0.7 | 0 |
+| ambient | 8 | 120 | 1.0 | 0.25 | 3 |
 
 **Response 200:**
 ```json
@@ -870,9 +879,21 @@ curl http://localhost:5081/mirror/status
 
 ---
 
+### GET /mirror/profiles
+
+Lista perfis disponíveis e defaults (`cinema`, `fps`, `ambient`).
+
+### POST /mirror/profile
+
+Aplica um perfil sem reiniciar o loop.
+
+```json
+{ "profile": "cinema" }
+```
+
 ### POST /mirror/settings
 
-Atualiza configurações do espelhamento em tempo real (sem parar).
+Atualiza configurações do espelhamento em tempo real (sem parar). Aceita `profile` opcional; campos explícitos sobrescrevem o perfil.
 
 **Request Body:**
 ```json
@@ -881,7 +902,8 @@ Atualiza configurações do espelhamento em tempo real (sem parar).
   "brightness": 180,
   "saturation_boost": 1.5,
   "smoothing_factor": 0.3,
-  "transition_time": 0.5
+  "transition_time": 0.5,
+  "profile": "fps"
 }
 ```
 
@@ -891,6 +913,7 @@ Atualiza configurações do espelhamento em tempo real (sem parar).
 - `saturation_boost` (float): Boost de saturação (0-3)
 - `smoothing_factor` (float): Fator de suavização (0-1, menor = mais suave)
 - `transition_time` (float): Tempo de transição (0-10)
+- `profile` (string): `cinema` | `fps` | `ambient`
 
 **Response 200:**
 ```json

@@ -1,0 +1,30 @@
+{# expects optional `active` in context:
+   controle|lampadas|grupos|agendamentos|posicoes|espelhamento|saude|chat #}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item {% if active == 'controle' %}active{% endif %}" {% if active == 'controle' %}aria-current="page"{% endif %}>
+      {% if active != 'controle' %}<a href="/">Controle</a>{% else %}Controle{% endif %}
+    </li>
+    <li class="breadcrumb-item {% if active == 'lampadas' %}active{% endif %}" {% if active == 'lampadas' %}aria-current="page"{% endif %}>
+      {% if active != 'lampadas' %}<a href="/lights">Lâmpadas</a>{% else %}Lâmpadas{% endif %}
+    </li>
+    <li class="breadcrumb-item {% if active == 'grupos' %}active{% endif %}" {% if active == 'grupos' %}aria-current="page"{% endif %}>
+      {% if active != 'grupos' %}<a href="/groups">Grupos</a>{% else %}Grupos{% endif %}
+    </li>
+    <li class="breadcrumb-item {% if active == 'agendamentos' %}active{% endif %}" {% if active == 'agendamentos' %}aria-current="page"{% endif %}>
+      {% if active != 'agendamentos' %}<a href="/schedules">Agendamentos</a>{% else %}Agendamentos{% endif %}
+    </li>
+    <li class="breadcrumb-item {% if active == 'posicoes' %}active{% endif %}" {% if active == 'posicoes' %}aria-current="page"{% endif %}>
+      {% if active != 'posicoes' %}<a href="/positions-config">Posicionamento</a>{% else %}Posicionamento{% endif %}
+    </li>
+    <li class="breadcrumb-item {% if active == 'espelhamento' %}active{% endif %}" {% if active == 'espelhamento' %}aria-current="page"{% endif %}>
+      {% if active != 'espelhamento' %}<a href="/mirror">Espelhamento</a>{% else %}Espelhamento{% endif %}
+    </li>
+    <li class="breadcrumb-item {% if active == 'saude' %}active{% endif %}" {% if active == 'saude' %}aria-current="page"{% endif %}>
+      {% if active != 'saude' %}<a href="/health">Saúde</a>{% else %}Saúde{% endif %}
+    </li>
+    <li class="breadcrumb-item {% if active == 'chat' %}active{% endif %}" {% if active == 'chat' %}aria-current="page"{% endif %}>
+      {% if active != 'chat' %}<a href="/chat">Chat</a>{% else %}Chat{% endif %}
+    </li>
+  </ol>
+</nav>

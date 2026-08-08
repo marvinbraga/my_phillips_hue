@@ -5,6 +5,88 @@ let positionsData = {};
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
+// Defaults espelhados de marvin_hue.screen_mirror.MIRROR_PROFILES
+const MIRROR_PROFILES = {
+    cinema: {
+        fps: 12,
+        brightness: 160,
+        saturation_boost: 1.1,
+        smoothing_factor: 0.35,
+        transition_time: 2,
+    },
+    fps: {
+        fps: 30,
+        brightness: 200,
+        saturation_boost: 1.4,
+        smoothing_factor: 0.7,
+        transition_time: 0,
+    },
+    ambient: {
+        fps: 8,
+        brightness: 120,
+        saturation_boost: 1.0,
+        smoothing_factor: 0.25,
+        transition_time: 3,
+    },
+};
+
+function getSelectedProfile() {
+    const checked = $('input[name="mirror-profile"]:checked').val();
+    return checked || null;
+}
+
+function setProfileUI(profileName) {
+    if (!profileName || !MIRROR_PROFILES[profileName]) {
+        $('input[name="mirror-profile"]').prop('checked', false);
+        return;
+    }
+    $(`input[name="mirror-profile"][value="${profileName}"]`).prop('checked', true);
+    applyProfileToSliders(profileName);
+}
+
+function applyProfileToSliders(profileName) {
+    const p = MIRROR_PROFILES[profileName];
+    if (!p) return;
+
+    $('#fps-range').val(p.fps);
+    $('#fps-value').text(p.fps);
+    $('#brightness-range').val(p.brightness);
+    $('#brightness-value').text(p.brightness);
+    $('#saturation-range').val(p.saturation_boost);
+    $('#saturation-value').text(p.saturation_boost);
+    $('#smoothing-range').val(p.smoothing_factor);
+    $('#smoothing-value').text(p.smoothing_factor);
+    $('#transition-range').val(p.transition_time);
+    $('#transition-value').text(Math.round(p.transition_time * 100));
+}
+
+function syncSlidersFromStatus(status) {
+    if (!status) return;
+    if (typeof status.fps === 'number') {
+        $('#fps-range').val(status.fps);
+        $('#fps-value').text(status.fps);
+    }
+    if (typeof status.brightness === 'number') {
+        $('#brightness-range').val(status.brightness);
+        $('#brightness-value').text(status.brightness);
+    }
+    if (typeof status.saturation_boost === 'number') {
+        $('#saturation-range').val(status.saturation_boost);
+        $('#saturation-value').text(status.saturation_boost);
+    }
+    if (typeof status.smoothing_factor === 'number') {
+        $('#smoothing-range').val(status.smoothing_factor);
+        $('#smoothing-value').text(status.smoothing_factor);
+    }
+    if (typeof status.transition_time === 'number') {
+        $('#transition-range').val(status.transition_time);
+        $('#transition-value').text(Math.round(status.transition_time * 100));
+    }
+    if (status.active_profile) {
+        $(`input[name="mirror-profile"][value="${status.active_profile}"]`).prop('checked', true);
+    }
+}
+
 // Conectar WebSocket
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -162,25 +244,32 @@ function rgbToHex(r, g, b) {
 
 // Iniciar espelhamento via WebSocket
 function startMirror() {
-    const fps = parseInt($('#fps-range').val());
-    const brightness = parseInt($('#brightness-range').val());
+    const fps = parseInt($('#fps-range').val(), 10);
+    const brightness = parseInt($('#brightness-range').val(), 10);
+    const profile = getSelectedProfile();
+    const payload = { action: 'start', fps, brightness };
+    if (profile) {
+        payload.profile = profile;
+    }
 
     if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-            action: 'start',
-            fps: fps,
-            brightness: brightness
-        }));
+        ws.send(JSON.stringify(payload));
     } else {
         // Fallback para HTTP
+        const body = { fps, brightness };
+        if (profile) {
+            body.profile = profile;
+        }
         fetch('/mirror/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fps, brightness })
+            body: JSON.stringify(body)
         })
         .then(response => response.json())
         .then(data => {
-            if (data.error) {
+            if (data.detail) {
+                alert(data.detail);
+            } else if (data.error) {
                 alert(data.error);
             }
         })
@@ -200,57 +289,72 @@ function stopMirror() {
     }
 }
 
+function flashApplyButton() {
+    const btn = $('#apply-settings-btn');
+    const originalHtml = btn.html();
+    btn.html('<i class="bi bi-check-circle"></i> Aplicado!').addClass('btn-success').removeClass('btn-outline-primary');
+    setTimeout(() => {
+        btn.html(originalHtml).removeClass('btn-success').addClass('btn-outline-primary');
+    }, 2000);
+}
+
 // Aplicar configurações via WebSocket
-function applySettings() {
+function applySettings(options) {
+    const includeProfile = !options || options.includeProfile !== false;
     const settings = {
         action: 'settings',
-        fps: parseInt($('#fps-range').val()),
-        brightness: parseInt($('#brightness-range').val()),
+        fps: parseInt($('#fps-range').val(), 10),
+        brightness: parseInt($('#brightness-range').val(), 10),
         saturation_boost: parseFloat($('#saturation-range').val()),
         smoothing_factor: parseFloat($('#smoothing-range').val()),
         transition_time: parseFloat($('#transition-range').val())
     };
+    const profile = getSelectedProfile();
+    if (includeProfile && profile) {
+        settings.profile = profile;
+    }
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(settings));
-
-        // Feedback visual
-        const btn = $('#apply-settings-btn');
-        const originalHtml = btn.html();
-        btn.html('<i class="bi bi-check-circle"></i> Aplicado!').addClass('btn-success').removeClass('btn-outline-primary');
-        setTimeout(() => {
-            btn.html(originalHtml).removeClass('btn-success').addClass('btn-outline-primary');
-        }, 2000);
+        flashApplyButton();
     } else {
         // Fallback para HTTP
+        const body = {
+            fps: settings.fps,
+            brightness: settings.brightness,
+            saturation_boost: settings.saturation_boost,
+            smoothing_factor: settings.smoothing_factor,
+            transition_time: settings.transition_time
+        };
+        if (settings.profile) {
+            body.profile = settings.profile;
+        }
         fetch('/mirror/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                fps: settings.fps,
-                brightness: settings.brightness,
-                saturation_boost: settings.saturation_boost,
-                smoothing_factor: settings.smoothing_factor,
-                transition_time: settings.transition_time
-            })
+            body: JSON.stringify(body)
         })
-        .then(() => {
-            const btn = $('#apply-settings-btn');
-            const originalHtml = btn.html();
-            btn.html('<i class="bi bi-check-circle"></i> Aplicado!').addClass('btn-success').removeClass('btn-outline-primary');
-            setTimeout(() => {
-                btn.html(originalHtml).removeClass('btn-success').addClass('btn-outline-primary');
-            }, 2000);
-        })
+        .then(() => flashApplyButton())
         .catch(err => alert('Erro ao aplicar: ' + err));
     }
+}
+
+function onProfileSelected() {
+    const profile = getSelectedProfile();
+    if (!profile) return;
+    applyProfileToSliders(profile);
+    // Envia profile ao backend (e sliders alinhados); se mirror ativo, aplica em tempo real
+    applySettings({ includeProfile: true });
 }
 
 // Buscar status inicial
 function fetchInitialStatus() {
     fetch('/mirror/status')
         .then(response => response.json())
-        .then(status => updateUI(status))
+        .then(status => {
+            updateUI(status);
+            syncSlidersFromStatus(status);
+        })
         .catch(err => console.error('Erro ao buscar status:', err));
 }
 
@@ -330,8 +434,9 @@ $(document).ready(function() {
     // Event handlers
     $('#start-btn').click(startMirror);
     $('#stop-btn').click(stopMirror);
-    $('#apply-settings-btn').click(applySettings);
+    $('#apply-settings-btn').click(function() { applySettings(); });
     $('#theme-btn').click(toggleTheme);
+    $('input[name="mirror-profile"]').on('change', onProfileSelected);
 });
 
 // Cleanup ao sair da página

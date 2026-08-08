@@ -40,9 +40,16 @@ class PositionsUpdate(BaseModel):
 
 
 class MirrorStartRequest(BaseModel):
-    fps: int = Field(default=25, ge=1, le=60, description="FPS para espelhamento")
-    brightness: int = Field(
-        default=200, ge=0, le=254, description="Brilho das lâmpadas"
+    fps: int | None = Field(
+        default=None, ge=1, le=60, description="FPS para espelhamento (sobrescreve profile)"
+    )
+    brightness: int | None = Field(
+        default=None, ge=0, le=254, description="Brilho das lâmpadas (sobrescreve profile)"
+    )
+    profile: str | None = Field(
+        default=None,
+        pattern=r"^(cinema|fps|ambient)$",
+        description="Perfil nomeado: cinema | fps | ambient",
     )
 
 
@@ -52,6 +59,19 @@ class MirrorSettingsRequest(BaseModel):
     saturation_boost: float | None = Field(default=None, ge=0, le=3)
     smoothing_factor: float | None = Field(default=None, ge=0, le=1)
     transition_time: float | None = Field(default=None, ge=0, le=10)
+    profile: str | None = Field(
+        default=None,
+        pattern=r"^(cinema|fps|ambient)$",
+        description="Perfil nomeado: cinema | fps | ambient",
+    )
+
+
+class MirrorProfileRequest(BaseModel):
+    profile: str = Field(
+        ...,
+        pattern=r"^(cinema|fps|ambient)$",
+        description="Perfil nomeado: cinema | fps | ambient",
+    )
 
 
 class ChatMessageRequest(BaseModel):

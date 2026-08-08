@@ -86,24 +86,41 @@ def setup_websockets(app: FastAPI) -> None:
                     )
                     # Processa comandos do cliente
                     if data.get("action") == "start":
-                        fps = data.get("fps", 25)
-                        brightness = data.get("brightness", 200)
+                        profile = data.get("profile")
+                        fps = data.get("fps")
+                        brightness = data.get("brightness")
                         if not screen_mirror.is_running():
-                            screen_mirror.start(fps=fps, brightness=brightness)
+                            try:
+                                screen_mirror.start(
+                                    fps=fps,
+                                    brightness=brightness,
+                                    profile=profile,
+                                )
+                            except ValueError as e:
+                                logger.warning(f"Invalid mirror start: {e}")
                     elif data.get("action") == "stop":
                         if screen_mirror.is_running():
                             screen_mirror.stop()
                     elif data.get("action") == "settings":
-                        if "fps" in data:
-                            screen_mirror.fps = data["fps"]
-                        if "brightness" in data:
-                            screen_mirror.brightness = data["brightness"]
-                        if "saturation_boost" in data:
-                            screen_mirror.saturation_boost = data["saturation_boost"]
-                        if "smoothing_factor" in data:
-                            screen_mirror.smoothing_factor = data["smoothing_factor"]
-                        if "transition_time" in data:
-                            screen_mirror.transition_time = data["transition_time"]
+                        try:
+                            if "profile" in data and data["profile"]:
+                                screen_mirror.apply_profile(data["profile"])
+                            if "fps" in data:
+                                screen_mirror.fps = data["fps"]
+                            if "brightness" in data:
+                                screen_mirror.brightness = data["brightness"]
+                            if "saturation_boost" in data:
+                                screen_mirror.saturation_boost = data[
+                                    "saturation_boost"
+                                ]
+                            if "smoothing_factor" in data:
+                                screen_mirror.smoothing_factor = data[
+                                    "smoothing_factor"
+                                ]
+                            if "transition_time" in data:
+                                screen_mirror.transition_time = data["transition_time"]
+                        except ValueError as e:
+                            logger.warning(f"Invalid mirror settings: {e}")
                 except asyncio.TimeoutError:
                     pass
 

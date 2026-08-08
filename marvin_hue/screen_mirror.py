@@ -19,6 +19,34 @@ from marvin_hue.logging_config import get_logger
 
 logger = get_logger("screen_mirror")
 
+# Named presets for fps / brightness / smoothing trade-offs.
+# cinema: low fps, smooth transitions (movies)
+# fps: high fps, low smoothing (games / fast motion)
+# ambient: very low fps, high smoothing (background mood)
+MIRROR_PROFILES: dict[str, dict[str, float | int]] = {
+    "cinema": {
+        "fps": 12,
+        "brightness": 160,
+        "saturation_boost": 1.1,
+        "smoothing_factor": 0.35,
+        "transition_time": 2,
+    },
+    "fps": {
+        "fps": 30,
+        "brightness": 200,
+        "saturation_boost": 1.4,
+        "smoothing_factor": 0.7,
+        "transition_time": 0,
+    },
+    "ambient": {
+        "fps": 8,
+        "brightness": 120,
+        "saturation_boost": 1.0,
+        "smoothing_factor": 0.25,
+        "transition_time": 3,
+    },
+}
+
 
 @dataclass
 class ScreenRegion:
@@ -102,6 +130,7 @@ class ScreenMirror:
         self.saturation_boost = 1.2
         self.smoothing_factor = 0.5  # Fator de suavização (0.0-1.0, menor = mais suave) (OPTIMIZATION: temporal smoothing)
         self.transition_time = 1  # Tempo de transição em décimos de segundo (100ms)
+        self.active_profile: str | None = None
         self._on_status_change: Callable[[dict[str, Any]], None] | None = None
         self._current_colors: dict[str, tuple[int, int, int]] = {}
         self._target_colors: dict[
@@ -110,6 +139,23 @@ class ScreenMirror:
         self._smoothed_colors: dict[
             str, tuple[int, int, int]
         ] = {}  # Cores suavizadas (OPTIMIZATION: change detection cache)
+
+    def apply_profile(self, name: str) -> None:
+        """
+        Aplica um perfil nomeado (cinema | fps | ambient).
+
+        Atualiza fps, brightness, saturation_boost, smoothing_factor e
+        transition_time conforme MIRROR_PROFILES e grava active_profile.
+
+        Raises:
+            ValueError: se o nome do perfil for desconhecido
+        """
+        if name not in MIRROR_PROFILES:
+            raise ValueError(f"Unknown profile: {name}")
+        for key, value in MIRROR_PROFILES[name].items():
+            setattr(self, key, value)
+        self.active_profile = name
+        logger.info(f"Applied mirror profile '{name}': {MIRROR_PROFILES[name]}")
 
     def load_light_positions(self) -> list[dict[str, Any]]:
         """
@@ -403,20 +449,28 @@ class ScreenMirror:
                 if elapsed < frame_time:
                     time.sleep(frame_time - elapsed)
 
-    def start(self, fps: int = 25, brightness: int = 200) -> bool:
+    def start(
+        self,
+        fps: int | None = None,
+        brightness: int | None = None,
+        profile: str | None = None,
+    ) -> bool:
         """
         Inicia o espelhamento de tela em uma thread separada.
 
         Args:
-            fps: Taxa de atualização (1-60). Padrão: 25
-                Valores recomendados: 15-30 (balanço performance/responsividade)
-            brightness: Brilho das lâmpadas (0-254). Padrão: 200
+            fps: Taxa de atualização (1-60). Padrão: 25 se nenhum profile.
+            brightness: Brilho das lâmpadas (0-254). Padrão: 200 se nenhum profile.
+            profile: Perfil opcional (cinema|fps|ambient). Aplicado antes de
+                fps/brightness; estes sobrescrevem o perfil se informados.
 
         Returns:
             True se iniciado com sucesso, False se já está rodando
 
         Example:
             >>> mirror.start(fps=25, brightness=200)
+            True
+            >>> mirror.start(profile="cinema")
             True
             >>> mirror.is_running()
             True
@@ -425,9 +479,23 @@ class ScreenMirror:
             logger.warning("Screen mirroring already running")
             return False
 
-        logger.info(f"Starting screen mirroring (FPS: {fps}, brightness: {brightness})")
-        self.fps = fps
-        self.brightness = brightness
+        if profile is not None:
+            self.apply_profile(profile)
+
+        if fps is not None:
+            self.fps = fps
+        elif profile is None:
+            self.fps = 25
+
+        if brightness is not None:
+            self.brightness = brightness
+        elif profile is None:
+            self.brightness = 200
+
+        logger.info(
+            f"Starting screen mirroring (FPS: {self.fps}, brightness: {self.brightness}"
+            f", profile: {self.active_profile})"
+        )
         self.running = True
         self.thread = threading.Thread(target=self._mirror_loop, daemon=True)
         self.thread.start()
@@ -472,6 +540,10 @@ class ScreenMirror:
             - running (bool): Se está ativo
             - fps (int): Taxa de atualização configurada
             - brightness (int): Brilho configurado
+            - saturation_boost (float): Multiplicador de saturação
+            - smoothing_factor (float): Fator de suavização temporal
+            - transition_time (float): Transição Hue em décimos de segundo
+            - active_profile (str|None): Último perfil aplicado
             - colors (dict): Mapa nome_lampada -> (r, g, b)
 
         Example:
@@ -491,6 +563,10 @@ class ScreenMirror:
             "running": self.running,
             "fps": self.fps,
             "brightness": self.brightness,
+            "saturation_boost": self.saturation_boost,
+            "smoothing_factor": self.smoothing_factor,
+            "transition_time": self.transition_time,
+            "active_profile": self.active_profile,
             "colors": self._current_colors.copy(),
         }
 
