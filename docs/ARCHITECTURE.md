@@ -1046,6 +1046,12 @@ def apply_config(config: LightConfig) -> "HueController":
 
 ---
 
+## Future / Roadmap — Hue Entertainment streaming
+
+Music and screen mirroring currently push colors over REST via `phue` (`HueController.set_light_color`), which is rate-limited and cannot match the official Hue Sync experience. A phased plan upgrades high-rate paths to the **Hue Entertainment API** (DTLS / HueStream) using the OSS client [music-assistant/hue-entertainment](https://github.com/music-assistant/hue-entertainment), behind a dual-transport `LightOutputPort` (Entertainment preferred, REST fallback), with feature flag `ENTERTAINMENT_ENABLED`, eye-safety clamping on stream frames, and mutual exclusion of mirror sessions. Implementation plan (phases 0–6, exact paths, tests): [`docs/plans/2026-08-08-hue-entertainment-music-upgrade.md`](plans/2026-08-08-hue-entertainment-music-upgrade.md).
+
+---
+
 ## Referências
 
 - [Philips Hue API Documentation](https://developers.meethue.com/)
@@ -1057,4 +1063,4 @@ def apply_config(config: LightConfig) -> "HueController":
 ---
 
 Este documento foi gerado como parte da Fase 3.3 do plano de melhorias.
-Última atualização: 2026-01-22
+Última atualização: 2026-08-08

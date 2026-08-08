@@ -1653,6 +1653,12 @@ setTimeout(() => {
 
 ---
 
+## Future / Roadmap — Hue Entertainment
+
+Planned extensions to mirror endpoints (not yet implemented): Entertainment area listing and pairing, `transport` field on start/status (`rest` | `entertainment`), optional intensity profiles, and status fields for stream area name / fps. Full design and task breakdown: [`docs/plans/2026-08-08-hue-entertainment-music-upgrade.md`](plans/2026-08-08-hue-entertainment-music-upgrade.md). Until that lands, audio/screen mirror continue to use REST (`phue`) only.
+
+---
+
 ## Changelog da API
 
 ### Versão 2.0.0 (Atual)
