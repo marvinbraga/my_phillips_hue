@@ -739,32 +739,70 @@ curl -X POST http://localhost:5081/positions/reset
 
 ---
 
-## Espelhamento de Tela
+## Espelhamento de Tela e Música
+
+Dois modos mutuamente exclusivos (iniciar um para o outro):
+
+| `mode` | Fonte | Perfis |
+|--------|--------|--------|
+| `screen` (padrão) | Captura de regiões da tela | `cinema`, `fps`, `ambient` |
+| `audio` | Áudio do sistema (sink monitor PulseAudio/PipeWire) | `party`, `chill`, `pulse` |
+
+No modo **audio**, as posições de `light_positions.json` mapeiam bandas:
+- **grave (bass):** `bottom`, `bottom-left`, `bottom-right` → vermelhos/laranjas
+- **médio (mid):** `left`, `right`, `center`, `ambient` → verdes/roxos
+- **agudo (treble):** `top`, `top-left`, `top-right` → azuis/cianos
 
 ### POST /mirror/start
 
-Inicia o espelhamento de tela.
+Inicia o espelhamento de tela ou de música.
 
 **Request Body:**
 ```json
 {
+  "mode": "screen",
   "fps": 25,
   "brightness": 200,
   "profile": "cinema"
 }
 ```
 
-**Parâmetros:**
-- `fps` (int, optional): Taxa de atualização em FPS (1-60). Se omitido com profile, usa o do profile; sem profile, padrão 25
-- `brightness` (int, optional): Brilho das lâmpadas (0-254). Se omitido com profile, usa o do profile; sem profile, padrão 200
-- `profile` (string, optional): `cinema` | `fps` | `ambient` — aplica defaults de fps/brilho/suavização antes de `fps`/`brightness` explícitos
+**Áudio / música:**
+```json
+{
+  "mode": "audio",
+  "profile": "party",
+  "fps": 30,
+  "brightness": 220
+}
+```
 
-**Perfis:**
+**Parâmetros:**
+- `mode` (string, optional): `screen` | `audio` (padrão `screen`)
+- `fps` (int, optional): Taxa de atualização em FPS (1-60). Se omitido com profile, usa o do profile; sem profile, padrão 25 (screen) / 30 (audio)
+- `brightness` (int, optional): Brilho das lâmpadas (0-254)
+- `profile` (string, optional): screen=`cinema`|`fps`|`ambient`; audio=`party`|`chill`|`pulse`
+
+**Perfis de tela:**
 | Perfil | fps | brightness | sat | smoothing | transition |
 |--------|-----|------------|-----|-----------|------------|
 | cinema | 12 | 160 | 1.1 | 0.35 | 2 |
 | fps | 30 | 200 | 1.4 | 0.7 | 0 |
 | ambient | 8 | 120 | 1.0 | 0.25 | 3 |
+
+**Perfis de áudio:**
+| Perfil | fps | brightness | smoothing | transition | energy_gain |
+|--------|-----|------------|-----------|------------|-------------|
+| party | 30 | 220 | 0.55 | 0 | 1.4 |
+| chill | 20 | 140 | 0.2 | 3 | 0.85 |
+| pulse | 35 | 240 | 0.75 | 0 | 1.6 |
+
+**Response 503 (sem dispositivo de áudio):**
+```json
+{
+  "detail": "Nenhum dispositivo de áudio encontrado. No Linux, use PulseAudio/PipeWire..."
+}
+```
 
 **Response 200:**
 ```json
@@ -853,24 +891,46 @@ curl -X POST http://localhost:5081/mirror/stop
 
 ### GET /mirror/status
 
-Retorna o status atual do espelhamento.
+Retorna o status unificado do espelhamento ativo.
 
-**Response 200:**
+**Response 200 (modo tela):**
 ```json
 {
   "running": true,
+  "mode": "screen",
   "fps": 25,
   "brightness": 200,
   "saturation_boost": 1.2,
   "smoothing_factor": 0.5,
   "transition_time": 1,
-  "current_colors": {
+  "bass": 0.0,
+  "mid": 0.0,
+  "treble": 0.0,
+  "colors": {
     "Hue Play 1": [255, 100, 50],
-    "Hue Play 2": [50, 150, 255],
-    "Fita Led": [100, 200, 150]
+    "Hue Play 2": [50, 150, 255]
   }
 }
 ```
+
+**Response 200 (modo áudio):**
+```json
+{
+  "running": true,
+  "mode": "audio",
+  "fps": 30,
+  "brightness": 220,
+  "active_profile": "party",
+  "bass": 0.72,
+  "mid": 0.41,
+  "treble": 0.18,
+  "colors": {
+    "Hue Play 1": [120, 40, 180]
+  }
+}
+```
+
+`mode` é `null` quando nenhum espelhamento está ativo. `bass` / `mid` / `treble` estão em 0–1.
 
 **Exemplo com curl:**
 ```bash
@@ -881,7 +941,14 @@ curl http://localhost:5081/mirror/status
 
 ### GET /mirror/profiles
 
-Lista perfis disponíveis e defaults (`cinema`, `fps`, `ambient`).
+Lista perfis de tela (`profiles`) e de áudio (`audio_profiles`).
+
+```json
+{
+  "profiles": { "cinema": { ... }, "fps": { ... }, "ambient": { ... } },
+  "audio_profiles": { "party": { ... }, "chill": { ... }, "pulse": { ... } }
+}
+```
 
 ### POST /mirror/profile
 
@@ -891,13 +958,18 @@ Aplica um perfil sem reiniciar o loop.
 { "profile": "cinema" }
 ```
 
+```json
+{ "mode": "audio", "profile": "party" }
+```
+
 ### POST /mirror/settings
 
-Atualiza configurações do espelhamento em tempo real (sem parar). Aceita `profile` opcional; campos explícitos sobrescrevem o perfil.
+Atualiza configurações do espelhamento em tempo real (sem parar). Aceita `profile` e `mode` opcionais; campos explícitos sobrescrevem o perfil.
 
 **Request Body:**
 ```json
 {
+  "mode": "screen",
   "fps": 30,
   "brightness": 180,
   "saturation_boost": 1.5,
@@ -908,12 +980,14 @@ Atualiza configurações do espelhamento em tempo real (sem parar). Aceita `prof
 ```
 
 **Parâmetros (todos opcionais):**
+- `mode` (string): `screen` | `audio` (padrão: modo ativo ou screen)
 - `fps` (int): Taxa de atualização (1-60)
 - `brightness` (int): Brilho (0-254)
-- `saturation_boost` (float): Boost de saturação (0-3)
-- `smoothing_factor` (float): Fator de suavização (0-1, menor = mais suave)
+- `saturation_boost` (float): Boost de saturação (0-3, modo tela)
+- `smoothing_factor` (float): Fator de suavização (0-1)
 - `transition_time` (float): Tempo de transição (0-10)
-- `profile` (string): `cinema` | `fps` | `ambient`
+- `energy_gain` (float): Ganho de energia 0.1–3 (modo audio)
+- `profile` (string): screen=`cinema`|`fps`|`ambient`; audio=`party`|`chill`|`pulse`
 
 **Response 200:**
 ```json

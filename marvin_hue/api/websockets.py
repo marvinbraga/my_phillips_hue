@@ -4,12 +4,16 @@ Gerenciamento de conexões WebSocket para espelhamento e chat.
 """
 
 import asyncio
-from fastapi import WebSocket, WebSocketDisconnect, FastAPI
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+
 from marvin_hue.api.dependencies import (
+    get_audio_mirror,
     get_chat_agent,
     get_chat_unavailable_reason,
     get_screen_mirror,
 )
+from marvin_hue.api.routes.mirror import _unified_status
 from marvin_hue.logging_config import get_logger
 
 logger = get_logger("websockets")
@@ -38,7 +42,6 @@ class ConnectionManager:
             except Exception:
                 disconnected.append(connection)
 
-        # Remove conexões desconectadas
         for conn in disconnected:
             self.disconnect(conn)
 
@@ -58,7 +61,6 @@ class ChatConnectionManager:
             self.active_connections.remove(websocket)
 
 
-# Instâncias globais dos managers
 ws_manager = ConnectionManager()
 chat_ws_manager = ChatConnectionManager()
 
@@ -68,32 +70,53 @@ def setup_websockets(app: FastAPI) -> None:
 
     @app.websocket("/ws/mirror")
     async def websocket_mirror(websocket: WebSocket):
-        """WebSocket para streaming de cores em tempo real."""
+        """WebSocket para streaming de cores/spectrum em tempo real."""
         await ws_manager.connect(websocket)
         screen_mirror = get_screen_mirror()
+        audio_mirror = get_audio_mirror()
 
         try:
             while True:
-                # Envia status a cada 100ms quando espelhamento está ativo
-                if screen_mirror and screen_mirror.is_running():
-                    status = screen_mirror.get_status()
+                any_running = screen_mirror.is_running() or audio_mirror.is_running()
+                if any_running:
+                    status = _unified_status(screen_mirror, audio_mirror)
                     await websocket.send_json(status)
                     await asyncio.sleep(0.1)  # 10 FPS para o WebSocket
                 else:
-                    # Quando inativo, apenas verifica mensagens do cliente
                     await asyncio.sleep(0.5)
 
-                # Verifica se há mensagem do cliente (não-bloqueante)
                 try:
                     data = await asyncio.wait_for(
                         websocket.receive_json(), timeout=0.01
                     )
-                    # Processa comandos do cliente
-                    if data.get("action") == "start":
+                    action = data.get("action")
+                    mode = data.get("mode") or "screen"
+
+                    if action == "start":
                         profile = data.get("profile")
                         fps = data.get("fps")
                         brightness = data.get("brightness")
-                        if not screen_mirror.is_running():
+                        if mode == "audio":
+                            if audio_mirror.is_running():
+                                continue
+                            if screen_mirror.is_running():
+                                screen_mirror.stop()
+                            try:
+                                audio_mirror.start(
+                                    fps=fps,
+                                    brightness=brightness,
+                                    profile=profile,
+                                )
+                            except (ValueError, RuntimeError) as e:
+                                logger.warning(f"Invalid audio mirror start: {e}")
+                                await websocket.send_json(
+                                    {"error": str(e), "running": False, "mode": "audio"}
+                                )
+                        else:
+                            if screen_mirror.is_running():
+                                continue
+                            if audio_mirror.is_running():
+                                audio_mirror.stop()
                             try:
                                 screen_mirror.start(
                                     fps=fps,
@@ -102,27 +125,56 @@ def setup_websockets(app: FastAPI) -> None:
                                 )
                             except ValueError as e:
                                 logger.warning(f"Invalid mirror start: {e}")
-                    elif data.get("action") == "stop":
+
+                    elif action == "stop":
+                        if audio_mirror.is_running():
+                            audio_mirror.stop()
                         if screen_mirror.is_running():
                             screen_mirror.stop()
-                    elif data.get("action") == "settings":
+
+                    elif action == "settings":
+                        target = data.get("mode") or (
+                            "audio"
+                            if audio_mirror.is_running()
+                            else "screen"
+                        )
                         try:
-                            if "profile" in data and data["profile"]:
-                                screen_mirror.apply_profile(data["profile"])
-                            if "fps" in data:
-                                screen_mirror.fps = data["fps"]
-                            if "brightness" in data:
-                                screen_mirror.brightness = data["brightness"]
-                            if "saturation_boost" in data:
-                                screen_mirror.saturation_boost = data[
-                                    "saturation_boost"
-                                ]
-                            if "smoothing_factor" in data:
-                                screen_mirror.smoothing_factor = data[
-                                    "smoothing_factor"
-                                ]
-                            if "transition_time" in data:
-                                screen_mirror.transition_time = data["transition_time"]
+                            if target == "audio":
+                                if data.get("profile"):
+                                    audio_mirror.apply_profile(data["profile"])
+                                if "fps" in data:
+                                    audio_mirror.fps = data["fps"]
+                                if "brightness" in data:
+                                    audio_mirror.brightness = data["brightness"]
+                                if "smoothing_factor" in data:
+                                    audio_mirror.smoothing_factor = data[
+                                        "smoothing_factor"
+                                    ]
+                                if "transition_time" in data:
+                                    audio_mirror.transition_time = data[
+                                        "transition_time"
+                                    ]
+                                if "energy_gain" in data:
+                                    audio_mirror.energy_gain = data["energy_gain"]
+                            else:
+                                if data.get("profile"):
+                                    screen_mirror.apply_profile(data["profile"])
+                                if "fps" in data:
+                                    screen_mirror.fps = data["fps"]
+                                if "brightness" in data:
+                                    screen_mirror.brightness = data["brightness"]
+                                if "saturation_boost" in data:
+                                    screen_mirror.saturation_boost = data[
+                                        "saturation_boost"
+                                    ]
+                                if "smoothing_factor" in data:
+                                    screen_mirror.smoothing_factor = data[
+                                        "smoothing_factor"
+                                    ]
+                                if "transition_time" in data:
+                                    screen_mirror.transition_time = data[
+                                        "transition_time"
+                                    ]
                         except ValueError as e:
                             logger.warning(f"Invalid mirror settings: {e}")
                 except asyncio.TimeoutError:
@@ -142,7 +194,6 @@ def setup_websockets(app: FastAPI) -> None:
             while True:
                 data = await websocket.receive_json()
 
-                # Re-fetch a cada mensagem para refletir /api/chat/configure.
                 chat_agent = get_chat_agent()
                 if chat_agent is None:
                     reason = (
@@ -153,11 +204,6 @@ def setup_websockets(app: FastAPI) -> None:
                     continue
 
                 action = data.get("action", "message")
-                # session_id extraído de CADA frame: tolera reconexões e mantém o
-                # frame autossuficiente. É o ÚNICO mecanismo de isolamento de
-                # histórico (thread_id do checkpointer compartilhado).
-                # Coerção defensiva: `null`/tipos exóticos -> "default"; limita o
-                # tamanho (espelha max_length=128 dos modelos REST).
                 session_id = str(data.get("session_id") or "default")[:128]
 
                 if action == "message":
@@ -168,7 +214,9 @@ def setup_websockets(app: FastAPI) -> None:
                     await websocket.send_json({"type": "typing", "content": True})
 
                     try:
-                        response = await chat_agent.ainvoke(message, session_id=session_id)
+                        response = await chat_agent.ainvoke(
+                            message, session_id=session_id
+                        )
                         await websocket.send_json(
                             {"type": "response", "content": response}
                         )

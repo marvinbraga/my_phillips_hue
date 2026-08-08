@@ -40,6 +40,11 @@ class PositionsUpdate(BaseModel):
 
 
 class MirrorStartRequest(BaseModel):
+    mode: str = Field(
+        default="screen",
+        pattern=r"^(screen|audio)$",
+        description="Modo: screen (tela) | audio (música)",
+    )
     fps: int | None = Field(
         default=None, ge=1, le=60, description="FPS para espelhamento (sobrescreve profile)"
     )
@@ -48,29 +53,46 @@ class MirrorStartRequest(BaseModel):
     )
     profile: str | None = Field(
         default=None,
-        pattern=r"^(cinema|fps|ambient)$",
-        description="Perfil nomeado: cinema | fps | ambient",
+        pattern=r"^(cinema|fps|ambient|party|chill|pulse)$",
+        description=(
+            "Perfil: screen=cinema|fps|ambient; audio=party|chill|pulse"
+        ),
     )
 
 
 class MirrorSettingsRequest(BaseModel):
+    mode: str | None = Field(
+        default=None,
+        pattern=r"^(screen|audio)$",
+        description="Alvo das settings (padrão: modo ativo ou screen)",
+    )
     fps: int | None = Field(default=None, ge=1, le=60)
     brightness: int | None = Field(default=None, ge=0, le=254)
     saturation_boost: float | None = Field(default=None, ge=0, le=3)
     smoothing_factor: float | None = Field(default=None, ge=0, le=1)
     transition_time: float | None = Field(default=None, ge=0, le=10)
+    energy_gain: float | None = Field(
+        default=None, ge=0.1, le=3.0, description="Ganho de energia (modo audio)"
+    )
     profile: str | None = Field(
         default=None,
-        pattern=r"^(cinema|fps|ambient)$",
-        description="Perfil nomeado: cinema | fps | ambient",
+        pattern=r"^(cinema|fps|ambient|party|chill|pulse)$",
+        description=(
+            "Perfil: screen=cinema|fps|ambient; audio=party|chill|pulse"
+        ),
     )
 
 
 class MirrorProfileRequest(BaseModel):
+    mode: str | None = Field(
+        default=None,
+        pattern=r"^(screen|audio)$",
+        description="Modo do perfil (inferido pelo nome se omitido)",
+    )
     profile: str = Field(
         ...,
-        pattern=r"^(cinema|fps|ambient)$",
-        description="Perfil nomeado: cinema | fps | ambient",
+        pattern=r"^(cinema|fps|ambient|party|chill|pulse)$",
+        description="Perfil nomeado (screen ou audio)",
     )
 
 

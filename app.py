@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates  # noqa: E402
 
 from marvin_hue.basics import LightSetupsManager  # noqa: E402
 from marvin_hue.controllers import HueController  # noqa: E402
+from marvin_hue.audio_mirror import AudioMirror  # noqa: E402
 from marvin_hue.screen_mirror import ScreenMirror  # noqa: E402
 from marvin_hue.chat import create_hue_agent  # noqa: E402
 from marvin_hue.logging_config import get_logger  # noqa: E402
@@ -54,11 +55,13 @@ async def lifespan(app: FastAPI):
     hue = HueController(ip_address=settings.bridge_ip)
     manager = LightSetupsManager(settings.setups_file)
     screen_mirror = ScreenMirror(hue, settings.positions_file)
+    audio_mirror = AudioMirror(hue, settings.positions_file)
 
     # Registra dependências
     dependencies.set_hue_controller(hue)
     dependencies.set_manager(manager)
     dependencies.set_screen_mirror(screen_mirror)
+    dependencies.set_audio_mirror(audio_mirror)
 
     # App-owned SQLite services (separate connections per repo; same DB file)
     from marvin_hue.persistence.schema import init_db
@@ -208,13 +211,15 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Marvin Hue application")
     if screen_mirror and screen_mirror.is_running():
         screen_mirror.stop()
+    if audio_mirror and audio_mirror.is_running():
+        audio_mirror.stop()
     logger.info("Application shutdown complete")
 
 
 # Aplicação FastAPI
 app = FastAPI(
     title="Marvin Hue Controller",
-    description="Controle de luzes Philips Hue com espelhamento de tela",
+    description="Controle de luzes Philips Hue com espelhamento de tela e música",
     version="2.0.0",
     lifespan=lifespan,
 )

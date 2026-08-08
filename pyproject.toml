@@ -26,6 +26,8 @@ dependencies = [
     "loguru>=0.7.3",
     "aiosqlite>=0.20.0",
     "python-multipart>=0.0.32",
+    "numpy>=2.2.6",
+    "sounddevice>=0.5.5",
 ]
 
 [project.optional-dependencies]
@@ -76,6 +78,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "mss.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "sounddevice.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

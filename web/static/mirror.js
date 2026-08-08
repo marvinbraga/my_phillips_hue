@@ -1,5 +1,7 @@
 // Estado do espelhamento
 let isRunning = false;
+let currentMode = 'screen'; // UI tab: 'screen' | 'audio'
+let activeMode = null; // from backend when running
 let ws = null;
 let positionsData = {};
 let reconnectAttempts = 0;
@@ -30,12 +32,48 @@ const MIRROR_PROFILES = {
     },
 };
 
+// Defaults de marvin_hue.audio_mirror.AUDIO_MIRROR_PROFILES
+const AUDIO_PROFILES = {
+    party: {
+        fps: 30,
+        brightness: 220,
+        smoothing_factor: 0.55,
+        transition_time: 0,
+        energy_gain: 1.4,
+    },
+    chill: {
+        fps: 20,
+        brightness: 140,
+        smoothing_factor: 0.2,
+        transition_time: 3,
+        energy_gain: 0.85,
+    },
+    pulse: {
+        fps: 35,
+        brightness: 240,
+        smoothing_factor: 0.75,
+        transition_time: 0,
+        energy_gain: 1.6,
+    },
+};
+
 function getSelectedProfile() {
-    const checked = $('input[name="mirror-profile"]:checked').val();
-    return checked || null;
+    if (currentMode === 'audio') {
+        return $('input[name="audio-profile"]:checked').val() || null;
+    }
+    return $('input[name="mirror-profile"]:checked').val() || null;
 }
 
 function setProfileUI(profileName) {
+    if (currentMode === 'audio') {
+        if (!profileName || !AUDIO_PROFILES[profileName]) {
+            $('input[name="audio-profile"]').prop('checked', false);
+            return;
+        }
+        $(`input[name="audio-profile"][value="${profileName}"]`).prop('checked', true);
+        applyAudioProfileToSliders(profileName);
+        return;
+    }
     if (!profileName || !MIRROR_PROFILES[profileName]) {
         $('input[name="mirror-profile"]').prop('checked', false);
         return;
@@ -60,6 +98,24 @@ function applyProfileToSliders(profileName) {
     $('#transition-value').text(Math.round(p.transition_time * 100));
 }
 
+function applyAudioProfileToSliders(profileName) {
+    const p = AUDIO_PROFILES[profileName];
+    if (!p) return;
+
+    $('#fps-range').val(p.fps);
+    $('#fps-value').text(p.fps);
+    $('#brightness-range').val(p.brightness);
+    $('#brightness-value').text(p.brightness);
+    $('#smoothing-range').val(p.smoothing_factor);
+    $('#smoothing-value').text(p.smoothing_factor);
+    $('#transition-range').val(p.transition_time);
+    $('#transition-value').text(Math.round(p.transition_time * 100));
+    if (typeof p.energy_gain === 'number') {
+        $('#energy-gain-range').val(p.energy_gain);
+        $('#energy-gain-value').text(p.energy_gain);
+    }
+}
+
 function syncSlidersFromStatus(status) {
     if (!status) return;
     if (typeof status.fps === 'number') {
@@ -82,8 +138,41 @@ function syncSlidersFromStatus(status) {
         $('#transition-range').val(status.transition_time);
         $('#transition-value').text(Math.round(status.transition_time * 100));
     }
+    if (typeof status.energy_gain === 'number') {
+        $('#energy-gain-range').val(status.energy_gain);
+        $('#energy-gain-value').text(status.energy_gain);
+    }
     if (status.active_profile) {
-        $(`input[name="mirror-profile"][value="${status.active_profile}"]`).prop('checked', true);
+        if (status.mode === 'audio' || AUDIO_PROFILES[status.active_profile]) {
+            $(`input[name="audio-profile"][value="${status.active_profile}"]`).prop('checked', true);
+        } else {
+            $(`input[name="mirror-profile"][value="${status.active_profile}"]`).prop('checked', true);
+        }
+    }
+}
+
+function setModeUI(mode) {
+    currentMode = mode === 'audio' ? 'audio' : 'screen';
+    $('#tab-screen').toggleClass('active', currentMode === 'screen');
+    $('#tab-audio').toggleClass('active', currentMode === 'audio');
+
+    $('#screen-preview-wrap').toggleClass('d-none', currentMode !== 'screen');
+    $('#audio-preview-wrap').toggleClass('d-none', currentMode !== 'audio');
+    $('#screen-profiles').toggleClass('d-none', currentMode !== 'screen');
+    $('#audio-profiles').toggleClass('d-none', currentMode !== 'audio');
+    $('#saturation-wrap').toggleClass('d-none', currentMode !== 'screen');
+    $('#energy-gain-wrap').toggleClass('d-none', currentMode !== 'audio');
+    $('#help-screen').toggleClass('d-none', currentMode !== 'screen');
+    $('#help-audio').toggleClass('d-none', currentMode !== 'audio');
+
+    if (currentMode === 'audio') {
+        $('#mode-help').text(
+            'Espelhamento de música: reage ao áudio do sistema (monitor PulseAudio/PipeWire).'
+        );
+    } else {
+        $('#mode-help').text(
+            'Sincronize as cores das lâmpadas com o conteúdo da sua tela em tempo real.'
+        );
     }
 }
 
@@ -102,6 +191,11 @@ function connectWebSocket() {
 
     ws.onmessage = (event) => {
         const status = JSON.parse(event.data);
+        if (status.error) {
+            console.warn('Mirror WS error:', status.error);
+            alert(status.error);
+            return;
+        }
         updateUI(status);
     };
 
@@ -109,7 +203,6 @@ function connectWebSocket() {
         console.log('WebSocket desconectado');
         updateConnectionStatus(false);
 
-        // Tentar reconectar
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
             reconnectAttempts++;
             setTimeout(connectWebSocket, 2000 * reconnectAttempts);
@@ -121,7 +214,6 @@ function connectWebSocket() {
     };
 }
 
-// Atualizar status de conexão
 function updateConnectionStatus(connected) {
     const indicator = $('#connection-status');
     if (connected) {
@@ -133,7 +225,6 @@ function updateConnectionStatus(connected) {
     }
 }
 
-// Carregar configuração de posições para mapear lâmpadas
 function loadPositions() {
     fetch('/positions')
         .then(response => response.json())
@@ -150,9 +241,23 @@ function loadPositions() {
         });
 }
 
-// Atualizar UI baseado no status
+function updateSpectrum(status) {
+    const bass = Math.max(0, Math.min(1, Number(status.bass) || 0));
+    const mid = Math.max(0, Math.min(1, Number(status.mid) || 0));
+    const treble = Math.max(0, Math.min(1, Number(status.treble) || 0));
+    $('#bar-bass').css('height', `${Math.max(4, bass * 100)}%`);
+    $('#bar-mid').css('height', `${Math.max(4, mid * 100)}%`);
+    $('#bar-treble').css('height', `${Math.max(4, treble * 100)}%`);
+}
+
 function updateUI(status) {
-    isRunning = status.running;
+    isRunning = !!status.running;
+    activeMode = status.mode || null;
+
+    // Se backend está em um modo, alinha a aba (sem forçar se idle)
+    if (isRunning && activeMode && activeMode !== currentMode) {
+        setModeUI(activeMode);
+    }
 
     const statusEl = $('#mirror-status');
     const statusText = $('#status-text');
@@ -161,25 +266,33 @@ function updateUI(status) {
 
     if (isRunning) {
         statusEl.removeClass('inactive').addClass('active');
-        statusText.html(`<i class="bi bi-broadcast"></i> Espelhamento Ativo<br><small>${status.fps} FPS</small>`);
+        statusEl.toggleClass('audio-mode', activeMode === 'audio');
+        const label = activeMode === 'audio' ? 'Música Ativa' : 'Espelhamento Ativo';
+        const icon = activeMode === 'audio' ? 'bi-music-note-beamed' : 'bi-broadcast';
+        statusText.html(
+            `<i class="bi ${icon}"></i> ${label}<br><small>${status.fps} FPS</small>`
+        );
         startBtn.prop('disabled', true);
         stopBtn.prop('disabled', false);
 
-        // Atualizar preview de cores
         updateColorPreview(status.colors);
-        updateMonitorPreview(status.colors);
+        if (activeMode === 'audio') {
+            updateSpectrum(status);
+        } else {
+            updateMonitorPreview(status.colors);
+        }
     } else {
-        statusEl.removeClass('active').addClass('inactive');
+        statusEl.removeClass('active audio-mode').addClass('inactive');
         statusText.html('<i class="bi bi-display"></i> Espelhamento Inativo');
         startBtn.prop('disabled', false);
         stopBtn.prop('disabled', true);
 
         $('#color-preview').html('<div class="text-muted">Inicie o espelhamento para ver as cores</div>');
         clearMonitorPreview();
+        updateSpectrum({ bass: 0, mid: 0, treble: 0 });
     }
 }
 
-// Atualizar preview de cores
 function updateColorPreview(colors) {
     const container = $('#color-preview');
     container.empty();
@@ -202,15 +315,12 @@ function updateColorPreview(colors) {
     });
 }
 
-// Atualizar preview do monitor
 function updateMonitorPreview(colors) {
     if (!colors) return;
 
-    // Agrupar cores por posição
     const positionColors = {};
 
     Object.entries(colors).forEach(([lightName, rgb]) => {
-        // Encontrar a posição desta lâmpada
         for (const [position, lights] of Object.entries(positionsData)) {
             if (lights.includes(lightName)) {
                 positionColors[position] = rgb;
@@ -219,7 +329,6 @@ function updateMonitorPreview(colors) {
         }
     });
 
-    // Atualizar regiões do monitor
     $('.region').each(function() {
         const position = $(this).data('position');
         if (positionColors[position]) {
@@ -229,12 +338,10 @@ function updateMonitorPreview(colors) {
     });
 }
 
-// Limpar preview do monitor
 function clearMonitorPreview() {
     $('.region').css('background-color', 'transparent');
 }
 
-// Converter RGB para Hex
 function rgbToHex(r, g, b) {
     return '#' + [r, g, b].map(x => {
         const hex = x.toString(16);
@@ -242,12 +349,12 @@ function rgbToHex(r, g, b) {
     }).join('');
 }
 
-// Iniciar espelhamento via WebSocket
 function startMirror() {
     const fps = parseInt($('#fps-range').val(), 10);
     const brightness = parseInt($('#brightness-range').val(), 10);
     const profile = getSelectedProfile();
-    const payload = { action: 'start', fps, brightness };
+    const mode = currentMode;
+    const payload = { action: 'start', mode, fps, brightness };
     if (profile) {
         payload.profile = profile;
     }
@@ -255,8 +362,7 @@ function startMirror() {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(payload));
     } else {
-        // Fallback para HTTP
-        const body = { fps, brightness };
+        const body = { mode, fps, brightness };
         if (profile) {
             body.profile = profile;
         }
@@ -268,21 +374,21 @@ function startMirror() {
         .then(response => response.json())
         .then(data => {
             if (data.detail) {
-                alert(data.detail);
+                alert(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
             } else if (data.error) {
                 alert(data.error);
+            } else if (data.status) {
+                updateUI(data.status);
             }
         })
         .catch(err => alert('Erro ao iniciar: ' + err));
     }
 }
 
-// Parar espelhamento via WebSocket
 function stopMirror() {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ action: 'stop' }));
     } else {
-        // Fallback para HTTP
         fetch('/mirror/stop', { method: 'POST' })
         .then(response => response.json())
         .catch(err => alert('Erro ao parar: ' + err));
@@ -298,17 +404,22 @@ function flashApplyButton() {
     }, 2000);
 }
 
-// Aplicar configurações via WebSocket
 function applySettings(options) {
     const includeProfile = !options || options.includeProfile !== false;
+    const mode = currentMode;
     const settings = {
         action: 'settings',
+        mode,
         fps: parseInt($('#fps-range').val(), 10),
         brightness: parseInt($('#brightness-range').val(), 10),
-        saturation_boost: parseFloat($('#saturation-range').val()),
         smoothing_factor: parseFloat($('#smoothing-range').val()),
         transition_time: parseFloat($('#transition-range').val())
     };
+    if (mode === 'screen') {
+        settings.saturation_boost = parseFloat($('#saturation-range').val());
+    } else {
+        settings.energy_gain = parseFloat($('#energy-gain-range').val());
+    }
     const profile = getSelectedProfile();
     if (includeProfile && profile) {
         settings.profile = profile;
@@ -318,14 +429,19 @@ function applySettings(options) {
         ws.send(JSON.stringify(settings));
         flashApplyButton();
     } else {
-        // Fallback para HTTP
         const body = {
+            mode: settings.mode,
             fps: settings.fps,
             brightness: settings.brightness,
-            saturation_boost: settings.saturation_boost,
             smoothing_factor: settings.smoothing_factor,
             transition_time: settings.transition_time
         };
+        if (settings.saturation_boost != null) {
+            body.saturation_boost = settings.saturation_boost;
+        }
+        if (settings.energy_gain != null) {
+            body.energy_gain = settings.energy_gain;
+        }
         if (settings.profile) {
             body.profile = settings.profile;
         }
@@ -342,23 +458,27 @@ function applySettings(options) {
 function onProfileSelected() {
     const profile = getSelectedProfile();
     if (!profile) return;
-    applyProfileToSliders(profile);
-    // Envia profile ao backend (e sliders alinhados); se mirror ativo, aplica em tempo real
+    if (currentMode === 'audio') {
+        applyAudioProfileToSliders(profile);
+    } else {
+        applyProfileToSliders(profile);
+    }
     applySettings({ includeProfile: true });
 }
 
-// Buscar status inicial
 function fetchInitialStatus() {
     fetch('/mirror/status')
         .then(response => response.json())
         .then(status => {
+            if (status.mode === 'audio' || status.mode === 'screen') {
+                setModeUI(status.mode);
+            }
             updateUI(status);
             syncSlidersFromStatus(status);
         })
         .catch(err => console.error('Erro ao buscar status:', err));
 }
 
-// Verificar status da bridge
 function checkBridgeStatus() {
     $.getJSON('/api/bridge/status', function(data) {
         const statusEl = $('#bridge-status');
@@ -372,7 +492,6 @@ function checkBridgeStatus() {
     });
 }
 
-// Tema
 function initTheme() {
     const savedTheme = localStorage.getItem('theme') || 'light';
     setTheme(savedTheme);
@@ -396,7 +515,6 @@ function toggleTheme() {
     setTheme(newTheme);
 }
 
-// Event listeners para sliders
 function setupSliders() {
     $('#fps-range').on('input', function() {
         $('#fps-value').text($(this).val());
@@ -415,31 +533,44 @@ function setupSliders() {
     });
 
     $('#transition-range').on('input', function() {
-        // Converte décimos de segundo para milissegundos para exibição
         $('#transition-value').text(Math.round(parseFloat($(this).val()) * 100));
+    });
+
+    $('#energy-gain-range').on('input', function() {
+        $('#energy-gain-value').text($(this).val());
     });
 }
 
-// Inicialização
 $(document).ready(function() {
     initTheme();
     checkBridgeStatus();
     loadPositions();
     setupSliders();
+    setModeUI('screen');
     fetchInitialStatus();
 
-    // Conectar WebSocket
     connectWebSocket();
 
-    // Event handlers
     $('#start-btn').click(startMirror);
     $('#stop-btn').click(stopMirror);
     $('#apply-settings-btn').click(function() { applySettings(); });
     $('#theme-btn').click(toggleTheme);
     $('input[name="mirror-profile"]').on('change', onProfileSelected);
+    $('input[name="audio-profile"]').on('change', onProfileSelected);
+
+    $('#tab-screen').on('click', function() {
+        if (!isRunning || activeMode === 'screen' || !activeMode) {
+            setModeUI('screen');
+        } else {
+            // Running other mode: still allow UI switch for settings, but warn
+            setModeUI('screen');
+        }
+    });
+    $('#tab-audio').on('click', function() {
+        setModeUI('audio');
+    });
 });
 
-// Cleanup ao sair da página
 $(window).on('beforeunload', function() {
     if (ws) {
         ws.close();

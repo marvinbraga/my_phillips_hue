@@ -212,10 +212,36 @@ def mock_screen_mirror():
 
 
 @pytest.fixture
+def mock_audio_mirror():
+    """Provides a mock AudioMirror object."""
+    mirror = Mock()
+    mirror.is_running.return_value = False
+    mirror.get_status.return_value = {
+        "running": False,
+        "mode": "audio",
+        "fps": 30,
+        "brightness": 200,
+        "colors": {},
+        "bass": 0.0,
+        "mid": 0.0,
+        "treble": 0.0,
+    }
+    mirror.start = Mock()
+    mirror.stop = Mock()
+    mirror.fps = 30
+    mirror.brightness = 200
+    mirror.smoothing_factor = 0.45
+    mirror.transition_time = 1
+    mirror.energy_gain = 1.2
+    return mirror
+
+
+@pytest.fixture
 def fastapi_test_client(
     mock_hue_controller,
     mock_light_setups_manager,
     mock_screen_mirror,
+    mock_audio_mirror,
     monkeypatch,
     tmp_path,
 ) -> Generator:
@@ -235,6 +261,7 @@ def fastapi_test_client(
     original_hue = dependencies._hue_controller
     original_manager = dependencies._manager
     original_mirror = dependencies._screen_mirror
+    original_audio = getattr(dependencies, "_audio_mirror", None)
     original_chat = dependencies._chat_agent
     original_chat_reason = dependencies._chat_unavailable_reason
     original_registry = getattr(dependencies, "_light_registry_service", None)
@@ -242,6 +269,7 @@ def fastapi_test_client(
     dependencies.set_hue_controller(mock_hue_controller)
     dependencies.set_manager(mock_light_setups_manager)
     dependencies.set_screen_mirror(mock_screen_mirror)
+    dependencies.set_audio_mirror(mock_audio_mirror)
     # Disable chat agent; reason simula falha de init sem secrets
     dependencies.set_chat_agent(
         None, reason="Provider 'xai' sem XAI_API_KEY configurada."
@@ -304,6 +332,7 @@ def fastapi_test_client(
     dependencies._hue_controller = original_hue
     dependencies._manager = original_manager
     dependencies._screen_mirror = original_mirror
+    dependencies._audio_mirror = original_audio
     dependencies._chat_agent = original_chat
     dependencies._chat_unavailable_reason = original_chat_reason
     dependencies._light_registry_service = original_registry
