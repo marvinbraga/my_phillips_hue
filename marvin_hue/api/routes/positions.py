@@ -39,7 +39,9 @@ async def save_json_file(filepath: Path, data: dict[str, Any]) -> None:
 @router.get("/positions-config", response_class=HTMLResponse)
 async def positions_page(request: Request):
     """Página de configuração de posicionamento."""
-    return templates.TemplateResponse(request, "positions.html")
+    return templates.TemplateResponse(
+        request, "positions.html", {"active": "posicoes"}
+    )
 
 
 @router.get("/positions")

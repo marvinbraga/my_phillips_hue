@@ -37,7 +37,7 @@ templates = Jinja2Templates(directory="web/templates")
 @router.get("/lights", response_class=HTMLResponse)
 async def lights_registry_page(request: Request):
     """Página HTML de cadastro/listagem de lâmpadas (não confunde com /api/lights)."""
-    return templates.TemplateResponse(request, "lights.html")
+    return templates.TemplateResponse(request, "lights.html", {"active": "lampadas"})
 
 
 def _dt_iso(value: Optional[datetime]) -> Optional[str]:

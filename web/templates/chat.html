@@ -413,21 +413,15 @@
     </style>
 </head>
 <body>
-    <!-- Botão voltar -->
-    <div class="back-link">
-        <a href="/" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Voltar
-        </a>
-        <a href="/lights" class="btn btn-outline-secondary ms-2">
-            <i class="bi bi-lightbulb"></i> Lâmpadas
-        </a>
-    </div>
-
     <!-- Botão de tema -->
     <div class="theme-toggle">
         <button class="btn btn-outline-secondary" id="theme-toggle" title="Alternar tema">
             <i class="bi bi-sun-fill"></i>
         </button>
+    </div>
+
+    <div class="container mt-2">
+        {% include "partials/nav.html" %}
     </div>
 
     <div class="chat-container">

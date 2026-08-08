@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saúde do Sistema - Marvin Hue</title>
+    <link rel="icon" href="/static/favicon.png" type="image/png">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet"
+          crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .theme-toggle {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+        }
+        .theme-toggle .btn {
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            transition: transform 0.3s ease;
+        }
+        .theme-toggle .btn:hover {
+            transform: scale(1.1);
+        }
+        .health-card {
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            height: 100%;
+        }
+        .health-card .card-body {
+            min-height: 9rem;
+        }
+        .status-pill {
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .metric-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        .metric-label {
+            color: var(--bs-secondary-color);
+            font-size: 0.875rem;
+        }
+        #health-updated {
+            font-size: 0.875rem;
+        }
+        .skeleton {
+            opacity: 0.55;
+        }
+    </style>
+</head>
+<body>
+<div class="theme-toggle">
+    <button id="theme-btn" class="btn btn-outline-secondary" title="Alternar tema" type="button">
+        <i id="theme-icon" class="bi bi-moon-fill"></i>
+    </button>
+</div>
+
+<div class="container mt-4">
+    {% include "partials/nav.html" %}
+
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h1 class="mb-1"><i class="bi bi-heart-pulse"></i> Saúde do Sistema</h1>
+            <p class="text-muted mb-0">Status da bridge, lâmpadas, espelhamento, chat e catálogo local.</p>
+        </div>
+        <div class="text-end">
+            <span id="health-updated" class="text-muted">
+                <i class="bi bi-arrow-repeat"></i> Atualizando...
+            </span>
+            <div>
+                <button id="health-refresh" type="button" class="btn btn-sm btn-outline-primary mt-1">
+                    <i class="bi bi-arrow-clockwise"></i> Atualizar agora
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="health-error" class="alert alert-danger d-none" role="alert"></div>
+
+    <div class="row g-3 skeleton" id="health-grid">
+        <div class="col-md-6 col-xl-4">
+            <div class="card health-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h2 class="h5 mb-0"><i class="bi bi-router"></i> Bridge</h2>
+                        <span id="bridge-pill" class="badge text-bg-secondary status-pill">—</span>
+                    </div>
+                    <div class="metric-label">IP</div>
+                    <div id="bridge-ip" class="mb-2 font-monospace">—</div>
+                    <div class="metric-label">Lâmpadas na bridge</div>
+                    <div id="bridge-light-count" class="metric-value">—</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-xl-4">
+            <div class="card health-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h2 class="h5 mb-0"><i class="bi bi-lightbulb"></i> Lâmpadas</h2>
+                        <span id="lights-pill" class="badge text-bg-secondary status-pill">—</span>
+                    </div>
+                    <div class="row text-center">
+                        <div class="col-4">
+                            <div class="metric-label">Total</div>
+                            <div id="lights-total" class="metric-value">—</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="metric-label">Inalcançáveis</div>
+                            <div id="lights-unreachable" class="metric-value">—</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="metric-label">Desativadas</div>
+                            <div id="lights-disabled" class="metric-value">—</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-xl-4">
+            <div class="card health-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h2 class="h5 mb-0"><i class="bi bi-display"></i> Espelhamento</h2>
+                        <span id="mirror-pill" class="badge text-bg-secondary status-pill">—</span>
+                    </div>
+                    <div class="metric-label">FPS</div>
+                    <div id="mirror-fps" class="metric-value mb-1">—</div>
+                    <div class="metric-label">Perfil</div>
+                    <div id="mirror-profile">—</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-xl-4">
+            <div class="card health-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h2 class="h5 mb-0"><i class="bi bi-chat-dots"></i> Chat</h2>
+                        <span id="chat-pill" class="badge text-bg-secondary status-pill">—</span>
+                    </div>
+                    <div class="metric-label">Motivo (se indisponível)</div>
+                    <div id="chat-reason" class="small">—</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-xl-4">
+            <div class="card health-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h2 class="h5 mb-0"><i class="bi bi-database"></i> Catálogo</h2>
+                        <span id="registry-pill" class="badge text-bg-secondary status-pill">—</span>
+                    </div>
+                    <div class="metric-label">Registros ativos</div>
+                    <div id="registry-count" class="metric-value mb-1">—</div>
+                    <div class="metric-label">DB</div>
+                    <div id="registry-db" class="small font-monospace text-break">—</div>
+                    <div class="metric-label mt-1">Último sync</div>
+                    <div id="registry-sync" class="small">—</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-xl-4">
+            <div class="card health-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h2 class="h5 mb-0"><i class="bi bi-calendar-event"></i> Agendamentos</h2>
+                        <span id="schedules-pill" class="badge text-bg-secondary status-pill">—</span>
+                    </div>
+                    <div class="metric-label">Ativos</div>
+                    <div id="schedules-enabled" class="metric-value mb-1">—</div>
+                    <div class="metric-label">Runner</div>
+                    <div id="schedules-runner" class="small">—</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"
+        crossorigin="anonymous"></script>
+<script src="/static/health.js"></script>
+<script>
+    (function () {
+        const html = document.documentElement;
+        const btn = document.getElementById('theme-btn');
+        const icon = document.getElementById('theme-icon');
+        const stored = localStorage.getItem('marvin-hue-theme') || 'light';
+        html.setAttribute('data-bs-theme', stored);
+        icon.className = stored === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        btn.addEventListener('click', function () {
+            const next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-bs-theme', next);
+            localStorage.setItem('marvin-hue-theme', next);
+            icon.className = next === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+        });
+    })();
+</script>
+</body>
+</html>

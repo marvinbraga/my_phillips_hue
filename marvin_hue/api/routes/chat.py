@@ -35,7 +35,7 @@ templates = Jinja2Templates(directory="web/templates")
 @router.get("/chat", response_class=HTMLResponse)
 async def chat_page(request: Request):
     """Página de chat com o agente Marvin."""
-    return templates.TemplateResponse(request, "chat.html")
+    return templates.TemplateResponse(request, "chat.html", {"active": "chat"})
 
 
 @router.get("/api/chat/status")
