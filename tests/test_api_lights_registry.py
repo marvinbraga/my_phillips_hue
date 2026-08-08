@@ -185,3 +185,21 @@ class TestLightsSync:
         r = fastapi_test_client.post("/api/lights/sync")
         assert r.status_code == 409, r.text
         assert "conflict" in r.json()["detail"].lower()
+
+
+class TestLightsRegistryPage:
+    def test_lights_page_returns_html(self, fastapi_test_client):
+        r = fastapi_test_client.get("/lights")
+        assert r.status_code == 200
+        assert "text/html" in r.headers.get("content-type", "")
+        body = r.text
+        assert "Lâmpadas" in body or "Cadastro de Lâmpadas" in body
+        assert "/static/lights.js" in body
+
+    def test_lights_page_does_not_break_api_list(self, fastapi_test_client):
+        """HTML route /lights must not collide with JSON /api/lights."""
+        page = fastapi_test_client.get("/lights")
+        api = fastapi_test_client.get("/api/lights")
+        assert page.status_code == 200
+        assert api.status_code == 200
+        assert isinstance(api.json(), list)

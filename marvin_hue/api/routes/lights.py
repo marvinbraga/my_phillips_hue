@@ -9,7 +9,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 from marvin_hue.api.dependencies import get_light_registry_service
 from marvin_hue.api.models import (
@@ -29,6 +31,13 @@ from marvin_hue.services.light_registry import LightRegistryService
 
 router = APIRouter(tags=["Lights Registry"])
 logger = get_logger("api.lights")
+templates = Jinja2Templates(directory="web/templates")
+
+
+@router.get("/lights", response_class=HTMLResponse)
+async def lights_registry_page(request: Request):
+    """Página HTML de cadastro/listagem de lâmpadas (não confunde com /api/lights)."""
+    return templates.TemplateResponse(request, "lights.html")
 
 
 def _dt_iso(value: Optional[datetime]) -> Optional[str]:
