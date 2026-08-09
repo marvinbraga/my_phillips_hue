@@ -75,10 +75,11 @@ def test_entertainment_color_beat_increases_value() -> None:
 
 def test_density_to_level_range() -> None:
     assert density_to_level(0.0) == 0.0
-    quiet = density_to_level(1e-6)
-    mid = density_to_level(1e-3)
-    loud = density_to_level(5e-2)
+    quiet = density_to_level(1e-7)
+    mid = density_to_level(5e-5)
+    loud = density_to_level(5e-3)
     assert quiet < mid < loud
+    assert mid < 0.98
     assert loud <= 1.0
     assert mid < 0.98
 

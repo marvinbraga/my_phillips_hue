@@ -39,12 +39,11 @@ UI_BAND_PARTS: dict[str, tuple[str, ...]] = {
     "treble": ("treble", "presence"),
 }
 
-# dB mapping calibrated for float32 music ~RMS 0.02
-# Density (mean |FFT|² per bin) after Hann window typically:
-# silence ~0, quiet ~1e-7..1e-5, moderate ~1e-4..1e-3, loud ~1e-2..1e-1
-_POWER_REF = 8e-4
-_FLOOR_DB = -42.0
-_CEILING_DB = 8.0
+# dB mapping for spectral density (mean |FFT|² per bin, Hann window).
+# Live float32 music on Pulse monitor ~RMS 0.02 → densidades ~1e-5..1e-2.
+_POWER_REF = 2e-4
+_FLOOR_DB = -48.0
+_CEILING_DB = 6.0
 
 # Spectral centroid normalization (Hz)
 _CENTROID_MIN_HZ = 120.0
@@ -320,6 +319,15 @@ class AudioAnalyzer:
         self._phase: float = 0.0
         self._frame_count: int = 0
         self._window = np.hanning(n)
+        # UI spectrum: auto-range ceiling + peak-hold (separate from light envelopes)
+        self._ui_ceiling: dict[str, float] = {
+            "bass": 0.18,
+            "mid": 0.18,
+            "treble": 0.18,
+        }
+        self._ui_hold: dict[str, float] = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
+        # Last envelope aggregates (for smooth light colors)
+        self._env_ui: dict[str, float] = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
 
     def reset(self) -> None:
         self._ring.fill(0.0)
@@ -335,6 +343,9 @@ class AudioAnalyzer:
         self._frame_count = 0
         for env in self._envs.values():
             env.reset()
+        self._ui_ceiling = {"bass": 0.18, "mid": 0.18, "treble": 0.18}
+        self._ui_hold = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
+        self._env_ui = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
 
     def configure(self, **kwargs: float | int) -> None:
         """Update selected AnalyzerConfig fields and re-tune envelopes if needed."""
@@ -499,11 +510,15 @@ class AudioAnalyzer:
             for env in self._envs.values():
                 env.process(0.0)
             self._beat_env *= float(self.config.beat_decay)
+            for k in self._ui_hold:
+                self._ui_hold[k] *= 0.9
+                self._ui_ceiling[k] = max(0.12, self._ui_ceiling[k] * 0.99)
+            self._env_ui = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
             self._frame_count += 1
             return AnalysisFrame(
-                bass=0.0,
-                mid=0.0,
-                treble=0.0,
+                bass=self._ui_hold["bass"] * 0.5,
+                mid=self._ui_hold["mid"] * 0.5,
+                treble=self._ui_hold["treble"] * 0.5,
                 beat=max(0.0, self._beat_env),
                 centroid=0.0,
                 stereo_bias=0.0,
@@ -517,7 +532,16 @@ class AudioAnalyzer:
         power_spec = (mag ** 2) / max(self._buf_size, 1)
         freqs = np.fft.rfftfreq(self._buf_size, d=1.0 / self.sample_rate)
 
+        # Mild pre-emphasis so treble is visible on bass-heavy tracks
+        if mag.size > 4:
+            n_bins = mag.size
+            pre = 1.0 + 1.8 * (np.arange(n_bins, dtype=np.float64) / max(n_bins - 1, 1))
+            power_ui = ((mag * pre) ** 2) / max(self._buf_size, 1)
+        else:
+            power_ui = power_spec
+
         densities = self._band_densities(power_spec, freqs)
+        densities_ui = self._band_densities(power_ui, freqs)
         sens = float(self.config.energy_gain)
 
         raw_levels: dict[str, float] = {
@@ -528,14 +552,65 @@ class AudioAnalyzer:
             name: self._envs[name].process(raw_levels[name]) for name in BAND_EDGES
         }
 
-        # Aggregate UI bands (mean of parts — keeps width fair)
-        def _agg(parts: tuple[str, ...]) -> float:
-            vals = [env_levels[p] for p in parts]
+        def _agg_mean(parts: tuple[str, ...], src: dict[str, float]) -> float:
+            vals = [src[p] for p in parts]
             return max(0.0, min(1.0, float(sum(vals) / max(len(vals), 1))))
 
-        bass = _agg(UI_BAND_PARTS["bass"])
-        mid = _agg(UI_BAND_PARTS["mid"])
-        treble = _agg(UI_BAND_PARTS["treble"])
+        def _agg_max_d(parts: tuple[str, ...], src: dict[str, float]) -> float:
+            return float(max(max(0.0, src[p]) for p in parts))
+
+        env_bass = _agg_mean(UI_BAND_PARTS["bass"], env_levels)
+        env_mid = _agg_mean(UI_BAND_PARTS["mid"], env_levels)
+        env_treble = _agg_mean(UI_BAND_PARTS["treble"], env_levels)
+        self._env_ui = {"bass": env_bass, "mid": env_mid, "treble": env_treble}
+
+        # --- UI meters: relative spectral balance × overall loudness ---
+        # Use MAX density per group (not sum) so mid's 3 sub-bands don't dominate.
+        # Log-scale equalizes decades of energy difference between bass and treble.
+        def _log_p(x: float, boost: float = 1.0) -> float:
+            return float(np.log1p(max(0.0, x) * boost * 5e4))
+
+        p_b = _log_p(_agg_max_d(UI_BAND_PARTS["bass"], densities_ui), 1.0) + 1e-9
+        p_m = _log_p(_agg_max_d(UI_BAND_PARTS["mid"], densities_ui), 1.15) + 1e-9
+        p_t = _log_p(_agg_max_d(UI_BAND_PARTS["treble"], densities_ui), 6.0) + 1e-9
+        p_tot = p_b + p_m + p_t
+
+        # Overall loudness from time-domain RMS (0..1), snappy
+        # rms ~0.01 quiet, ~0.04 moderate, ~0.1 loud on Pulse monitor
+        loud_lin = min(1.0, float(np.sqrt(max(rms, 0.0) / 0.05)))
+        loud_lin = loud_lin ** 0.75
+        loud_lin = min(1.0, loud_lin * (0.85 + 0.25 * sens))
+
+        share_b = p_b / p_tot
+        share_m = p_m / p_tot
+        share_t = p_t / p_tot
+
+        def _meter(share: float, weight: float = 1.0) -> float:
+            # equal share (~0.33) → strong bar when loud; unequal shares spread bars
+            shaped = (share * 2.5 * weight) ** 0.7
+            return max(0.0, min(1.0, shaped * max(loud_lin, 0.08)))
+
+        inst = {
+            "bass": _meter(share_b, 1.0),
+            "mid": _meter(share_m, 1.0),
+            "treble": _meter(share_t, 1.2),
+        }
+
+        display: dict[str, float] = {}
+        for key, instant in inst.items():
+            # Fast peak-hold for the tip
+            hold = self._ui_hold[key]
+            if instant >= hold:
+                hold = instant
+            else:
+                hold = hold * 0.88
+            self._ui_hold[key] = hold
+            self._ui_ceiling[key] = max(0.15, self._ui_ceiling[key] * 0.995, instant)
+            display[key] = max(0.0, min(1.0, 0.78 * instant + 0.22 * hold))
+
+        bass = display["bass"]
+        mid = display["mid"]
+        treble = display["treble"]
 
         centroid = self._spectral_centroid(mag, freqs)
         beat = self._update_beat(mag)
@@ -558,8 +633,8 @@ class AudioAnalyzer:
             stereo_bias = (rms_r - rms_l) / (rms_r + rms_l + 1e-9)
             stereo_bias = max(-1.0, min(1.0, stereo_bias))
 
-        # Advance slow hue phase (depends on energy + hue_speed)
-        energy = 0.4 * bass + 0.35 * mid + 0.25 * treble
+        # Advance slow hue phase from envelope energy (stable lights)
+        energy = 0.4 * env_bass + 0.35 * env_mid + 0.25 * env_treble
         self._phase = (
             self._phase + 0.008 * float(self.config.hue_speed) * (0.3 + 0.7 * energy)
         ) % 1.0
@@ -581,9 +656,15 @@ class AudioAnalyzer:
         return self._phase
 
     def color_for_position(self, position: str, frame: AnalysisFrame) -> tuple[int, int, int]:
-        """Convenience: map frame + analyzer phase/config → RGB for a light position."""
-        return frame.color_for_position(
-            position,
+        """Map light color from envelope levels (smooth), not raw UI meters."""
+        return entertainment_color(
+            bass=self._env_ui.get("bass", frame.bass),
+            mid=self._env_ui.get("mid", frame.mid),
+            treble=self._env_ui.get("treble", frame.treble),
+            beat=frame.beat,
+            centroid=frame.centroid,
+            stereo_bias=frame.stereo_bias,
+            position=position,
             phase=self._phase,
             hue_speed=float(self.config.hue_speed),
             energy_gain=float(self.config.energy_gain),

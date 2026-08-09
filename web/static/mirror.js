@@ -269,24 +269,45 @@ function loadPositions() {
         });
 }
 
+// Client-side peak hold for classic analyzer look (independent of backend hold)
+const spectrumHold = { bass: 0, mid: 0, treble: 0 };
+const spectrumSmooth = { bass: 0, mid: 0, treble: 0 };
+
 function updateSpectrum(status) {
-    const bass = Math.max(0, Math.min(1, Number(status.bass) || 0));
-    const mid = Math.max(0, Math.min(1, Number(status.mid) || 0));
-    const treble = Math.max(0, Math.min(1, Number(status.treble) || 0));
+    const target = {
+        bass: Math.max(0, Math.min(1, Number(status.bass) || 0)),
+        mid: Math.max(0, Math.min(1, Number(status.mid) || 0)),
+        treble: Math.max(0, Math.min(1, Number(status.treble) || 0)),
+    };
     const beat = Math.max(0, Math.min(1, Number(status.beat) || 0));
-    $('#bar-bass').css('height', `${Math.max(4, bass * 100)}%`);
-    $('#bar-mid').css('height', `${Math.max(4, mid * 100)}%`);
-    $('#bar-treble').css('height', `${Math.max(4, treble * 100)}%`);
-    // Beat pulse: glow on spectrum container
-    const glow = Math.round(beat * 28);
-    const opacity = (0.15 + beat * 0.55).toFixed(2);
+
+    ['bass', 'mid', 'treble'].forEach((k) => {
+        // Fast attack / medium release on the client for snappier bars
+        const prev = spectrumSmooth[k];
+        const t = target[k];
+        const alpha = t > prev ? 0.55 : 0.22;
+        spectrumSmooth[k] = prev + (t - prev) * alpha;
+        if (spectrumSmooth[k] >= spectrumHold[k]) {
+            spectrumHold[k] = spectrumSmooth[k];
+        } else {
+            spectrumHold[k] *= 0.93;
+        }
+        const body = Math.max(0.02, spectrumSmooth[k]);
+        const hold = Math.max(body, spectrumHold[k]);
+        $(`#bar-${k}`).css('height', `${(body * 100).toFixed(1)}%`);
+        $(`#peak-${k}`).css('bottom', `calc(${(hold * 100).toFixed(1)}% + 18px)`);
+        $(`#pct-${k}`).text(`${Math.round(body * 100)}%`);
+    });
+
+    const glow = Math.round(beat * 32);
+    const opacity = (0.12 + beat * 0.6).toFixed(2);
     $('#spectrum-bars').css(
         'box-shadow',
         glow > 2
             ? `0 0 ${glow}px rgba(255, 200, 80, ${opacity}), inset 0 0 ${Math.round(glow / 2)}px rgba(255, 255, 255, ${beat * 0.12})`
             : 'none'
     );
-    $('#spectrum-bars').toggleClass('beat-hit', beat > 0.45);
+    $('#spectrum-bars').toggleClass('beat-hit', beat > 0.35);
 }
 
 function updateTransportBadge(status) {

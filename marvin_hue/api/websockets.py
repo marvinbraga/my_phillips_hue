@@ -81,7 +81,11 @@ def setup_websockets(app: FastAPI) -> None:
                 if any_running:
                     status = _unified_status(screen_mirror, audio_mirror)
                     await websocket.send_json(status)
-                    await asyncio.sleep(0.1)  # 10 FPS para o WebSocket
+                    # Áudio precisa de espectro mais fluido (~25 FPS); tela ~12 FPS
+                    if audio_mirror.is_running():
+                        await asyncio.sleep(0.04)
+                    else:
+                        await asyncio.sleep(0.08)
                 else:
                     await asyncio.sleep(0.5)
 

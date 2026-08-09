@@ -135,36 +135,66 @@
             display: flex;
             align-items: flex-end;
             justify-content: center;
-            gap: 1.5rem;
-            height: 140px;
-            padding: 1rem;
-            background: #1a1a2e;
-            border-radius: 8px;
+            gap: 1.75rem;
+            height: 168px;
+            padding: 0.85rem 1rem 0.5rem;
+            background: #12121f;
+            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
         }
         .spectrum-bar-wrap {
             display: flex;
             flex-direction: column;
             align-items: center;
             height: 100%;
-            width: 48px;
+            width: 52px;
+            position: relative;
+        }
+        .spectrum-bar-track {
+            flex: 1;
+            width: 100%;
+            position: relative;
+            display: flex;
+            align-items: flex-end;
+            background: linear-gradient(to top, rgba(255,255,255,0.04), transparent);
+            border-radius: 6px 6px 0 0;
+            overflow: hidden;
         }
         .spectrum-bar {
             width: 100%;
             border-radius: 6px 6px 0 0;
-            min-height: 4px;
-            transition: height 0.08s ease-out;
-            margin-top: auto;
+            min-height: 2px;
+            transition: height 0.045s linear;
+            will-change: height;
         }
-        .spectrum-bar.bass { background: linear-gradient(to top, #e17055, #d63031); }
-        .spectrum-bar.mid { background: linear-gradient(to top, #6c5ce7, #a29bfe); }
-        .spectrum-bar.treble { background: linear-gradient(to top, #00cec9, #74b9ff); }
+        .spectrum-peak {
+            position: absolute;
+            left: 10%;
+            width: 80%;
+            height: 3px;
+            border-radius: 1px;
+            background: #fff;
+            opacity: 0.9;
+            pointer-events: none;
+            transition: bottom 0.05s linear;
+            bottom: 18px;
+        }
+        .spectrum-bar.bass { background: linear-gradient(to top, #c0392b, #ff7675, #fab1a0); }
+        .spectrum-bar.mid { background: linear-gradient(to top, #6c5ce7, #a29bfe, #dfe6e9); }
+        .spectrum-bar.treble { background: linear-gradient(to top, #0984e3, #00cec9, #81ecec); }
         .spectrum-bars.beat-hit {
             border: 1px solid rgba(255, 214, 100, 0.55);
         }
         .spectrum-label {
-            font-size: 0.75rem;
-            color: #ddd;
-            margin-top: 0.35rem;
+            font-size: 0.72rem;
+            color: #ccc;
+            margin-top: 0.3rem;
+        }
+        .spectrum-pct {
+            font-size: 0.65rem;
+            color: #888;
+            font-variant-numeric: tabular-nums;
         }
 
         .transport-badge {
@@ -262,16 +292,28 @@
                     <div id="audio-preview-wrap" class="d-none">
                         <div class="spectrum-bars" id="spectrum-bars">
                             <div class="spectrum-bar-wrap">
-                                <div class="spectrum-bar bass" id="bar-bass" style="height: 4%"></div>
+                                <div class="spectrum-bar-track">
+                                    <div class="spectrum-peak" id="peak-bass"></div>
+                                    <div class="spectrum-bar bass" id="bar-bass" style="height: 2%"></div>
+                                </div>
                                 <span class="spectrum-label">Grave</span>
+                                <span class="spectrum-pct" id="pct-bass">0%</span>
                             </div>
                             <div class="spectrum-bar-wrap">
-                                <div class="spectrum-bar mid" id="bar-mid" style="height: 4%"></div>
+                                <div class="spectrum-bar-track">
+                                    <div class="spectrum-peak" id="peak-mid"></div>
+                                    <div class="spectrum-bar mid" id="bar-mid" style="height: 2%"></div>
+                                </div>
                                 <span class="spectrum-label">Médio</span>
+                                <span class="spectrum-pct" id="pct-mid">0%</span>
                             </div>
                             <div class="spectrum-bar-wrap">
-                                <div class="spectrum-bar treble" id="bar-treble" style="height: 4%"></div>
+                                <div class="spectrum-bar-track">
+                                    <div class="spectrum-peak" id="peak-treble"></div>
+                                    <div class="spectrum-bar treble" id="bar-treble" style="height: 2%"></div>
+                                </div>
                                 <span class="spectrum-label">Agudo</span>
+                                <span class="spectrum-pct" id="pct-treble">0%</span>
                             </div>
                         </div>
                         <p class="text-muted small mt-2 mb-0 text-center">

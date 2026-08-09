@@ -748,22 +748,15 @@ class AudioMirror:
             self._analyzer.set_sample_rate(sample_rate)
 
         frame = self._analyzer.process(samples)
-        levels = self._smooth_levels(
-            {"bass": frame.bass, "mid": frame.mid, "treble": frame.treble}
-        )
         beat = float(frame.beat)
         self._last_beat = beat
+        # UI spectrum: reactive meters from analyzer (no second smoothing pass)
         self._levels = {
-            "bass": levels["bass"],
-            "mid": levels["mid"],
-            "treble": levels["treble"],
+            "bass": float(frame.bass),
+            "mid": float(frame.mid),
+            "treble": float(frame.treble),
             "beat": beat,
         }
-
-        # Use smoothed UI levels for color energy so bars match lights
-        color_frame_bass = levels["bass"]
-        color_frame_mid = levels["mid"]
-        color_frame_treble = levels["treble"]
 
         lights = self.load_light_positions()
         frame_colors: list[LightFrameColor] = []
@@ -776,18 +769,8 @@ class AudioMirror:
             if not name:
                 continue
             position = str(light.get("position", "ambient"))
-            rgb = entertainment_color(
-                bass=color_frame_bass,
-                mid=color_frame_mid,
-                treble=color_frame_treble,
-                beat=beat,
-                centroid=frame.centroid,
-                stereo_bias=frame.stereo_bias,
-                position=position,
-                phase=self._analyzer.phase,
-                hue_speed=float(self.hue_speed),
-                energy_gain=float(self.energy_gain),
-            )
+            # Light colors use envelope path (smooth); spectrum bars use frame.*
+            rgb = self._analyzer.color_for_position(position, frame)
             target = (rgb[0], rgb[1], rgb[2])
             if name in self._smoothed_colors:
                 smoothed = self._interpolate_color(self._smoothed_colors[name], target)
