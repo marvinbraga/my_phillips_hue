@@ -249,6 +249,65 @@ API_HOST=127.0.0.1
 
 ---
 
+### Hue Entertainment (opcional — DTLS / HueStream)
+
+Streaming de alta taxa para música/tela via Entertainment API (em vez de REST/`phue`).
+**Padrão desligado** — comportamento REST idêntico ao de antes.
+
+#### Checklist de setup
+
+1. No app oficial Hue, crie uma **Entertainment area** com as lâmpadas desejadas.
+2. Pressione o botão de link da bridge.
+3. Faça o pair:
+   - UI: página Espelhamento → **Pair (botão da bridge)**
+   - API: `POST /mirror/entertainment/pair`
+   - Script: `PAIR=1 BRIDGE_IP=… uv run python scripts/entertainment_poc.py`
+4. Defina `ENTERTAINMENT_ENABLED=true` no `.env` e reinicie o servidor.
+5. Opcional: `ENTERTAINMENT_AREA_ID=<uuid>` (senão usa a primeira área listada).
+6. Inicie o espelhamento de música; confira `transport=entertainment` em `/mirror/status`.
+
+Credenciais ficam em `.res/hue_entertainment_creds.json` (gitignored) ou nas env vars.
+**Nunca** no SQLite do chat.
+
+#### `ENTERTAINMENT_ENABLED`
+
+```bash
+ENTERTAINMENT_ENABLED=false
+```
+
+Quando `false` ou sem credenciais: transporte `rest` (phue).
+
+#### `HUE_APP_KEY` / `HUE_CLIENT_KEY`
+
+Chaves do pairing (username CLIP + clientkey DTLS). Sobrescrevem o arquivo de credenciais.
+
+```bash
+# HUE_APP_KEY=
+# HUE_CLIENT_KEY=
+```
+
+#### `ENTERTAINMENT_AREA_ID`
+
+Id da configuração Entertainment (CLIP v2). Opcional.
+
+#### `ENTERTAINMENT_CREDS_FILE`
+
+```bash
+ENTERTAINMENT_CREDS_FILE=.res/hue_entertainment_creds.json
+```
+
+#### `ENTERTAINMENT_FPS`
+
+FPS alvo no transporte Entertainment (default 40, range 10–60).
+
+```bash
+ENTERTAINMENT_FPS=40
+```
+
+**Firewall:** a bridge precisa aceitar UDP DTLS (porta Entertainment) a partir do host do Marvin Hue.
+
+---
+
 ### Persistência do catálogo de lâmpadas
 
 #### `APP_DB_PATH`
@@ -257,6 +316,14 @@ Caminho do SQLite da aplicação usado pelo **catálogo de lâmpadas** (registry
 
 ```bash
 APP_DB_PATH=.res/marvin_hue.sqlite
+
+# Hue Entertainment (opcional)
+ENTERTAINMENT_ENABLED=false
+# HUE_APP_KEY=
+# HUE_CLIENT_KEY=
+# ENTERTAINMENT_AREA_ID=
+# ENTERTAINMENT_CREDS_FILE=.res/hue_entertainment_creds.json
+# ENTERTAINMENT_FPS=40
 ```
 
 **Padrão:** `.res/marvin_hue.sqlite`
@@ -297,6 +364,14 @@ OPENAI_API_KEY="sk-proj-..."
 
 # SQLite do registry de lâmpadas (NÃO use chat_memory.sqlite)
 APP_DB_PATH=.res/marvin_hue.sqlite
+
+# Hue Entertainment (opcional)
+ENTERTAINMENT_ENABLED=false
+# HUE_APP_KEY=
+# HUE_CLIENT_KEY=
+# ENTERTAINMENT_AREA_ID=
+# ENTERTAINMENT_CREDS_FILE=.res/hue_entertainment_creds.json
+# ENTERTAINMENT_FPS=40
 
 
 # ===== CONFIGURAÇÃO DE LOGGING (OPCIONAL) =====

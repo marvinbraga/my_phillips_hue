@@ -200,14 +200,22 @@ def mock_screen_mirror():
         "fps": 25,
         "brightness": 200,
         "colors": {},
+        "transport": "rest",
+        "entertainment_enabled": False,
+        "entertainment_area_id": None,
     }
     mirror.start = Mock()
     mirror.stop = Mock()
+    mirror.load_light_positions = Mock(return_value=[])
+    mirror.set_output_port = Mock()
     mirror.fps = 25
     mirror.brightness = 200
     mirror.saturation_boost = 1.0
     mirror.smoothing_factor = 0.3
     mirror.transition_time = 0.1
+    mirror.entertainment_area_id = None
+    mirror.entertainment_enabled = False
+    mirror.output_port = Mock(transport="rest")
     return mirror
 
 
@@ -225,14 +233,22 @@ def mock_audio_mirror():
         "bass": 0.0,
         "mid": 0.0,
         "treble": 0.0,
+        "transport": "rest",
+        "entertainment_enabled": False,
+        "entertainment_area_id": None,
     }
     mirror.start = Mock()
     mirror.stop = Mock()
+    mirror.load_light_positions = Mock(return_value=[])
+    mirror.set_output_port = Mock()
     mirror.fps = 30
     mirror.brightness = 200
     mirror.smoothing_factor = 0.45
     mirror.transition_time = 1
     mirror.energy_gain = 1.2
+    mirror.entertainment_area_id = None
+    mirror.entertainment_enabled = False
+    mirror.output_port = Mock(transport="rest")
     return mirror
 
 

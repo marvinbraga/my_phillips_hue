@@ -53,10 +53,24 @@ class MirrorStartRequest(BaseModel):
     )
     profile: str | None = Field(
         default=None,
-        pattern=r"^(cinema|fps|ambient|party|chill|pulse)$",
-        description=(
-            "Perfil: screen=cinema|fps|ambient; audio=party|chill|pulse"
+        pattern=(
+            r"^(cinema|fps|ambient|party|chill|pulse|"
+            r"subtle|moderate|high|extreme)$"
         ),
+        description=(
+            "Perfil: screen=cinema|fps|ambient; "
+            "audio=party|chill|pulse|subtle|moderate|high|extreme"
+        ),
+    )
+    area_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Entertainment area id (overrides ENTERTAINMENT_AREA_ID)",
+    )
+    transport_preference: str | None = Field(
+        default=None,
+        pattern=r"^(auto|rest|entertainment)$",
+        description="Transporte: auto (default) | rest | entertainment",
     )
 
 
@@ -76,10 +90,24 @@ class MirrorSettingsRequest(BaseModel):
     )
     profile: str | None = Field(
         default=None,
-        pattern=r"^(cinema|fps|ambient|party|chill|pulse)$",
-        description=(
-            "Perfil: screen=cinema|fps|ambient; audio=party|chill|pulse"
+        pattern=(
+            r"^(cinema|fps|ambient|party|chill|pulse|"
+            r"subtle|moderate|high|extreme)$"
         ),
+        description=(
+            "Perfil: screen=cinema|fps|ambient; "
+            "audio=party|chill|pulse|subtle|moderate|high|extreme"
+        ),
+    )
+    entertainment_area_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Área Entertainment padrão para a próxima sessão",
+    )
+    transport_preference: str | None = Field(
+        default=None,
+        pattern=r"^(auto|rest|entertainment)$",
+        description="Preferência de transporte (aplicada no próximo start)",
     )
 
 
@@ -91,8 +119,19 @@ class MirrorProfileRequest(BaseModel):
     )
     profile: str = Field(
         ...,
-        pattern=r"^(cinema|fps|ambient|party|chill|pulse)$",
-        description="Perfil nomeado (screen ou audio)",
+        pattern=(
+            r"^(cinema|fps|ambient|party|chill|pulse|"
+            r"subtle|moderate|high|extreme)$"
+        ),
+        description="Perfil nomeado (screen ou audio/intensity)",
+    )
+
+
+class EntertainmentPairRequest(BaseModel):
+    device_type: str | None = Field(
+        default=None,
+        max_length=64,
+        description="devicetype registered with bridge (appname#devicename)",
     )
 
 

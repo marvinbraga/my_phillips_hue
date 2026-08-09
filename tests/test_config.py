@@ -31,6 +31,12 @@ def isolate_env_vars(monkeypatch):
         "LOG_FILE",
         "APP_DB_PATH",
         "CHAT_CHECKPOINT_DB",
+        "ENTERTAINMENT_ENABLED",
+        "HUE_APP_KEY",
+        "HUE_CLIENT_KEY",
+        "ENTERTAINMENT_AREA_ID",
+        "ENTERTAINMENT_CREDS_FILE",
+        "ENTERTAINMENT_FPS",
     ]
     # Salva valores originais
     original_values = {var: os.environ.get(var) for var in env_vars}
@@ -346,4 +352,30 @@ class TestAppDbPathSettings:
                 bridge_ip="192.168.1.100",
                 app_db_path="/tmp/chat_memory.sqlite",
             )
+
+    def test_entertainment_defaults_disabled(self):
+        settings = create_test_settings(bridge_ip="192.168.1.100")
+        assert settings.entertainment_enabled is False
+        assert settings.hue_app_key is None
+        assert settings.hue_client_key is None
+        assert settings.entertainment_area_id is None
+        assert settings.entertainment_creds_file == ".res/hue_entertainment_creds.json"
+        assert settings.entertainment_fps == 40
+
+    def test_entertainment_settings_fields(self):
+        settings = create_test_settings(
+            bridge_ip="10.0.0.1",
+            entertainment_enabled=True,
+            hue_app_key="appkey123",
+            hue_client_key="clientkey456",
+            entertainment_area_id="area-uuid",
+            entertainment_creds_file=".res/hue_entertainment_creds.json",
+            entertainment_fps=50,
+        )
+        assert settings.entertainment_enabled is True
+        assert settings.hue_app_key == "appkey123"
+        assert settings.hue_client_key == "clientkey456"
+        assert settings.entertainment_area_id == "area-uuid"
+        assert settings.entertainment_creds_file == ".res/hue_entertainment_creds.json"
+        assert settings.entertainment_fps == 50
 

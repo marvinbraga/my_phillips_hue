@@ -12,10 +12,11 @@ from typing import Any, Callable
 import mss
 from PIL import Image
 
-from marvin_hue.colors import Color
 from marvin_hue.controllers import HueController
 from marvin_hue.eye_safety import is_enabled_for_app
 from marvin_hue.logging_config import get_logger
+from marvin_hue.output.port import LightFrameColor, LightOutputPort
+from marvin_hue.output.rest_adapter import RestPhueAdapter
 
 logger = get_logger("screen_mirror")
 
@@ -112,6 +113,7 @@ class ScreenMirror:
         self,
         hue_controller: HueController,
         positions_file: str = ".res/light_positions.json",
+        output_port: LightOutputPort | None = None,
     ) -> None:
         """
         Performance optimizations já implementadas:
@@ -123,6 +125,7 @@ class ScreenMirror:
         """
         self.hue = hue_controller
         self.positions_file = positions_file
+        self._output: LightOutputPort = output_port or RestPhueAdapter(hue_controller)
         self.running = False
         self.thread: threading.Thread | None = None
         self.fps = 10  # Reduzido para não sobrecarregar a bridge Hue (OPTIMIZATION: throttling)
@@ -131,6 +134,8 @@ class ScreenMirror:
         self.smoothing_factor = 0.5  # Fator de suavização (0.0-1.0, menor = mais suave) (OPTIMIZATION: temporal smoothing)
         self.transition_time = 1  # Tempo de transição em décimos de segundo (100ms)
         self.active_profile: str | None = None
+        self.entertainment_area_id: str | None = None
+        self.entertainment_enabled: bool = False
         self._on_status_change: Callable[[dict[str, Any]], None] | None = None
         self._current_colors: dict[str, tuple[int, int, int]] = {}
         self._target_colors: dict[
@@ -139,6 +144,16 @@ class ScreenMirror:
         self._smoothed_colors: dict[
             str, tuple[int, int, int]
         ] = {}  # Cores suavizadas (OPTIMIZATION: change detection cache)
+        self._session_started = False
+
+    def set_output_port(self, port: LightOutputPort) -> None:
+        if self.running:
+            raise RuntimeError("Cannot change output port while mirror is running")
+        self._output = port
+
+    @property
+    def output_port(self) -> LightOutputPort:
+        return self._output
 
     def apply_profile(self, name: str) -> None:
         """
@@ -345,7 +360,7 @@ class ScreenMirror:
         return diff > threshold
 
     def _apply_color_to_light(self, light_name: str, r: int, g: int, b: int) -> None:
-        """Aplica uma cor a uma lâmpada específica."""
+        """Aplica uma cor a uma lâmpada específica (via output port)."""
         if not is_enabled_for_app(light_name):
             logger.debug(
                 f"_apply_color_to_light skipped: '{light_name}' desabilitada no app"
@@ -368,16 +383,20 @@ class ScreenMirror:
         self._smoothed_colors[light_name] = smoothed
 
         try:
-            # Usa o HueController para aplicar a cor (consolidado)
-            color = Color(smoothed[0], smoothed[1], smoothed[2], self.brightness)
-            light = self.hue.set_light_color(light_name, color)
-
-            # Configura tempo de transição após aplicar cor
-            if light:
-                # API Hue aceita transitiontime como inteiro (décimos de segundo)
-                light.transitiontime = int(round(self.transition_time))
+            if isinstance(self._output, RestPhueAdapter):
+                self._output.transition_time = int(round(self.transition_time))
+            self._output.apply_frame(
+                [
+                    LightFrameColor(
+                        light_name=light_name,
+                        r=smoothed[0],
+                        g=smoothed[1],
+                        b=smoothed[2],
+                        brightness=int(self.brightness),
+                    )
+                ]
+            )
         except ValueError as e:
-            # Lâmpada não encontrada - log warning já feito pelo controller
             logger.debug(
                 f"Light '{light_name}' not available for screen mirroring: {str(e)}"
             )
@@ -393,6 +412,7 @@ class ScreenMirror:
             screen_height: int = monitor["height"]
 
             frame_time = 1.0 / self.fps
+            batch_all = self._output.transport == "entertainment"
 
             while self.running:
                 start_time = time.time()
@@ -415,6 +435,8 @@ class ScreenMirror:
                         position_lights[pos] = []
                     position_lights[pos].append(light["name"])
 
+                frame_colors: list[LightFrameColor] = []
+
                 # Processa cada posição
                 for position, light_names in position_lights.items():
                     region = self.get_screen_region(
@@ -422,17 +444,46 @@ class ScreenMirror:
                     )
                     r, g, b = self.get_dominant_color(image, region)
 
-                    # Aplica a cor a todas as lâmpadas desta posição
                     for light_name in light_names:
                         self._target_colors[light_name] = (r, g, b)
-                        self._apply_color_to_light(light_name, r, g, b)
-                        # Atualiza cores atuais com as suavizadas para exibição
+                        if not is_enabled_for_app(light_name):
+                            continue
+                        target = (r, g, b)
+                        if light_name in self._smoothed_colors:
+                            smoothed = self._interpolate_color(
+                                self._smoothed_colors[light_name], target
+                            )
+                        else:
+                            smoothed = target
+                        if batch_all or self._color_changed_significantly(
+                            light_name, smoothed
+                        ):
+                            self._smoothed_colors[light_name] = smoothed
+                            frame_colors.append(
+                                LightFrameColor(
+                                    light_name=light_name,
+                                    r=smoothed[0],
+                                    g=smoothed[1],
+                                    b=smoothed[2],
+                                    brightness=int(self.brightness),
+                                )
+                            )
                         if light_name in self._smoothed_colors:
                             self._current_colors[light_name] = self._smoothed_colors[
                                 light_name
                             ]
                         else:
                             self._current_colors[light_name] = (r, g, b)
+
+                if frame_colors:
+                    try:
+                        if isinstance(self._output, RestPhueAdapter):
+                            self._output.transition_time = int(
+                                round(self.transition_time)
+                            )
+                        self._output.apply_frame(frame_colors)
+                    except Exception as e:
+                        logger.debug(f"screen apply_frame error: {e}")
 
                 # Notifica mudança de status se houver callback
                 if self._on_status_change:
@@ -441,6 +492,7 @@ class ScreenMirror:
                             "running": True,
                             "fps": self.fps,
                             "colors": self._current_colors.copy(),
+                            "transport": self._output.transport,
                         }
                     )
 
@@ -494,8 +546,14 @@ class ScreenMirror:
 
         logger.info(
             f"Starting screen mirroring (FPS: {self.fps}, brightness: {self.brightness}"
-            f", profile: {self.active_profile})"
+            f", profile: {self.active_profile}, transport={self._output.transport})"
         )
+        try:
+            self._output.begin_session()
+            self._session_started = True
+        except Exception as e:
+            raise RuntimeError(f"Falha ao iniciar transporte de saída: {e}") from e
+
         self.running = True
         self.thread = threading.Thread(target=self._mirror_loop, daemon=True)
         self.thread.start()
@@ -521,6 +579,12 @@ class ScreenMirror:
         if self.thread:
             self.thread.join(timeout=2.0)
             self.thread = None
+        if self._session_started:
+            try:
+                self._output.end_session()
+            except Exception as e:
+                logger.debug(f"end_session error: {e}")
+            self._session_started = False
         self._current_colors.clear()
         self._target_colors.clear()
         self._smoothed_colors.clear()
@@ -568,6 +632,9 @@ class ScreenMirror:
             "transition_time": self.transition_time,
             "active_profile": self.active_profile,
             "colors": self._current_colors.copy(),
+            "transport": self._output.transport,
+            "entertainment_area_id": self.entertainment_area_id,
+            "entertainment_enabled": self.entertainment_enabled,
         }
 
     def set_status_callback(self, callback: Callable[[dict[str, Any]], None]) -> None:

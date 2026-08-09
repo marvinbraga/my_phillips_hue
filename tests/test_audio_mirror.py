@@ -366,6 +366,51 @@ def test_process_frame_applies_colors(mirror: AudioMirror) -> None:
         t = np.arange(1024) / sr
         samples = (0.9 * np.sin(2 * np.pi * 100 * t)).astype(np.float32)
         mirror._process_frame(samples, sr)
-    # Hue controller should have been called for enabled lights
+    # Hue controller should have been called for enabled lights (via RestPhueAdapter)
     assert mirror.hue.set_light_color.called
     assert mirror._levels["bass"] >= 0.0
+
+
+def test_process_frame_uses_fake_output_port(positions_file: str) -> None:
+    """AudioMirror batch path pushes frames to LightOutputPort without REST."""
+    from marvin_hue.output.port import LightFrameColor
+
+    class FakePort:
+        def __init__(self) -> None:
+            self.frames: list[list[LightFrameColor]] = []
+            self.begun = 0
+            self.ended = 0
+
+        @property
+        def transport(self) -> str:
+            return "rest"
+
+        def begin_session(self) -> None:
+            self.begun += 1
+
+        def apply_frame(self, colors: list[LightFrameColor]) -> None:
+            self.frames.append(list(colors))
+
+        def end_session(self) -> None:
+            self.ended += 1
+
+    hue = MagicMock()
+    port = FakePort()
+    mirror = AudioMirror(hue, positions_file, output_port=port)  # type: ignore[arg-type]
+    with patch("marvin_hue.audio_mirror.is_enabled_for_app", return_value=True):
+        sr = 22050
+        t = np.arange(1024) / sr
+        samples = (0.9 * np.sin(2 * np.pi * 80 * t)).astype(np.float32)
+        mirror._process_frame(samples, sr)
+    assert len(port.frames) >= 1
+    assert all(isinstance(c, LightFrameColor) for c in port.frames[0])
+    hue.set_light_color.assert_not_called()
+    assert mirror.get_status()["transport"] == "rest"
+
+
+def test_intensity_profile_extreme(mirror: AudioMirror) -> None:
+    from marvin_hue.audio_mirror import AUDIO_INTENSITY_PROFILES
+
+    mirror.apply_profile("extreme")
+    assert mirror.active_profile == "extreme"
+    assert mirror.energy_gain == AUDIO_INTENSITY_PROFILES["extreme"]["energy_gain"]

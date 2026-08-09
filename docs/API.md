@@ -746,12 +746,14 @@ Dois modos mutuamente exclusivos (iniciar um para o outro):
 | `mode` | Fonte | Perfis |
 |--------|--------|--------|
 | `screen` (padrão) | Captura de regiões da tela | `cinema`, `fps`, `ambient` |
-| `audio` | Áudio do sistema (sink monitor PulseAudio/PipeWire) | `party`, `chill`, `pulse` |
+| `audio` | Áudio do sistema (sink monitor PulseAudio/PipeWire) | `party`, `chill`, `pulse` + intensidade `subtle`/`moderate`/`high`/`extreme` |
 
-No modo **audio**, as posições de `light_positions.json` mapeiam bandas:
+No modo **audio**, as posições de `light_positions.json` mapeiam bandas e estereo:
 - **grave (bass):** `bottom`, `bottom-left`, `bottom-right` → vermelhos/laranjas
-- **médio (mid):** `left`, `right`, `center`, `ambient` → verdes/roxos
+- **médio (mid):** `left`, `right`, `center`, `ambient` → verdes/roxos (L/R via `stereo_bias`)
 - **agudo (treble):** `top`, `top-left`, `top-right` → azuis/cianos
+
+**Transporte:** `rest` (phue) ou `entertainment` (DTLS HueStream). Com `ENTERTAINMENT_ENABLED=false` ou sem credenciais, o comportamento é idêntico ao REST.
 
 ### POST /mirror/start
 
@@ -773,15 +775,19 @@ Inicia o espelhamento de tela ou de música.
   "mode": "audio",
   "profile": "party",
   "fps": 30,
-  "brightness": 220
+  "brightness": 220,
+  "transport_preference": "auto",
+  "area_id": null
 }
 ```
 
 **Parâmetros:**
 - `mode` (string, optional): `screen` | `audio` (padrão `screen`)
-- `fps` (int, optional): Taxa de atualização em FPS (1-60). Se omitido com profile, usa o do profile; sem profile, padrão 25 (screen) / 30 (audio)
+- `fps` (int, optional): Taxa de atualização em FPS (1-60). Se omitido com profile, usa o do profile; sem profile, padrão 25 (screen) / 30 (audio); Entertainment sem profile → `ENTERTAINMENT_FPS`
 - `brightness` (int, optional): Brilho das lâmpadas (0-254)
-- `profile` (string, optional): screen=`cinema`|`fps`|`ambient`; audio=`party`|`chill`|`pulse`
+- `profile` (string, optional): screen=`cinema`|`fps`|`ambient`; audio=`party`|`chill`|`pulse`|`subtle`|`moderate`|`high`|`extreme`
+- `transport_preference` (string, optional): `auto` | `rest` | `entertainment`
+- `area_id` (string, optional): id da área Entertainment
 
 **Perfis de tela:**
 | Perfil | fps | brightness | sat | smoothing | transition |
@@ -889,9 +895,65 @@ curl -X POST http://localhost:5081/mirror/stop
 
 ---
 
+### GET /mirror/entertainment/status
+
+Status do transporte Entertainment.
+
+**Response 200:**
+```json
+{
+  "enabled": false,
+  "ready": false,
+  "streaming": false,
+  "active_area_id": null,
+  "areas": [],
+  "transport": "rest",
+  "default_area_id": null,
+  "fps_default": 40
+}
+```
+
+### POST /mirror/entertainment/pair
+
+Pareia com a bridge (**pressione o botão de link antes**). Salva credenciais em `ENTERTAINMENT_CREDS_FILE`.
+
+**Request Body (opcional):**
+```json
+{ "device_type": "marvin_hue#entertainment" }
+```
+
+**Response 200:**
+```json
+{
+  "ok": true,
+  "username_suffix": "ab12",
+  "creds_file": ".res/hue_entertainment_creds.json",
+  "message": "Pairing OK. Defina ENTERTAINMENT_ENABLED=true e reinicie se ainda estiver desabilitado."
+}
+```
+
+### GET /mirror/entertainment/areas
+
+Lista áreas Entertainment (vazio se unpaired).
+
+**Response 200:**
+```json
+{
+  "ready": true,
+  "areas": [
+    {
+      "id": "…",
+      "name": "Sala",
+      "channel_count": 4,
+      "channels": [{ "channel_id": 0, "name": "Hue Play 1", "service_id": "…" }]
+    }
+  ]
+}
+```
+
 ### GET /mirror/status
 
-Retorna o status unificado do espelhamento ativo.
+Retorna o status unificado do espelhamento ativo. Campos extras: `transport`, `entertainment_enabled`, `entertainment_ready`, `entertainment_area_id`, `beat` (audio).
 
 **Response 200 (modo tela):**
 ```json

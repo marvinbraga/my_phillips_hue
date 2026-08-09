@@ -8,6 +8,7 @@ from marvin_hue.basics import LightSetupsManager
 from marvin_hue.audio_mirror import AudioMirror
 from marvin_hue.screen_mirror import ScreenMirror
 from marvin_hue.chat import HueLightAgent
+from marvin_hue.entertainment.client import EntertainmentClient
 from marvin_hue.services.group_service import GroupService
 from marvin_hue.services.light_registry import LightRegistryService
 from marvin_hue.services.scene_history import SceneHistoryService
@@ -19,6 +20,7 @@ _hue_controller: HueController | None = None
 _manager: LightSetupsManager | None = None
 _screen_mirror: ScreenMirror | None = None
 _audio_mirror: AudioMirror | None = None
+_entertainment_client: EntertainmentClient | None = None
 _chat_agent: HueLightAgent | None = None
 # Motivo sanitizado da última falha/indisponibilidade do agente de chat
 # (sem secrets). Limpo quando o agente é definido com sucesso.
@@ -106,6 +108,17 @@ def set_audio_mirror(mirror: AudioMirror) -> None:
     """Define a instância global do audio/music mirror."""
     global _audio_mirror
     _audio_mirror = mirror
+
+
+def set_entertainment_client(client: EntertainmentClient | None) -> None:
+    """Define o cliente Entertainment (pode ser None se desabilitado/sem creds)."""
+    global _entertainment_client
+    _entertainment_client = client
+
+
+def get_entertainment_client() -> EntertainmentClient | None:
+    """Retorna o EntertainmentClient (None se não inicializado)."""
+    return _entertainment_client
 
 
 def set_chat_agent(agent: HueLightAgent | None, reason: str | None = None) -> None:

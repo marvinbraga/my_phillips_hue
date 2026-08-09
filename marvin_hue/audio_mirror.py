@@ -23,10 +23,11 @@ from marvin_hue.audio_engine import (
     density_to_level,
     entertainment_color,
 )
-from marvin_hue.colors import Color
 from marvin_hue.controllers import HueController
 from marvin_hue.eye_safety import is_enabled_for_app
 from marvin_hue.logging_config import get_logger
+from marvin_hue.output.port import LightFrameColor, LightOutputPort
+from marvin_hue.output.rest_adapter import RestPhueAdapter
 
 logger = get_logger("audio_mirror")
 
@@ -67,6 +68,30 @@ AUDIO_MIRROR_PROFILES: dict[str, dict[str, float | int]] = {
         "attack": 0.60,
         "release": 0.14,
     },
+}
+
+# Hue Sync-like intensity aliases (map onto energy_gain / beat knobs)
+AUDIO_INTENSITY_PROFILES: dict[str, dict[str, float | int]] = {
+    "subtle": {**AUDIO_MIRROR_PROFILES["chill"], "fps": 24},
+    "moderate": {
+        "fps": 30,
+        "brightness": 200,
+        "smoothing_factor": 0.50,
+        "transition_time": 0,
+        "energy_gain": 1.0,
+        "beat_sensitivity": 1.0,
+        "hue_speed": 0.8,
+        "attack": 0.45,
+        "release": 0.10,
+    },
+    "high": {**AUDIO_MIRROR_PROFILES["party"]},
+    "extreme": {**AUDIO_MIRROR_PROFILES["pulse"]},
+}
+
+# Combined profile lookup for apply_profile / API
+ALL_AUDIO_PROFILES: dict[str, dict[str, float | int]] = {
+    **AUDIO_MIRROR_PROFILES,
+    **AUDIO_INTENSITY_PROFILES,
 }
 
 # Frequências de corte aproximadas (Hz) para bandas legadas (compat)
@@ -503,9 +528,11 @@ class AudioMirror:
         self,
         hue_controller: HueController,
         positions_file: str = ".res/light_positions.json",
+        output_port: LightOutputPort | None = None,
     ) -> None:
         self.hue = hue_controller
         self.positions_file = positions_file
+        self._output: LightOutputPort = output_port or RestPhueAdapter(hue_controller)
         self.running = False
         self.thread: threading.Thread | None = None
         self.fps = 30
@@ -518,6 +545,8 @@ class AudioMirror:
         self.attack = 0.45
         self.release = 0.10
         self.active_profile: str | None = None
+        self.entertainment_area_id: str | None = None
+        self.entertainment_enabled: bool = False
         self._on_status_change: Callable[[dict[str, Any]], None] | None = None
         self._current_colors: dict[str, tuple[int, int, int]] = {}
         self._smoothed_colors: dict[str, tuple[int, int, int]] = {}
@@ -549,6 +578,17 @@ class AudioMirror:
             ),
         )
         self._last_beat: float = 0.0
+        self._session_started = False
+
+    def set_output_port(self, port: LightOutputPort) -> None:
+        """Replace output transport (call before start, or when idle)."""
+        if self.running:
+            raise RuntimeError("Cannot change output port while mirror is running")
+        self._output = port
+
+    @property
+    def output_port(self) -> LightOutputPort:
+        return self._output
 
     def _sync_analyzer_config(self) -> None:
         self._analyzer.configure(
@@ -560,14 +600,15 @@ class AudioMirror:
         )
 
     def apply_profile(self, name: str) -> None:
-        """Aplica perfil nomeado (party | chill | pulse)."""
-        if name not in AUDIO_MIRROR_PROFILES:
+        """Aplica perfil nomeado (party|chill|pulse|subtle|moderate|high|extreme)."""
+        if name not in ALL_AUDIO_PROFILES:
             raise ValueError(f"Unknown audio profile: {name}")
-        for key, value in AUDIO_MIRROR_PROFILES[name].items():
+        profile = ALL_AUDIO_PROFILES[name]
+        for key, value in profile.items():
             setattr(self, key, value)
         self.active_profile = name
         self._sync_analyzer_config()
-        logger.info(f"Applied audio mirror profile '{name}': {AUDIO_MIRROR_PROFILES[name]}")
+        logger.info(f"Applied audio mirror profile '{name}': {profile}")
 
     def load_light_positions(self) -> list[dict[str, Any]]:
         """
@@ -629,9 +670,12 @@ class AudioMirror:
         )
         return diff > thr
 
-    def _apply_color_to_light(self, light_name: str, r: int, g: int, b: int) -> None:
+    def _smooth_color_for_light(
+        self, light_name: str, r: int, g: int, b: int
+    ) -> tuple[int, int, int] | None:
+        """Return smoothed RGB if changed enough; update caches. None = skip."""
         if not is_enabled_for_app(light_name):
-            return
+            return None
         target = (r, g, b)
         if light_name in self._smoothed_colors:
             smoothed = self._interpolate_color(self._smoothed_colors[light_name], target)
@@ -639,23 +683,43 @@ class AudioMirror:
             smoothed = target
 
         if not self._color_changed_significantly(light_name, smoothed):
-            return
+            # Keep last smoothed for UI but do not re-send
+            if light_name in self._smoothed_colors:
+                return None
+            return None
 
         self._smoothed_colors[light_name] = smoothed
+        return smoothed
+
+    def _brightness_for_rgb(self, smoothed: tuple[int, int, int]) -> int:
+        lum = (smoothed[0] + smoothed[1] + smoothed[2]) / (3.0 * 255.0)
+        beat_boost = 1.0 + 0.35 * self._last_beat
+        return max(
+            8,
+            min(254, int(self.brightness * (0.22 + 0.78 * lum) * beat_boost)),
+        )
+
+    def _apply_color_to_light(self, light_name: str, r: int, g: int, b: int) -> None:
+        """Legacy single-light path (Rest via output port)."""
+        smoothed = self._smooth_color_for_light(light_name, r, g, b)
+        if smoothed is None:
+            return
+        bri = self._brightness_for_rgb(smoothed)
         try:
-            lum = (smoothed[0] + smoothed[1] + smoothed[2]) / (3.0 * 255.0)
-            # Beat flash: brief brightness boost
-            beat_boost = 1.0 + 0.35 * self._last_beat
-            bri = max(
-                8,
-                min(254, int(self.brightness * (0.22 + 0.78 * lum) * beat_boost)),
+            # Keep RestPhueAdapter.transition_time in sync
+            if isinstance(self._output, RestPhueAdapter):
+                self._output.transition_time = int(round(self.transition_time))
+            self._output.apply_frame(
+                [
+                    LightFrameColor(
+                        light_name=light_name,
+                        r=smoothed[0],
+                        g=smoothed[1],
+                        b=smoothed[2],
+                        brightness=bri,
+                    )
+                ]
             )
-            color = Color(smoothed[0], smoothed[1], smoothed[2], bri)
-            light = self.hue.set_light_color(light_name, color)
-            if light:
-                light.transitiontime = int(round(self.transition_time))
-        except ValueError as e:
-            logger.debug(f"Light '{light_name}' unavailable for audio mirror: {e}")
         except Exception as e:
             logger.debug(f"Error applying audio color to '{light_name}': {e}")
 
@@ -702,6 +766,11 @@ class AudioMirror:
         color_frame_treble = levels["treble"]
 
         lights = self.load_light_positions()
+        frame_colors: list[LightFrameColor] = []
+        # Entertainment transport needs full-frame updates every tick even if
+        # change-detection would skip a light; REST can still skip unchanged.
+        batch_all = self._output.transport == "entertainment"
+
         for light in lights:
             name = str(light.get("name", ""))
             if not name:
@@ -719,11 +788,37 @@ class AudioMirror:
                 hue_speed=float(self.hue_speed),
                 energy_gain=float(self.energy_gain),
             )
-            self._apply_color_to_light(name, rgb[0], rgb[1], rgb[2])
+            target = (rgb[0], rgb[1], rgb[2])
             if name in self._smoothed_colors:
-                self._current_colors[name] = self._smoothed_colors[name]
+                smoothed = self._interpolate_color(self._smoothed_colors[name], target)
             else:
-                self._current_colors[name] = rgb
+                smoothed = target
+
+            if batch_all or self._color_changed_significantly(name, smoothed):
+                self._smoothed_colors[name] = smoothed
+                bri = self._brightness_for_rgb(smoothed)
+                if is_enabled_for_app(name):
+                    frame_colors.append(
+                        LightFrameColor(
+                            light_name=name,
+                            r=smoothed[0],
+                            g=smoothed[1],
+                            b=smoothed[2],
+                            brightness=bri,
+                        )
+                    )
+            elif name in self._smoothed_colors:
+                smoothed = self._smoothed_colors[name]
+
+            self._current_colors[name] = smoothed
+
+        if frame_colors:
+            try:
+                if isinstance(self._output, RestPhueAdapter):
+                    self._output.transition_time = int(round(self.transition_time))
+                self._output.apply_frame(frame_colors)
+            except Exception as e:
+                logger.debug(f"apply_frame error: {e}")
 
         if self._on_status_change:
             self._on_status_change(self.get_status())
@@ -870,8 +965,17 @@ class AudioMirror:
         logger.info(
             f"Starting audio mirroring (FPS: {self.fps}, brightness: {self.brightness}"
             f", profile: {self.active_profile}, device: {device}, "
-            f"rate={sample_rate}, ch={channels}, pulse_source={self._pulse_source!r})"
+            f"rate={sample_rate}, ch={channels}, pulse_source={self._pulse_source!r}, "
+            f"transport={self._output.transport})"
         )
+        try:
+            self._output.begin_session()
+            self._session_started = True
+        except Exception as e:
+            self._device_index = None
+            self._pulse_source = None
+            raise RuntimeError(f"Falha ao iniciar transporte de saída: {e}") from e
+
         self.running = True
         self.thread = threading.Thread(target=self._mirror_loop, daemon=True)
         self.thread.start()
@@ -884,6 +988,12 @@ class AudioMirror:
         if self.thread:
             self.thread.join(timeout=2.0)
             self.thread = None
+        if self._session_started:
+            try:
+                self._output.end_session()
+            except Exception as e:
+                logger.debug(f"end_session error: {e}")
+            self._session_started = False
         self._current_colors.clear()
         self._smoothed_colors.clear()
         self._levels = {"bass": 0.0, "mid": 0.0, "treble": 0.0, "beat": 0.0}
@@ -920,6 +1030,14 @@ class AudioMirror:
             "mid": self._levels.get("mid", 0.0),
             "treble": self._levels.get("treble", 0.0),
             "beat": self._levels.get("beat", 0.0),
+            "transport": self._output.transport,
+            "entertainment_area_id": self.entertainment_area_id,
+            "entertainment_enabled": self.entertainment_enabled,
+            "entertainment_ready": self._output.transport == "entertainment"
+            or (
+                # ready if credentials path could use entertainment later
+                False
+            ),
         }
 
     def set_status_callback(self, callback: Callable[[dict[str, Any]], None]) -> None:

@@ -52,6 +52,34 @@ class Settings(BaseSettings):
         description="Timeout em segundos para operações com a bridge",
     )
 
+    # --- Hue Entertainment (DTLS stream); optional ---
+    entertainment_enabled: bool = Field(
+        default=False,
+        description="Enable Hue Entertainment DTLS streaming when credentials exist",
+    )
+    hue_app_key: str | None = Field(
+        default=None,
+        description="Hue application key (CLIP username) for Entertainment API",
+    )
+    hue_client_key: str | None = Field(
+        default=None,
+        description="DTLS client key (clientkey) from Entertainment pairing",
+    )
+    entertainment_area_id: str | None = Field(
+        default=None,
+        description="Default entertainment configuration id (CLIP v2 resource id)",
+    )
+    entertainment_creds_file: str = Field(
+        default=".res/hue_entertainment_creds.json",
+        description="JSON file for app_key/clientkey (gitignored); env overrides file",
+    )
+    entertainment_fps: int = Field(
+        default=40,
+        ge=10,
+        le=60,
+        description="Target Entertainment stream FPS when transport=entertainment",
+    )
+
     # API Configuration
     api_key: str | None = Field(
         default=None, description="API key opcional para autenticação"

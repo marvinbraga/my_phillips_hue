@@ -1046,9 +1046,21 @@ def apply_config(config: LightConfig) -> "HueController":
 
 ---
 
-## Future / Roadmap — Hue Entertainment streaming
+## Dual transport — Hue Entertainment streaming
 
-Music and screen mirroring currently push colors over REST via `phue` (`HueController.set_light_color`), which is rate-limited and cannot match the official Hue Sync experience. A phased plan upgrades high-rate paths to the **Hue Entertainment API** (DTLS / HueStream) using the OSS client [music-assistant/hue-entertainment](https://github.com/music-assistant/hue-entertainment), behind a dual-transport `LightOutputPort` (Entertainment preferred, REST fallback), with feature flag `ENTERTAINMENT_ENABLED`, eye-safety clamping on stream frames, and mutual exclusion of mirror sessions. Implementation plan (phases 0–6, exact paths, tests): [`docs/plans/2026-08-08-hue-entertainment-music-upgrade.md`](plans/2026-08-08-hue-entertainment-music-upgrade.md).
+High-rate music/screen paths push frames through `LightOutputPort`:
+
+| Component | Path |
+|-----------|------|
+| Port | `marvin_hue/output/port.py` |
+| REST adapter | `marvin_hue/output/rest_adapter.py` (`HueController` / phue) |
+| Entertainment adapter | `marvin_hue/output/entertainment_adapter.py` (DTLS HueStream) |
+| Fallback | `marvin_hue/output/fallback.py` (Entertainment → REST on failure) |
+| Factory | `marvin_hue/output/factory.py` |
+| Client | `marvin_hue/entertainment/client.py` (`hue-entertainment`) |
+| Credentials | env + `.res/hue_entertainment_creds.json` (never chat SQLite) |
+
+Feature flag `ENTERTAINMENT_ENABLED` (default **false**). When disabled or unpaired, behavior is REST-only. Eye safety still clamps brightness before frames are sent. Plan: [`docs/plans/2026-08-08-hue-entertainment-music-upgrade.md`](plans/2026-08-08-hue-entertainment-music-upgrade.md).
 
 ---
 

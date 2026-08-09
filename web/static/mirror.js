@@ -32,28 +32,56 @@ const MIRROR_PROFILES = {
     },
 };
 
-// Defaults de marvin_hue.audio_mirror.AUDIO_MIRROR_PROFILES
+// Defaults de marvin_hue.audio_mirror.AUDIO_MIRROR_PROFILES + intensity aliases
 const AUDIO_PROFILES = {
     party: {
-        fps: 28,
-        brightness: 230,
-        smoothing_factor: 0.55,
+        fps: 36,
+        brightness: 235,
+        smoothing_factor: 0.70,
         transition_time: 0,
-        energy_gain: 1.0,
+        energy_gain: 1.05,
     },
     chill: {
         fps: 18,
         brightness: 150,
-        smoothing_factor: 0.25,
+        smoothing_factor: 0.28,
         transition_time: 2,
         energy_gain: 0.85,
     },
     pulse: {
-        fps: 32,
+        fps: 38,
         brightness: 250,
-        smoothing_factor: 0.75,
+        smoothing_factor: 0.80,
         transition_time: 0,
-        energy_gain: 1.1,
+        energy_gain: 1.15,
+    },
+    subtle: {
+        fps: 24,
+        brightness: 150,
+        smoothing_factor: 0.28,
+        transition_time: 2,
+        energy_gain: 0.85,
+    },
+    moderate: {
+        fps: 30,
+        brightness: 200,
+        smoothing_factor: 0.50,
+        transition_time: 0,
+        energy_gain: 1.0,
+    },
+    high: {
+        fps: 36,
+        brightness: 235,
+        smoothing_factor: 0.70,
+        transition_time: 0,
+        energy_gain: 1.05,
+    },
+    extreme: {
+        fps: 38,
+        brightness: 250,
+        smoothing_factor: 0.80,
+        transition_time: 0,
+        energy_gain: 1.15,
     },
 };
 
@@ -261,6 +289,17 @@ function updateSpectrum(status) {
     $('#spectrum-bars').toggleClass('beat-hit', beat > 0.45);
 }
 
+function updateTransportBadge(status) {
+    const t = (status && status.transport) || 'rest';
+    const badge = $('#transport-badge');
+    badge.removeClass('rest entertainment');
+    if (t === 'entertainment') {
+        badge.addClass('entertainment').text('Entertainment');
+    } else {
+        badge.addClass('rest').text('REST');
+    }
+}
+
 function updateUI(status) {
     isRunning = !!status.running;
     activeMode = status.mode || null;
@@ -275,13 +314,16 @@ function updateUI(status) {
     const startBtn = $('#start-btn');
     const stopBtn = $('#stop-btn');
 
+    updateTransportBadge(status);
+
     if (isRunning) {
         statusEl.removeClass('inactive').addClass('active');
         statusEl.toggleClass('audio-mode', activeMode === 'audio');
         const label = activeMode === 'audio' ? 'Música Ativa' : 'Espelhamento Ativo';
         const icon = activeMode === 'audio' ? 'bi-music-note-beamed' : 'bi-broadcast';
+        const transport = status.transport || 'rest';
         statusText.html(
-            `<i class="bi ${icon}"></i> ${label}<br><small>${status.fps} FPS</small>`
+            `<i class="bi ${icon}"></i> ${label}<br><small>${status.fps} FPS · ${transport}</small>`
         );
         startBtn.prop('disabled', true);
         stopBtn.prop('disabled', false);
@@ -365,17 +407,46 @@ function startMirror() {
     const brightness = parseInt($('#brightness-range').val(), 10);
     const profile = getSelectedProfile();
     const mode = currentMode;
-    const payload = { action: 'start', mode, fps, brightness };
+    const transport_preference = $('#transport-pref').val() || 'auto';
+    const area_id = $('#ent-area-select').val() || null;
+    const payload = { action: 'start', mode, fps, brightness, transport_preference };
     if (profile) {
         payload.profile = profile;
     }
+    if (area_id) {
+        payload.area_id = area_id;
+    }
 
     if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(payload));
+        // WS path may not support entertainment fields fully — prefer REST start
+        fetch('/mirror/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                mode,
+                fps,
+                brightness,
+                profile: profile || undefined,
+                transport_preference,
+                area_id: area_id || undefined,
+            }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.detail) {
+                alert(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
+            } else if (data.status) {
+                updateUI(data.status);
+            }
+        })
+        .catch(err => alert('Erro ao iniciar: ' + err));
     } else {
-        const body = { mode, fps, brightness };
+        const body = { mode, fps, brightness, transport_preference };
         if (profile) {
             body.profile = profile;
+        }
+        if (area_id) {
+            body.area_id = area_id;
         }
         fetch('/mirror/start', {
             method: 'POST',
@@ -394,6 +465,70 @@ function startMirror() {
         })
         .catch(err => alert('Erro ao iniciar: ' + err));
     }
+}
+
+function loadEntertainmentStatus() {
+    fetch('/mirror/entertainment/status')
+        .then(r => r.json())
+        .then(data => {
+            const enabledBadge = $('#ent-enabled-badge');
+            if (data.enabled) {
+                enabledBadge.removeClass('bg-secondary').addClass('bg-success').text('enabled');
+            } else {
+                enabledBadge.removeClass('bg-success').addClass('bg-secondary').text('flag off');
+            }
+            const readyText = $('#ent-ready-text');
+            if (data.ready) {
+                readyText.text('credenciais OK');
+            } else {
+                readyText.text('não pareado');
+            }
+            const select = $('#ent-area-select');
+            select.empty();
+            const areas = data.areas || [];
+            if (!areas.length) {
+                select.append('<option value="">— sem áreas —</option>');
+                select.prop('disabled', true);
+            } else {
+                select.prop('disabled', false);
+                areas.forEach(a => {
+                    const label = `${a.name || a.id} (${a.channel_count || 0} ch)`;
+                    select.append(`<option value="${a.id}">${label}</option>`);
+                });
+                if (data.default_area_id) {
+                    select.val(data.default_area_id);
+                }
+            }
+            if (data.transport) {
+                updateTransportBadge({ transport: data.transport });
+            }
+        })
+        .catch(err => console.warn('entertainment status:', err));
+}
+
+function pairEntertainment() {
+    if (!confirm('Pressione o botão de link da bridge Hue e confirme para iniciar o pairing.')) {
+        return;
+    }
+    const btn = $('#ent-pair-btn');
+    btn.prop('disabled', true).text('Pairing…');
+    fetch('/mirror/entertainment/pair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+    })
+        .then(async r => {
+            const data = await r.json();
+            if (!r.ok) {
+                throw new Error(data.detail || JSON.stringify(data));
+            }
+            alert(data.message || 'Pairing OK');
+            loadEntertainmentStatus();
+        })
+        .catch(err => alert('Pairing falhou: ' + err))
+        .finally(() => {
+            btn.prop('disabled', false).html('<i class="bi bi-link-45deg"></i> Pair (botão da bridge)');
+        });
 }
 
 function stopMirror() {
@@ -559,6 +694,7 @@ $(document).ready(function() {
     setupSliders();
     setModeUI('screen');
     fetchInitialStatus();
+    loadEntertainmentStatus();
 
     connectWebSocket();
 
@@ -566,6 +702,7 @@ $(document).ready(function() {
     $('#stop-btn').click(stopMirror);
     $('#apply-settings-btn').click(function() { applySettings(); });
     $('#theme-btn').click(toggleTheme);
+    $('#ent-pair-btn').click(pairEntertainment);
     $('input[name="mirror-profile"]').on('change', onProfileSelected);
     $('input[name="audio-profile"]').on('change', onProfileSelected);
 

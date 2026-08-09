@@ -3,6 +3,7 @@ Marvin Hue Controller - FastAPI Application
 Aplicação assíncrona para controle de luzes Philips Hue.
 """
 
+import asyncio
 from contextlib import asynccontextmanager, AsyncExitStack
 
 from dotenv import load_dotenv
@@ -38,6 +39,10 @@ from marvin_hue.api.routes import (  # noqa: E402
     backup,
 )
 from marvin_hue.api.websockets import setup_websockets  # noqa: E402
+from marvin_hue.entertainment.client import EntertainmentClient  # noqa: E402
+from marvin_hue.entertainment.credentials import (  # noqa: E402
+    load_entertainment_credentials,
+)
 
 logger = get_logger("app")
 
@@ -56,12 +61,38 @@ async def lifespan(app: FastAPI):
     manager = LightSetupsManager(settings.setups_file)
     screen_mirror = ScreenMirror(hue, settings.positions_file)
     audio_mirror = AudioMirror(hue, settings.positions_file)
+    screen_mirror.entertainment_enabled = settings.entertainment_enabled
+    audio_mirror.entertainment_enabled = settings.entertainment_enabled
+    if settings.entertainment_area_id:
+        screen_mirror.entertainment_area_id = settings.entertainment_area_id
+        audio_mirror.entertainment_area_id = settings.entertainment_area_id
+
+    # Entertainment client (lazy stream; always construct if we have host)
+    loop = asyncio.get_running_loop()
+    creds = load_entertainment_credentials(
+        settings.entertainment_creds_file,
+        settings.hue_app_key,
+        settings.hue_client_key,
+    )
+    ent_client = EntertainmentClient(
+        host=settings.bridge_ip,
+        credentials=creds,
+        loop=loop,
+    )
+    ent_client.set_loop(loop)
+    if settings.entertainment_enabled and creds is not None:
+        logger.info("Entertainment enabled with credentials loaded")
+    elif settings.entertainment_enabled:
+        logger.info("Entertainment enabled but credentials missing (pair required)")
+    else:
+        logger.info("Entertainment disabled (REST transport default)")
 
     # Registra dependências
     dependencies.set_hue_controller(hue)
     dependencies.set_manager(manager)
     dependencies.set_screen_mirror(screen_mirror)
     dependencies.set_audio_mirror(audio_mirror)
+    dependencies.set_entertainment_client(ent_client)
 
     # App-owned SQLite services (separate connections per repo; same DB file)
     from marvin_hue.persistence.schema import init_db
@@ -213,6 +244,13 @@ async def lifespan(app: FastAPI):
         screen_mirror.stop()
     if audio_mirror and audio_mirror.is_running():
         audio_mirror.stop()
+    ent = dependencies.get_entertainment_client()
+    if ent is not None and ent.is_streaming:
+        try:
+            await ent.stop_stream()
+        except Exception as e:
+            logger.warning(f"Error stopping entertainment stream on shutdown: {e}")
+    dependencies.set_entertainment_client(None)
     logger.info("Application shutdown complete")
 
 
