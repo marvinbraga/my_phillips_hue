@@ -6,9 +6,11 @@ import numpy as np
 import pytest
 
 from marvin_hue.audio_engine import (
+    DEFAULT_SPECTRUM_BINS,
     AnalysisFrame,
     AnalyzerConfig,
     AudioAnalyzer,
+    AutoScaler,
     EnvelopeFollower,
     density_to_level,
     entertainment_color,
@@ -93,6 +95,25 @@ def test_envelope_follower_attack_faster_than_release() -> None:
     assert down > 0.8  # slow release
 
 
+def test_auto_scaler_silence_near_zero() -> None:
+    sc = AutoScaler(strength=1.0)
+    for _ in range(8):
+        out = sc.process(0.0)
+    assert out < 0.05
+
+
+def test_auto_scaler_loud_higher_than_quiet() -> None:
+    sc = AutoScaler(strength=0.9, attack=0.6, release=0.05)
+    quiet = 0.0
+    for _ in range(6):
+        quiet = sc.process(0.05)
+    loud = 0.0
+    for _ in range(6):
+        loud = sc.process(0.9)
+    assert loud > quiet
+    assert loud > 0.3
+
+
 def test_analyzer_silence() -> None:
     az = AudioAnalyzer(sample_rate=22050)
     silence = np.zeros(2048, dtype=np.float32)
@@ -103,6 +124,8 @@ def test_analyzer_silence() -> None:
     assert frame.mid == 0.0
     assert frame.treble == 0.0
     assert frame.rms < 1e-4
+    assert len(frame.spectrum) == DEFAULT_SPECTRUM_BINS
+    assert all(v < 0.15 for v in frame.spectrum)
 
 
 def test_analyzer_bass_tone() -> None:
@@ -184,6 +207,38 @@ def test_analysis_frame_color_for_position_helper() -> None:
     frame = AnalysisFrame(bass=0.7, mid=0.5, treble=0.3, beat=0.2, centroid=0.4)
     rgb = frame.color_for_position("top-left", phase=0.2)
     assert all(0 <= c <= 255 for c in rgb)
+
+
+def test_analyzer_spectrum_length() -> None:
+    sr = 44100
+    az = AudioAnalyzer(sample_rate=sr)
+    block = _sine(440.0, sr, 1024, amp=0.3)
+    frame = az.process(block)
+    for _ in range(10):
+        frame = az.process(block)
+    assert len(frame.spectrum) == DEFAULT_SPECTRUM_BINS
+    assert all(0.0 <= v <= 1.0 for v in frame.spectrum)
+    assert max(frame.spectrum) > 0.05
+
+
+def test_analyzer_spectrum_bass_heavy_low_bins() -> None:
+    """Bass sine should raise low log-bins more than high bins."""
+    sr = 44100
+    az = AudioAnalyzer(sample_rate=sr, config=AnalyzerConfig(attack=0.7, release=0.2))
+    block = _sine(80.0, sr, 1024, amp=0.4)
+    frame = AnalysisFrame()
+    for _ in range(16):
+        frame = az.process(block)
+    n = len(frame.spectrum)
+    assert n == DEFAULT_SPECTRUM_BINS
+    low = sum(frame.spectrum[: n // 4]) / max(n // 4, 1)
+    high = sum(frame.spectrum[3 * n // 4 :]) / max(n - 3 * n // 4, 1)
+    assert low > high * 0.85  # low region stronger (allow soft bleed)
+
+
+def test_analysis_frame_has_spectrum_field() -> None:
+    frame = AnalysisFrame(spectrum=[0.1, 0.2, 0.3])
+    assert frame.spectrum == [0.1, 0.2, 0.3]
 
 
 @pytest.mark.parametrize(

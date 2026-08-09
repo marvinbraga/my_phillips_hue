@@ -269,9 +269,102 @@ function loadPositions() {
         });
 }
 
-// Client-side peak hold for classic analyzer look (independent of backend hold)
+// Client-side spectrum: multi-bar canvas (server-fed bins) + summary meters
 const spectrumHold = { bass: 0, mid: 0, treble: 0 };
 const spectrumSmooth = { bass: 0, mid: 0, treble: 0 };
+let spectrumBinsSmooth = [];
+let spectrumBinsHold = [];
+let spectrumRaf = 0;
+
+function spectrumBarColor(t, isLight) {
+    // Prism: blue → cyan → green → yellow → red (audioMotion-like)
+    const stops = isLight
+        ? [
+            [40, 90, 200],
+            [0, 180, 200],
+            [30, 180, 80],
+            [230, 180, 20],
+            [220, 60, 40],
+          ]
+        : [
+            [50, 120, 255],
+            [0, 220, 220],
+            [40, 230, 90],
+            [255, 210, 40],
+            [255, 70, 50],
+          ];
+    const x = Math.max(0, Math.min(0.999, t));
+    const seg = (stops.length - 1) * x;
+    const i = Math.floor(seg);
+    const f = seg - i;
+    const a = stops[i];
+    const b = stops[Math.min(stops.length - 1, i + 1)];
+    const r = Math.round(a[0] + (b[0] - a[0]) * f);
+    const g = Math.round(a[1] + (b[1] - a[1]) * f);
+    const bl = Math.round(a[2] + (b[2] - a[2]) * f);
+    return `rgb(${r},${g},${bl})`;
+}
+
+function ensureSpectrumCanvasSize() {
+    const canvas = document.getElementById('spectrum-canvas');
+    if (!canvas) return null;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(64, Math.floor(rect.width * dpr));
+    const h = Math.max(64, Math.floor(rect.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+    }
+    return canvas;
+}
+
+function drawSpectrumCanvas(bins, beat) {
+    const canvas = ensureSpectrumCanvasSize();
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    const isLight =
+        document.body.classList.contains('light-theme') ||
+        document.documentElement.getAttribute('data-bs-theme') === 'light';
+
+    ctx.clearRect(0, 0, w, h);
+    // subtle grid / base
+    ctx.fillStyle = isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)';
+    ctx.fillRect(0, 0, w, h);
+
+    const n = bins.length || 48;
+    const gap = Math.max(1, Math.floor(w / n * 0.12));
+    const barW = Math.max(1, (w - gap * (n + 1)) / n);
+    const floor = Math.max(1, Math.floor(h * 0.02));
+
+    for (let i = 0; i < n; i++) {
+        const v = Math.max(0, Math.min(1, bins[i] || 0));
+        const hold = Math.max(v, spectrumBinsHold[i] || 0);
+        const bh = Math.max(floor, Math.floor(v * (h - 4)));
+        const x = gap + i * (barW + gap);
+        const y = h - bh;
+        const t = n <= 1 ? 0 : i / (n - 1);
+        ctx.fillStyle = spectrumBarColor(t, isLight);
+        // rounded-ish bar via rect
+        ctx.globalAlpha = 0.92;
+        ctx.fillRect(x, y, barW, bh);
+        // peak cap
+        const capY = h - Math.max(floor, Math.floor(hold * (h - 4))) - 2;
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = isLight ? 'rgba(20,20,30,0.75)' : 'rgba(255,255,255,0.92)';
+        ctx.fillRect(x, Math.max(0, capY), barW, Math.max(2, Math.floor(2 * (window.devicePixelRatio || 1))));
+    }
+    ctx.globalAlpha = 1;
+
+    // beat flash overlay
+    if (beat > 0.2) {
+        ctx.fillStyle = `rgba(255, 210, 80, ${0.04 + beat * 0.10})`;
+        ctx.fillRect(0, 0, w, h);
+    }
+}
 
 function updateSpectrum(status) {
     const target = {
@@ -281,8 +374,48 @@ function updateSpectrum(status) {
     };
     const beat = Math.max(0, Math.min(1, Number(status.beat) || 0));
 
+    // Multi-bar bins from server (fallback: synthesize from bass/mid/treble)
+    let rawBins = Array.isArray(status.spectrum) ? status.spectrum.map((v) => Number(v) || 0) : [];
+    if (!rawBins.length) {
+        const n = 48;
+        rawBins = new Array(n);
+        for (let i = 0; i < n; i++) {
+            const t = i / (n - 1);
+            if (t < 0.28) rawBins[i] = target.bass * (0.6 + 0.4 * (1 - t / 0.28));
+            else if (t < 0.65) rawBins[i] = target.mid * (0.55 + 0.45 * Math.sin((t - 0.28) / 0.37 * Math.PI));
+            else rawBins[i] = target.treble * (0.5 + 0.5 * ((t - 0.65) / 0.35));
+        }
+    }
+
+    if (spectrumBinsSmooth.length !== rawBins.length) {
+        spectrumBinsSmooth = rawBins.slice();
+        spectrumBinsHold = rawBins.slice();
+    } else {
+        for (let i = 0; i < rawBins.length; i++) {
+            const t = Math.max(0, Math.min(1, rawBins[i]));
+            const prev = spectrumBinsSmooth[i];
+            // Fast attack / medium release
+            const alpha = t > prev ? 0.58 : 0.20;
+            spectrumBinsSmooth[i] = prev + (t - prev) * alpha;
+            if (spectrumBinsSmooth[i] >= spectrumBinsHold[i]) {
+                spectrumBinsHold[i] = spectrumBinsSmooth[i];
+            } else {
+                spectrumBinsHold[i] *= 0.92;
+            }
+        }
+    }
+
+    if (!spectrumRaf) {
+        spectrumRaf = requestAnimationFrame(() => {
+            spectrumRaf = 0;
+            drawSpectrumCanvas(spectrumBinsSmooth, beat);
+        });
+    } else {
+        drawSpectrumCanvas(spectrumBinsSmooth, beat);
+    }
+
+    // Summary meters (bass/mid/treble)
     ['bass', 'mid', 'treble'].forEach((k) => {
-        // Fast attack / medium release on the client for snappier bars
         const prev = spectrumSmooth[k];
         const t = target[k];
         const alpha = t > prev ? 0.55 : 0.22;
@@ -292,22 +425,21 @@ function updateSpectrum(status) {
         } else {
             spectrumHold[k] *= 0.93;
         }
-        const body = Math.max(0.02, spectrumSmooth[k]);
-        const hold = Math.max(body, spectrumHold[k]);
-        $(`#bar-${k}`).css('height', `${(body * 100).toFixed(1)}%`);
-        $(`#peak-${k}`).css('bottom', `calc(${(hold * 100).toFixed(1)}% + 18px)`);
+        const body = Math.max(0, spectrumSmooth[k]);
+        $(`#bar-${k}`).css('width', `${(body * 100).toFixed(1)}%`);
         $(`#pct-${k}`).text(`${Math.round(body * 100)}%`);
     });
 
     const glow = Math.round(beat * 32);
     const opacity = (0.12 + beat * 0.6).toFixed(2);
-    $('#spectrum-bars').css(
+    const panel = $('#spectrum-panel');
+    panel.css(
         'box-shadow',
         glow > 2
             ? `0 0 ${glow}px rgba(255, 200, 80, ${opacity}), inset 0 0 ${Math.round(glow / 2)}px rgba(255, 255, 255, ${beat * 0.12})`
             : 'none'
     );
-    $('#spectrum-bars').toggleClass('beat-hit', beat > 0.35);
+    panel.toggleClass('beat-hit', beat > 0.35);
 }
 
 function updateTransportBadge(status) {
@@ -363,9 +495,18 @@ function updateUI(status) {
 
         $('#color-preview').html('<div class="text-muted">Inicie o espelhamento para ver as cores</div>');
         clearMonitorPreview();
-        updateSpectrum({ bass: 0, mid: 0, treble: 0, beat: 0 });
+        updateSpectrum({ bass: 0, mid: 0, treble: 0, beat: 0, spectrum: [] });
     }
 }
+
+// Resize-aware spectrum canvas
+$(window).on('resize', () => {
+    if (spectrumBinsSmooth.length) {
+        drawSpectrumCanvas(spectrumBinsSmooth, 0);
+    } else {
+        ensureSpectrumCanvasSize();
+    }
+});
 
 function updateColorPreview(colors) {
     const container = $('#color-preview');

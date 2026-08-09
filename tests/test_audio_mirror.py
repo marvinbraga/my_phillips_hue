@@ -352,12 +352,57 @@ def test_start_already_running_returns_false(mirror: AudioMirror) -> None:
 
 
 def test_get_status_includes_spectrum(mirror: AudioMirror) -> None:
-    mirror._levels = {"bass": 0.5, "mid": 0.3, "treble": 0.1}
+    from marvin_hue.audio_engine import DEFAULT_SPECTRUM_BINS
+
+    bins = [0.1 * (i % 5) for i in range(DEFAULT_SPECTRUM_BINS)]
+    mirror._levels = {
+        "bass": 0.5,
+        "mid": 0.3,
+        "treble": 0.1,
+        "beat": 0.2,
+        "spectrum": bins,
+    }
     status = mirror.get_status()
     assert status["bass"] == 0.5
     assert status["mid"] == 0.3
     assert status["treble"] == 0.1
+    assert status["spectrum"] == bins
+    assert len(status["spectrum"]) == DEFAULT_SPECTRUM_BINS
     assert "colors" in status
+
+
+def test_process_frame_populates_spectrum_in_status(mirror: AudioMirror) -> None:
+    from marvin_hue.audio_engine import DEFAULT_SPECTRUM_BINS
+
+    with patch("marvin_hue.audio_mirror.is_enabled_for_app", return_value=True):
+        sr = 22050
+        t = np.arange(1024) / sr
+        samples = (0.9 * np.sin(2 * np.pi * 100 * t)).astype(np.float32)
+        for _ in range(6):
+            mirror._process_frame(samples, sr)
+    status = mirror.get_status()
+    assert isinstance(status["spectrum"], list)
+    assert len(status["spectrum"]) == DEFAULT_SPECTRUM_BINS
+
+
+def test_positions_cached_not_reread_every_frame(
+    mirror: AudioMirror, positions_file: str
+) -> None:
+    """load_light_positions should not re-open JSON every process_frame."""
+    with (
+        patch("marvin_hue.audio_mirror.is_enabled_for_app", return_value=True),
+        patch("builtins.open", wraps=open) as mock_open,
+    ):
+        # Prime cache
+        mirror.load_light_positions(force_reload=True)
+        opens_after_load = mock_open.call_count
+        sr = 22050
+        t = np.arange(1024) / sr
+        samples = (0.5 * np.sin(2 * np.pi * 120 * t)).astype(np.float32)
+        for _ in range(5):
+            mirror._process_frame(samples, sr)
+        # No additional opens of positions_file during process_frame
+        assert mock_open.call_count == opens_after_load
 
 
 def test_process_frame_applies_colors(mirror: AudioMirror) -> None:

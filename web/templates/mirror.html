@@ -131,71 +131,67 @@
         .monitor-preview .region-center { left: 30%; top: 30%; width: 40%; height: 40%; border-radius: 8px; }
         .monitor-preview .region-ambient { left: 0; top: 0; width: 100%; height: 100%; opacity: 0.3; z-index: -1; }
 
-        .spectrum-bars {
-            display: flex;
-            align-items: flex-end;
-            justify-content: center;
-            gap: 1.75rem;
-            height: 168px;
-            padding: 0.85rem 1rem 0.5rem;
+        .spectrum-panel {
             background: #12121f;
             border-radius: 10px;
+            padding: 0.65rem 0.75rem 0.5rem;
             position: relative;
             overflow: hidden;
+            border: 1px solid transparent;
+            transition: box-shadow 0.08s linear, border-color 0.08s linear;
         }
-        .spectrum-bar-wrap {
+        body.light-theme .spectrum-panel,
+        [data-bs-theme="light"] .spectrum-panel {
+            background: #eef1f7;
+        }
+        .spectrum-panel.beat-hit {
+            border-color: rgba(255, 214, 100, 0.55);
+        }
+        #spectrum-canvas {
+            display: block;
+            width: 100%;
+            height: 168px;
+        }
+        .spectrum-summary {
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            height: 100%;
-            width: 52px;
-            position: relative;
+            gap: 0.75rem;
+            margin-top: 0.45rem;
+            justify-content: space-between;
         }
-        .spectrum-bar-track {
+        .spectrum-summary-meter {
             flex: 1;
-            width: 100%;
-            position: relative;
+            min-width: 0;
+        }
+        .spectrum-summary-label {
             display: flex;
-            align-items: flex-end;
-            background: linear-gradient(to top, rgba(255,255,255,0.04), transparent);
-            border-radius: 6px 6px 0 0;
+            justify-content: space-between;
+            font-size: 0.68rem;
+            color: #aaa;
+            margin-bottom: 0.15rem;
+        }
+        body.light-theme .spectrum-summary-label,
+        [data-bs-theme="light"] .spectrum-summary-label {
+            color: #555;
+        }
+        .spectrum-summary-track {
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255,255,255,0.08);
             overflow: hidden;
         }
-        .spectrum-bar {
-            width: 100%;
-            border-radius: 6px 6px 0 0;
-            min-height: 2px;
-            transition: height 0.045s linear;
-            will-change: height;
+        body.light-theme .spectrum-summary-track,
+        [data-bs-theme="light"] .spectrum-summary-track {
+            background: rgba(0,0,0,0.08);
         }
-        .spectrum-peak {
-            position: absolute;
-            left: 10%;
-            width: 80%;
-            height: 3px;
-            border-radius: 1px;
-            background: #fff;
-            opacity: 0.9;
-            pointer-events: none;
-            transition: bottom 0.05s linear;
-            bottom: 18px;
+        .spectrum-summary-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 3px;
+            transition: width 0.05s linear;
         }
-        .spectrum-bar.bass { background: linear-gradient(to top, #c0392b, #ff7675, #fab1a0); }
-        .spectrum-bar.mid { background: linear-gradient(to top, #6c5ce7, #a29bfe, #dfe6e9); }
-        .spectrum-bar.treble { background: linear-gradient(to top, #0984e3, #00cec9, #81ecec); }
-        .spectrum-bars.beat-hit {
-            border: 1px solid rgba(255, 214, 100, 0.55);
-        }
-        .spectrum-label {
-            font-size: 0.72rem;
-            color: #ccc;
-            margin-top: 0.3rem;
-        }
-        .spectrum-pct {
-            font-size: 0.65rem;
-            color: #888;
-            font-variant-numeric: tabular-nums;
-        }
+        .spectrum-summary-fill.bass { background: linear-gradient(90deg, #c0392b, #ff7675); }
+        .spectrum-summary-fill.mid { background: linear-gradient(90deg, #6c5ce7, #a29bfe); }
+        .spectrum-summary-fill.treble { background: linear-gradient(90deg, #0984e3, #00cec9); }
 
         .transport-badge {
             font-size: 0.85rem;
@@ -290,30 +286,33 @@
 
                     <!-- Spectrum (modo música) -->
                     <div id="audio-preview-wrap" class="d-none">
-                        <div class="spectrum-bars" id="spectrum-bars">
-                            <div class="spectrum-bar-wrap">
-                                <div class="spectrum-bar-track">
-                                    <div class="spectrum-peak" id="peak-bass"></div>
-                                    <div class="spectrum-bar bass" id="bar-bass" style="height: 2%"></div>
+                        <div class="spectrum-panel" id="spectrum-panel">
+                            <canvas id="spectrum-canvas" width="640" height="168" aria-label="Espectro de áudio"></canvas>
+                            <div class="spectrum-summary">
+                                <div class="spectrum-summary-meter">
+                                    <div class="spectrum-summary-label">
+                                        <span>Grave</span><span id="pct-bass">0%</span>
+                                    </div>
+                                    <div class="spectrum-summary-track">
+                                        <div class="spectrum-summary-fill bass" id="bar-bass"></div>
+                                    </div>
                                 </div>
-                                <span class="spectrum-label">Grave</span>
-                                <span class="spectrum-pct" id="pct-bass">0%</span>
-                            </div>
-                            <div class="spectrum-bar-wrap">
-                                <div class="spectrum-bar-track">
-                                    <div class="spectrum-peak" id="peak-mid"></div>
-                                    <div class="spectrum-bar mid" id="bar-mid" style="height: 2%"></div>
+                                <div class="spectrum-summary-meter">
+                                    <div class="spectrum-summary-label">
+                                        <span>Médio</span><span id="pct-mid">0%</span>
+                                    </div>
+                                    <div class="spectrum-summary-track">
+                                        <div class="spectrum-summary-fill mid" id="bar-mid"></div>
+                                    </div>
                                 </div>
-                                <span class="spectrum-label">Médio</span>
-                                <span class="spectrum-pct" id="pct-mid">0%</span>
-                            </div>
-                            <div class="spectrum-bar-wrap">
-                                <div class="spectrum-bar-track">
-                                    <div class="spectrum-peak" id="peak-treble"></div>
-                                    <div class="spectrum-bar treble" id="bar-treble" style="height: 2%"></div>
+                                <div class="spectrum-summary-meter">
+                                    <div class="spectrum-summary-label">
+                                        <span>Agudo</span><span id="pct-treble">0%</span>
+                                    </div>
+                                    <div class="spectrum-summary-track">
+                                        <div class="spectrum-summary-fill treble" id="bar-treble"></div>
+                                    </div>
                                 </div>
-                                <span class="spectrum-label">Agudo</span>
-                                <span class="spectrum-pct" id="pct-treble">0%</span>
                             </div>
                         </div>
                         <p class="text-muted small mt-2 mb-0 text-center">
@@ -517,6 +516,6 @@
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-<script src="/static/mirror.js"></script>
+<script src="/static/mirror.js?v=spectrum-2"></script>
 </body>
 </html>

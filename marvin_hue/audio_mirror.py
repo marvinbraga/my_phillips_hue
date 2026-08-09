@@ -18,6 +18,7 @@ from typing import Any, Callable
 import numpy as np
 
 from marvin_hue.audio_engine import (
+    DEFAULT_SPECTRUM_BINS,
     AnalyzerConfig,
     AudioAnalyzer,
     density_to_level,
@@ -550,11 +551,12 @@ class AudioMirror:
         self._on_status_change: Callable[[dict[str, Any]], None] | None = None
         self._current_colors: dict[str, tuple[int, int, int]] = {}
         self._smoothed_colors: dict[str, tuple[int, int, int]] = {}
-        self._levels: dict[str, float] = {
+        self._levels: dict[str, float | list[float]] = {
             "bass": 0.0,
             "mid": 0.0,
             "treble": 0.0,
             "beat": 0.0,
+            "spectrum": [0.0] * DEFAULT_SPECTRUM_BINS,
         }
         self._smoothed_levels: dict[str, float] = {
             "bass": 0.0,
@@ -579,6 +581,8 @@ class AudioMirror:
         )
         self._last_beat: float = 0.0
         self._session_started = False
+        # Cached light positions — loaded on start / explicit reload; not every frame
+        self._cached_positions: list[dict[str, Any]] | None = None
 
     def set_output_port(self, port: LightOutputPort) -> None:
         """Replace output transport (call before start, or when idle)."""
@@ -610,12 +614,16 @@ class AudioMirror:
         self._sync_analyzer_config()
         logger.info(f"Applied audio mirror profile '{name}': {profile}")
 
-    def load_light_positions(self) -> list[dict[str, Any]]:
+    def load_light_positions(self, *, force_reload: bool = False) -> list[dict[str, Any]]:
         """
         Carrega lâmpadas ativas para o espelhamento de áudio.
 
         position ``none`` participa como ``ambient`` (full entertainment mix).
+        Result is cached after the first successful load; pass ``force_reload=True``
+        (or call :meth:`reload_light_positions`) to re-read the JSON file.
         """
+        if self._cached_positions is not None and not force_reload:
+            return self._cached_positions
         try:
             with open(self.positions_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -632,21 +640,31 @@ class AudioMirror:
                         entry["position"] = "ambient"
                     lights.append(entry)
                 logger.debug(f"Audio mirror: {len(lights)} active lights")
+                self._cached_positions = lights
                 return lights
         except FileNotFoundError:
             logger.warning(f"Positions file not found: {self.positions_file}")
+            self._cached_positions = []
             return []
         except json.JSONDecodeError as e:
             logger.exception(f"Error parsing positions file: {e}")
+            self._cached_positions = []
             return []
+
+    def reload_light_positions(self) -> list[dict[str, Any]]:
+        """Invalidate cache and reload positions from disk."""
+        self._cached_positions = None
+        return self.load_light_positions(force_reload=True)
 
     def _interpolate_color(
         self, current: tuple[int, int, int], target: tuple[int, int, int]
     ) -> tuple[int, int, int]:
         factor = self.smoothing_factor
-        # On strong beats, snap faster toward target
-        if self._last_beat > 0.45:
-            factor = min(1.0, factor + 0.25 * self._last_beat)
+        # On beat, temporarily reduce RGB smoothing so onsets punch through
+        if self._last_beat > 0.30:
+            # higher factor → closer to target (less lag)
+            boost = 0.22 + 0.45 * self._last_beat
+            factor = min(1.0, factor + boost)
         return (
             int(current[0] + (target[0] - current[0]) * factor),
             int(current[1] + (target[1] - current[1]) * factor),
@@ -750,15 +768,17 @@ class AudioMirror:
         frame = self._analyzer.process(samples)
         beat = float(frame.beat)
         self._last_beat = beat
-        # UI spectrum: reactive meters from analyzer (no second smoothing pass)
+        # UI spectrum: reactive meters + multi-bar log spectrum from analyzer
+        spectrum = list(frame.spectrum) if frame.spectrum else [0.0] * DEFAULT_SPECTRUM_BINS
         self._levels = {
             "bass": float(frame.bass),
             "mid": float(frame.mid),
             "treble": float(frame.treble),
             "beat": beat,
+            "spectrum": spectrum,
         }
 
-        lights = self.load_light_positions()
+        lights = self.load_light_positions()  # cached; no JSON I/O per frame
         frame_colors: list[LightFrameColor] = []
         # Entertainment transport needs full-frame updates every tick even if
         # change-detection would skip a light; REST can still skip unchanged.
@@ -928,6 +948,8 @@ class AudioMirror:
         self._peak_tracker = PeakTracker()
         self._analyzer.reset()
         self._sync_analyzer_config()
+        # Warm positions cache once at start (avoid per-frame JSON open)
+        self.reload_light_positions()
 
         try:
             sample_rate, channels, block = resolve_input_stream_params(device)
@@ -986,11 +1008,18 @@ class AudioMirror:
             self._session_started = False
         self._current_colors.clear()
         self._smoothed_colors.clear()
-        self._levels = {"bass": 0.0, "mid": 0.0, "treble": 0.0, "beat": 0.0}
+        self._levels = {
+            "bass": 0.0,
+            "mid": 0.0,
+            "treble": 0.0,
+            "beat": 0.0,
+            "spectrum": [0.0] * DEFAULT_SPECTRUM_BINS,
+        }
         self._smoothed_levels = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
         self._last_beat = 0.0
         self._device_index = None
         self._pulse_source = None
+        self._cached_positions = None
         self._analyzer.reset()
         logger.info("Audio mirroring stopped successfully")
         return True
@@ -999,7 +1028,10 @@ class AudioMirror:
         return self.running
 
     def get_status(self) -> dict[str, Any]:
-        """Status com levels de espectro (bass/mid/treble/beat 0–1) e cores."""
+        """Status com levels de espectro (bass/mid/treble/beat + spectrum[]) e cores."""
+        spectrum = self._levels.get("spectrum", [])
+        if not isinstance(spectrum, list):
+            spectrum = []
         return {
             "running": self.running,
             "mode": "audio",
@@ -1016,10 +1048,11 @@ class AudioMirror:
             "channels": self._channels,
             "device_index": self._device_index,
             "pulse_source": self._pulse_source,
-            "bass": self._levels.get("bass", 0.0),
-            "mid": self._levels.get("mid", 0.0),
-            "treble": self._levels.get("treble", 0.0),
-            "beat": self._levels.get("beat", 0.0),
+            "bass": float(self._levels.get("bass", 0.0) or 0.0),  # type: ignore[arg-type]
+            "mid": float(self._levels.get("mid", 0.0) or 0.0),  # type: ignore[arg-type]
+            "treble": float(self._levels.get("treble", 0.0) or 0.0),  # type: ignore[arg-type]
+            "beat": float(self._levels.get("beat", 0.0) or 0.0),  # type: ignore[arg-type]
+            "spectrum": list(spectrum),
             "transport": self._output.transport,
             "entertainment_area_id": self.entertainment_area_id,
             "entertainment_enabled": self.entertainment_enabled,

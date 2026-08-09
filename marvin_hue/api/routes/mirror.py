@@ -105,6 +105,11 @@ def _unified_status(screen: ScreenMirror, audio: AudioMirror) -> dict[str, Any]:
         if not isinstance(status, dict):
             status = {"running": bool(audio.is_running())}
         status["mode"] = "audio"
+        status.setdefault("bass", 0.0)
+        status.setdefault("mid", 0.0)
+        status.setdefault("treble", 0.0)
+        status.setdefault("beat", 0.0)
+        status.setdefault("spectrum", [])
         status.setdefault("entertainment_enabled", bool(settings.entertainment_enabled))
         status["entertainment_ready"] = ready
         status.setdefault("transport", _safe_transport(audio))
@@ -119,6 +124,8 @@ def _unified_status(screen: ScreenMirror, audio: AudioMirror) -> dict[str, Any]:
     status.setdefault("bass", 0.0)
     status.setdefault("mid", 0.0)
     status.setdefault("treble", 0.0)
+    status.setdefault("beat", 0.0)
+    status.setdefault("spectrum", [])  # empty when not in audio mode
     status.setdefault("transport", _safe_transport(screen))
     status.setdefault("entertainment_enabled", bool(settings.entertainment_enabled))
     status["entertainment_ready"] = ready
@@ -240,6 +247,59 @@ async def _ensure_entertainment_started(
         return RestPhueAdapter(hue, transition_time=transition_time)
 
 
+async def prepare_audio_output_port(
+    audio_mirror: AudioMirror,
+    hue: HueController,
+    ent_client: EntertainmentClient | None,
+    *,
+    transport_preference: str | None = None,
+    area_id: str | None = None,
+) -> Any:
+    """
+    Shared HTTP/WS helper: build + pre-start Entertainment (or REST) and attach
+    the port to ``audio_mirror``. Returns the resolved port.
+    """
+    transport_pref = (
+        transport_preference
+        or _pending_transport_preference
+        or "auto"
+    )
+    resolved_area_in = area_id or _pending_area_id or settings.entertainment_area_id
+    load_pos = getattr(audio_mirror, "load_light_positions", None)
+    lights = load_pos() if callable(load_pos) else []
+    if not isinstance(lights, list):
+        lights = []
+    tt = getattr(audio_mirror, "transition_time", 0) or 0
+    try:
+        transition_time = int(round(float(tt)))
+    except (TypeError, ValueError):
+        transition_time = 0
+    port, resolved_area, _mapped = await _build_port_for_mirror(
+        hue,
+        ent_client,
+        lights=lights,
+        area_id=resolved_area_in,
+        transport_preference=transport_pref,
+        transition_time=transition_time,
+    )
+    port = await _ensure_entertainment_started(
+        port,
+        ent_client,
+        resolved_area,
+        hue,
+        transition_time=transition_time,
+    )
+    set_port = getattr(audio_mirror, "set_output_port", None)
+    if callable(set_port):
+        set_port(port)
+    try:
+        audio_mirror.entertainment_enabled = settings.entertainment_enabled
+        audio_mirror.entertainment_area_id = resolved_area
+    except Exception:
+        pass
+    return port
+
+
 @router.get("/mirror", response_class=HTMLResponse)
 async def mirror_page(request: Request):
     """Página de espelhamento (tela e música)."""
@@ -285,39 +345,13 @@ async def start_mirror(
             )
         _stop_if_running(screen_mirror)
         try:
-            load_pos = getattr(audio_mirror, "load_light_positions", None)
-            lights = load_pos() if callable(load_pos) else []
-            if not isinstance(lights, list):
-                lights = []
-            tt = getattr(audio_mirror, "transition_time", 0) or 0
-            try:
-                transition_time = int(round(float(tt)))
-            except (TypeError, ValueError):
-                transition_time = 0
-            port, resolved_area, _mapped = await _build_port_for_mirror(
+            port = await prepare_audio_output_port(
+                audio_mirror,
                 hue,
                 ent_client,
-                lights=lights,
-                area_id=area_id,
                 transport_preference=transport_pref,
-                transition_time=transition_time,
+                area_id=area_id,
             )
-            # Pre-start DTLS from this async handler (avoids run_coro deadlock).
-            port = await _ensure_entertainment_started(
-                port,
-                ent_client,
-                resolved_area,
-                hue,
-                transition_time=transition_time,
-            )
-            set_port = getattr(audio_mirror, "set_output_port", None)
-            if callable(set_port):
-                set_port(port)
-            try:
-                audio_mirror.entertainment_enabled = settings.entertainment_enabled
-                audio_mirror.entertainment_area_id = resolved_area
-            except Exception:
-                pass
 
             fps = request.fps
             if (

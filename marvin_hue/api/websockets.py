@@ -11,9 +11,11 @@ from marvin_hue.api.dependencies import (
     get_audio_mirror,
     get_chat_agent,
     get_chat_unavailable_reason,
+    get_entertainment_client,
+    get_hue_controller,
     get_screen_mirror,
 )
-from marvin_hue.api.routes.mirror import _unified_status
+from marvin_hue.api.routes.mirror import _unified_status, prepare_audio_output_port
 from marvin_hue.logging_config import get_logger
 
 logger = get_logger("websockets")
@@ -106,6 +108,18 @@ def setup_websockets(app: FastAPI) -> None:
                             if screen_mirror.is_running():
                                 screen_mirror.stop()
                             try:
+                                # Mirror HTTP /mirror/start wiring for Entertainment
+                                hue = get_hue_controller()
+                                ent_client = get_entertainment_client()
+                                try:
+                                    await prepare_audio_output_port(
+                                        audio_mirror, hue, ent_client
+                                    )
+                                except Exception as prep_exc:
+                                    logger.warning(
+                                        f"WS audio Entertainment prep failed "
+                                        f"(continuing with current port): {prep_exc}"
+                                    )
                                 audio_mirror.start(
                                     fps=fps,
                                     brightness=brightness,

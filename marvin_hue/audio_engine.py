@@ -2,8 +2,8 @@
 Motor de análise de áudio estilo Hue Entertainment.
 
 Análise pura (sem dependências Hue): ring buffer, multi-band density,
-envelope followers, onset/beat (spectral flux), centroid, stereo bias
-e mapeamento de cor entertainment (HSV → RGB).
+envelope followers, AutoScaler, log-spaced FFT spectrum (UI), onset/beat
+(spectral flux), centroid, stereo bias e mapeamento de cor entertainment.
 """
 
 from __future__ import annotations
@@ -21,6 +21,11 @@ import numpy as np
 DEFAULT_BUFFER_SIZE = 4096
 DEFAULT_HOP_SIZE = 1024
 
+# UI log-spaced spectrum (audioMotion-like bars fed by server)
+DEFAULT_SPECTRUM_BINS = 48
+DEFAULT_SPECTRUM_FMIN_HZ = 30.0
+DEFAULT_SPECTRUM_FMAX_HZ = 16_000.0
+
 # Multi-band edges (Hz)
 BAND_EDGES: dict[str, tuple[float, float]] = {
     "sub": (20.0, 60.0),
@@ -32,7 +37,7 @@ BAND_EDGES: dict[str, tuple[float, float]] = {
     "presence": (6000.0, 12000.0),
 }
 
-# Aggregate for UI bars
+# Aggregate for UI bars / light path
 UI_BAND_PARTS: dict[str, tuple[str, ...]] = {
     "bass": ("sub", "bass"),
     "mid": ("lowmid", "mid", "highmid"),
@@ -48,6 +53,9 @@ _CEILING_DB = 6.0
 # Spectral centroid normalization (Hz)
 _CENTROID_MIN_HZ = 120.0
 _CENTROID_MAX_HZ = 5500.0
+
+# Beat refractory (frames) after an onset fires
+_BEAT_REFRACTORY_FRAMES = 5
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +194,7 @@ def entertainment_color(
 
 
 # ---------------------------------------------------------------------------
-# Envelope + analysis frame
+# Envelope + AutoScaler + log spectrum
 # ---------------------------------------------------------------------------
 
 
@@ -215,6 +223,137 @@ class EnvelopeFollower:
         self.value = 0.0
 
 
+class AutoScaler:
+    """
+    Peak-follower auto-gain with soft gate and soft compression.
+
+    Maps raw levels into a lively ~[0, 1] range for UI and light envelopes.
+    ``strength`` blends raw vs scaled (0 = raw only, 1 = fully scaled).
+    """
+
+    def __init__(
+        self,
+        *,
+        strength: float = 0.80,
+        attack: float = 0.40,
+        release: float = 0.018,
+        floor: float = 0.025,
+        gate: float = 0.02,
+        min_peak: float = 0.08,
+        max_peak: float = 1.5,
+    ) -> None:
+        self.strength = max(0.0, min(1.0, float(strength)))
+        self.attack = max(0.01, min(1.0, float(attack)))
+        self.release = max(0.001, min(1.0, float(release)))
+        self.floor = max(0.0, float(floor))
+        self.gate = max(0.0, float(gate))
+        self.min_peak = max(1e-4, float(min_peak))
+        self.max_peak = max(self.min_peak, float(max_peak))
+        self.peak: float = self.min_peak
+
+    def process(self, x: float) -> float:
+        raw = max(0.0, float(x))
+        # Peak follower: fast attack / slow release
+        if raw > self.peak:
+            self.peak += (raw - self.peak) * self.attack
+        else:
+            self.peak += (raw - self.peak) * self.release
+        self.peak = max(self.min_peak, min(self.max_peak, self.peak))
+
+        # Soft noise gate / floor
+        if raw < self.gate:
+            gated = 0.0
+        else:
+            gated = max(0.0, raw - self.floor)
+
+        # Normalize by adaptive peak, soft-compress with tanh
+        norm = gated / max(self.peak, 1e-9)
+        compressed = math.tanh(norm * 1.35)
+        scaled = max(0.0, min(1.0, compressed))
+
+        # Blend raw (clamped) vs scaled
+        raw_c = max(0.0, min(1.0, raw))
+        out = (1.0 - self.strength) * raw_c + self.strength * scaled
+        return max(0.0, min(1.0, out))
+
+    def decay(self, factor: float = 0.92) -> float:
+        """Decay peak and return a near-zero scaled silence sample."""
+        self.peak = max(self.min_peak, self.peak * float(factor))
+        return self.process(0.0)
+
+    def reset(self) -> None:
+        self.peak = self.min_peak
+
+
+class LogSpectrumBank:
+    """
+    Log-spaced FFT bin aggregator for UI spectrum bars.
+
+    Built once from sample rate / FFT size; rebuild when SR changes.
+    """
+
+    def __init__(
+        self,
+        sample_rate: int,
+        fft_size: int,
+        n_bins: int = DEFAULT_SPECTRUM_BINS,
+        f_min: float = DEFAULT_SPECTRUM_FMIN_HZ,
+        f_max: float = DEFAULT_SPECTRUM_FMAX_HZ,
+    ) -> None:
+        self.sample_rate = int(sample_rate)
+        self.fft_size = int(fft_size)
+        self.n_bins = max(8, int(n_bins))
+        self.f_min = float(f_min)
+        self.f_max = float(f_max)
+        self._bin_ranges: list[tuple[int, int]] = []
+        self._build()
+
+    def _build(self) -> None:
+        sr = max(1, self.sample_rate)
+        n_fft = max(16, self.fft_size)
+        n_rfft = n_fft // 2 + 1
+        nyq = sr / 2.0
+        f_hi = min(self.f_max, nyq * 0.98)
+        f_lo = max(1.0, min(self.f_min, f_hi * 0.5))
+        # Log edges: n_bins+1 boundaries
+        edges = np.geomspace(f_lo, f_hi, self.n_bins + 1)
+        # Map Hz → rFFT index
+        freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+        ranges: list[tuple[int, int]] = []
+        for i in range(self.n_bins):
+            lo_hz = float(edges[i])
+            hi_hz = float(edges[i + 1])
+            # inclusive start, exclusive end (last bin inclusive end)
+            start = int(np.searchsorted(freqs, lo_hz, side="left"))
+            end = int(np.searchsorted(freqs, hi_hz, side="left"))
+            start = max(0, min(n_rfft - 1, start))
+            end = max(start + 1, min(n_rfft, end))
+            ranges.append((start, end))
+        self._bin_ranges = ranges
+
+    def rebuild_if_needed(self, sample_rate: int, fft_size: int) -> None:
+        if int(sample_rate) != self.sample_rate or int(fft_size) != self.fft_size:
+            self.sample_rate = int(sample_rate)
+            self.fft_size = int(fft_size)
+            self._build()
+
+    def map_power(self, power_spec: np.ndarray, *, mode: str = "sum") -> np.ndarray:
+        """Aggregate linear FFT power into log bins (length n_bins)."""
+        out = np.zeros(self.n_bins, dtype=np.float64)
+        n = int(power_spec.size)
+        for i, (start, end) in enumerate(self._bin_ranges):
+            s = min(start, n)
+            e = min(end, n)
+            if e <= s:
+                continue
+            chunk = power_spec[s:e]
+            if mode == "max":
+                out[i] = float(np.max(chunk))
+            else:
+                out[i] = float(np.sum(chunk))
+        return out
+
+
 @dataclass
 class AnalysisFrame:
     """One analysis hop result (UI-friendly + entertainment fields)."""
@@ -227,6 +366,7 @@ class AnalysisFrame:
     stereo_bias: float = 0.0
     rms: float = 0.0
     bands: dict[str, float] = field(default_factory=dict)
+    spectrum: list[float] = field(default_factory=list)
 
     def color_for_position(
         self,
@@ -267,6 +407,8 @@ class AnalyzerConfig:
     beat_decay: float = 0.88
     hue_speed: float = 1.0
     energy_gain: float = 1.0
+    spectrum_bins: int = DEFAULT_SPECTRUM_BINS
+    auto_scale_strength: float = 0.80
     # Per-band attack/release overrides (optional)
     band_attack: Mapping[str, float] | None = None
     band_release: Mapping[str, float] | None = None
@@ -274,7 +416,8 @@ class AnalyzerConfig:
 
 class AudioAnalyzer:
     """
-    Stateful multi-band analyzer with ring buffer, envelopes, and beat pulse.
+    Stateful multi-band analyzer with ring buffer, envelopes, AutoScaler,
+    log spectrum, and beat pulse.
 
     Call ``process(block)`` with mono (N,) or stereo (N, 2) float samples.
     Returns an ``AnalysisFrame`` every call (uses latest filled ring buffer).
@@ -312,21 +455,42 @@ class AudioAnalyzer:
                 rel = max(0.03, rel * 0.85)
             self._envs[name] = EnvelopeFollower(attack=att, release=rel)
 
+        # Auto-scalers for light envelopes (UI aggregates) and spectrum bins
+        strength = float(self.config.auto_scale_strength)
+        self._env_scalers: dict[str, AutoScaler] = {
+            "bass": AutoScaler(strength=strength, attack=0.45, release=0.02),
+            "mid": AutoScaler(strength=strength, attack=0.40, release=0.018),
+            "treble": AutoScaler(strength=strength, attack=0.38, release=0.015),
+        }
+
+        self._n_spec = max(8, int(self.config.spectrum_bins))
+        self._log_bank = LogSpectrumBank(
+            self.sample_rate, self._buf_size, n_bins=self._n_spec
+        )
+        # Per-bin envelope followers (liveliness) + global peak for relative shape
+        self._spec_envs: list[EnvelopeFollower] = [
+            EnvelopeFollower(attack=0.55, release=0.14) for _ in range(self._n_spec)
+        ]
+        self._spec_global_peak: float = 0.12
+        self._spectrum: list[float] = [0.0] * self._n_spec
+        self._spec_hold: list[float] = [0.0] * self._n_spec
+
         self._prev_mag: np.ndarray | None = None
         self._flux_ema: float = 0.0
         self._flux_var: float = 1e-6
         self._beat_env: float = 0.0
+        self._beat_refractory: int = 0
         self._phase: float = 0.0
         self._frame_count: int = 0
         self._window = np.hanning(n)
-        # UI spectrum: auto-range ceiling + peak-hold (separate from light envelopes)
+        # UI spectrum coarse meters: auto-range ceiling + peak-hold
         self._ui_ceiling: dict[str, float] = {
             "bass": 0.18,
             "mid": 0.18,
             "treble": 0.18,
         }
         self._ui_hold: dict[str, float] = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
-        # Last envelope aggregates (for smooth light colors)
+        # Last auto-scaled envelope aggregates (for smooth light colors)
         self._env_ui: dict[str, float] = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
 
     def reset(self) -> None:
@@ -339,10 +503,18 @@ class AudioAnalyzer:
         self._flux_ema = 0.0
         self._flux_var = 1e-6
         self._beat_env = 0.0
+        self._beat_refractory = 0
         self._phase = 0.0
         self._frame_count = 0
         for env in self._envs.values():
             env.reset()
+        for sc in self._env_scalers.values():
+            sc.reset()
+        for env in self._spec_envs:
+            env.reset()
+        self._spec_global_peak = 0.12
+        self._spectrum = [0.0] * self._n_spec
+        self._spec_hold = [0.0] * self._n_spec
         self._ui_ceiling = {"bass": 0.18, "mid": 0.18, "treble": 0.18}
         self._ui_hold = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
         self._env_ui = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
@@ -363,10 +535,32 @@ class AudioAnalyzer:
                     rel = max(0.03, rel * 0.85)
                 env.attack = max(0.01, min(1.0, att))
                 env.release = max(0.005, min(1.0, rel))
+        if "auto_scale_strength" in kwargs:
+            strength = float(self.config.auto_scale_strength)
+            for sc in self._env_scalers.values():
+                sc.strength = max(0.0, min(1.0, strength))
+        if "spectrum_bins" in kwargs:
+            self._resize_spectrum(int(self.config.spectrum_bins))
+
+    def _resize_spectrum(self, n_bins: int) -> None:
+        n_bins = max(8, int(n_bins))
+        if n_bins == self._n_spec:
+            return
+        self._n_spec = n_bins
+        self._log_bank = LogSpectrumBank(
+            self.sample_rate, self._buf_size, n_bins=self._n_spec
+        )
+        self._spec_envs = [
+            EnvelopeFollower(attack=0.55, release=0.14) for _ in range(self._n_spec)
+        ]
+        self._spec_global_peak = 0.12
+        self._spectrum = [0.0] * self._n_spec
+        self._spec_hold = [0.0] * self._n_spec
 
     def set_sample_rate(self, sample_rate: int) -> None:
         if int(sample_rate) != self.sample_rate:
             self.sample_rate = int(sample_rate)
+            self._log_bank.rebuild_if_needed(self.sample_rate, self._buf_size)
 
     def _push(self, mono: np.ndarray, left: np.ndarray | None, right: np.ndarray | None) -> None:
         n = mono.size
@@ -445,7 +639,7 @@ class AudioAnalyzer:
         return max(0.0, min(1.0, (math.log(hz_c) - lo) / (hi - lo)))
 
     def _update_beat(self, mag: np.ndarray) -> float:
-        """Spectral flux onset → beat pulse 0..1 with decay envelope."""
+        """Spectral flux onset → beat pulse 0..1 with decay + refractory."""
         if self._prev_mag is None or self._prev_mag.shape != mag.shape:
             self._prev_mag = mag.copy()
             self._beat_env *= float(self.config.beat_decay)
@@ -463,18 +657,95 @@ class AudioAnalyzer:
         std = math.sqrt(max(self._flux_var, 1e-12))
         sens = max(0.3, min(2.5, float(self.config.beat_sensitivity)))
         # Higher sensitivity → lower threshold
-        thresh = self._flux_ema + (1.6 / sens) * std
+        thresh = self._flux_ema + (1.55 / sens) * std
         onset = 0.0
         if flux > thresh and flux > 1e-8:
-            onset = min(1.0, (flux - thresh) / (thresh + 1e-9) * 0.5 * sens)
+            onset = min(1.0, (flux - thresh) / (thresh + 1e-9) * 0.55 * sens)
             onset = max(0.0, min(1.0, onset))
 
         decay = max(0.5, min(0.98, float(self.config.beat_decay)))
-        if onset > self._beat_env:
-            self._beat_env = min(1.0, 0.35 * self._beat_env + 0.85 * onset)
+        # Refractory: suppress double-triggers right after an onset
+        if self._beat_refractory > 0:
+            self._beat_refractory -= 1
+            self._beat_env *= decay
+            # Still allow a stronger late peak to punch through slightly
+            if onset > self._beat_env * 1.4:
+                self._beat_env = min(1.0, 0.55 * self._beat_env + 0.55 * onset)
+                self._beat_refractory = _BEAT_REFRACTORY_FRAMES
+        elif onset > self._beat_env:
+            # Snappier attack on beat envelope
+            self._beat_env = min(1.0, 0.18 * self._beat_env + 0.92 * onset)
+            self._beat_refractory = _BEAT_REFRACTORY_FRAMES
         else:
             self._beat_env *= decay
         return max(0.0, min(1.0, self._beat_env))
+
+    def _update_spectrum(self, power_spec: np.ndarray) -> list[float]:
+        """
+        Map FFT power → log bins, global auto-gain + per-bin envelope/hold.
+
+        Global peak preserves relative spectral shape (bass-heavy stays low-bin
+        dominant); per-bin envelope + hold keeps bars lively like AutoScaler.
+        """
+        self._log_bank.rebuild_if_needed(self.sample_rate, self._buf_size)
+        raw_bins = self._log_bank.map_power(power_spec, mode="sum")
+        # Mild high-frequency pre-emphasis (musical; not enough to invert pure bass)
+        n = raw_bins.size
+        if n > 1:
+            boost = 1.0 + 0.85 * (np.arange(n, dtype=np.float64) / (n - 1))
+            raw_bins = raw_bins * boost
+
+        strength = max(0.0, min(1.0, float(self.config.auto_scale_strength)))
+        levels = np.zeros(self._n_spec, dtype=np.float64)
+        for i in range(self._n_spec):
+            lin = float(raw_bins[i]) if i < raw_bins.size else 0.0
+            levels[i] = float(np.log1p(max(0.0, lin) * 1.2e4))
+
+        frame_max = float(np.max(levels)) if levels.size else 0.0
+        # Peak follower for auto-normalize (fast attack / slow release)
+        if frame_max > self._spec_global_peak:
+            self._spec_global_peak += (frame_max - self._spec_global_peak) * 0.45
+        else:
+            self._spec_global_peak += (frame_max - self._spec_global_peak) * 0.02
+        self._spec_global_peak = max(0.08, min(50.0, self._spec_global_peak))
+
+        display: list[float] = []
+        for i in range(self._n_spec):
+            raw_n = levels[i] / max(self._spec_global_peak, 1e-9)
+            # Soft gate / floor
+            if raw_n < 0.03:
+                gated = 0.0
+            else:
+                gated = max(0.0, raw_n - 0.02)
+            compressed = math.tanh(gated * 1.45)
+            # Blend absolute-ish (frame-local) with global-scaled
+            local = levels[i] / max(frame_max, 1e-9) if frame_max > 1e-9 else 0.0
+            local = max(0.0, min(1.0, local))
+            blended = (1.0 - strength) * local + strength * compressed
+            scaled = self._spec_envs[i].process(blended)
+            hold = self._spec_hold[i]
+            if scaled >= hold:
+                hold = scaled
+            else:
+                hold = hold * 0.90
+            self._spec_hold[i] = hold
+            bar = max(0.0, min(1.0, 0.82 * scaled + 0.18 * hold))
+            display.append(bar)
+        self._spectrum = display
+        return display
+
+    def _decay_spectrum(self) -> list[float]:
+        """Graceful spectrum + envelope decay on silence."""
+        self._spec_global_peak = max(0.08, self._spec_global_peak * 0.94)
+        out: list[float] = []
+        for i in range(self._n_spec):
+            self._spec_envs[i].process(0.0)
+            self._spec_hold[i] *= 0.88
+            v = self._spectrum[i] * 0.88 if i < len(self._spectrum) else 0.0
+            v = max(0.0, min(1.0, 0.7 * v + 0.3 * self._spec_hold[i]))
+            out.append(v)
+        self._spectrum = out
+        return out
 
     def process(self, block: np.ndarray) -> AnalysisFrame:
         """
@@ -499,21 +770,25 @@ class AudioAnalyzer:
             self._stereo = False
 
         if mono.size == 0:
-            return AnalysisFrame()
+            return AnalysisFrame(spectrum=[0.0] * self._n_spec)
 
         self._push(mono, left, right)
         buf = self._ordered_buffer()
         rms = float(np.sqrt(np.mean(buf * buf) + 1e-20))
 
-        # Silence short-circuit (still decay envelopes / beat)
+        # Silence short-circuit (still decay envelopes / beat / spectrum)
         if rms < 1e-5:
             for env in self._envs.values():
                 env.process(0.0)
+            for key, sc in self._env_scalers.items():
+                self._env_ui[key] = sc.decay(0.96)
             self._beat_env *= float(self.config.beat_decay)
+            if self._beat_refractory > 0:
+                self._beat_refractory -= 1
             for k in self._ui_hold:
                 self._ui_hold[k] *= 0.9
                 self._ui_ceiling[k] = max(0.12, self._ui_ceiling[k] * 0.99)
-            self._env_ui = {"bass": 0.0, "mid": 0.0, "treble": 0.0}
+            spectrum = self._decay_spectrum()
             self._frame_count += 1
             return AnalysisFrame(
                 bass=self._ui_hold["bass"] * 0.5,
@@ -524,15 +799,16 @@ class AudioAnalyzer:
                 stereo_bias=0.0,
                 rms=rms,
                 bands={k: 0.0 for k in BAND_EDGES},
+                spectrum=list(spectrum),
             )
 
         windowed = buf * self._window
-        spectrum = np.fft.rfft(windowed)
-        mag = np.abs(spectrum)
+        spectrum_c = np.fft.rfft(windowed)
+        mag = np.abs(spectrum_c)
         power_spec = (mag ** 2) / max(self._buf_size, 1)
         freqs = np.fft.rfftfreq(self._buf_size, d=1.0 / self.sample_rate)
 
-        # Mild pre-emphasis so treble is visible on bass-heavy tracks
+        # Mild pre-emphasis so treble is visible on bass-heavy tracks (UI meters)
         if mag.size > 4:
             n_bins = mag.size
             pre = 1.0 + 1.8 * (np.arange(n_bins, dtype=np.float64) / max(n_bins - 1, 1))
@@ -559,14 +835,16 @@ class AudioAnalyzer:
         def _agg_max_d(parts: tuple[str, ...], src: dict[str, float]) -> float:
             return float(max(max(0.0, src[p]) for p in parts))
 
-        env_bass = _agg_mean(UI_BAND_PARTS["bass"], env_levels)
-        env_mid = _agg_mean(UI_BAND_PARTS["mid"], env_levels)
-        env_treble = _agg_mean(UI_BAND_PARTS["treble"], env_levels)
+        # Absolute envelope aggregates → AutoScaler for light path
+        env_bass_raw = _agg_mean(UI_BAND_PARTS["bass"], env_levels)
+        env_mid_raw = _agg_mean(UI_BAND_PARTS["mid"], env_levels)
+        env_treble_raw = _agg_mean(UI_BAND_PARTS["treble"], env_levels)
+        env_bass = self._env_scalers["bass"].process(env_bass_raw)
+        env_mid = self._env_scalers["mid"].process(env_mid_raw)
+        env_treble = self._env_scalers["treble"].process(env_treble_raw)
         self._env_ui = {"bass": env_bass, "mid": env_mid, "treble": env_treble}
 
         # --- UI meters: relative spectral balance × overall loudness ---
-        # Use MAX density per group (not sum) so mid's 3 sub-bands don't dominate.
-        # Log-scale equalizes decades of energy difference between bass and treble.
         def _log_p(x: float, boost: float = 1.0) -> float:
             return float(np.log1p(max(0.0, x) * boost * 5e4))
 
@@ -576,7 +854,6 @@ class AudioAnalyzer:
         p_tot = p_b + p_m + p_t
 
         # Overall loudness from time-domain RMS (0..1), snappy
-        # rms ~0.01 quiet, ~0.04 moderate, ~0.1 loud on Pulse monitor
         loud_lin = min(1.0, float(np.sqrt(max(rms, 0.0) / 0.05)))
         loud_lin = loud_lin ** 0.75
         loud_lin = min(1.0, loud_lin * (0.85 + 0.25 * sens))
@@ -586,7 +863,6 @@ class AudioAnalyzer:
         share_t = p_t / p_tot
 
         def _meter(share: float, weight: float = 1.0) -> float:
-            # equal share (~0.33) → strong bar when loud; unequal shares spread bars
             shaped = (share * 2.5 * weight) ** 0.7
             return max(0.0, min(1.0, shaped * max(loud_lin, 0.08)))
 
@@ -598,7 +874,6 @@ class AudioAnalyzer:
 
         display: dict[str, float] = {}
         for key, instant in inst.items():
-            # Fast peak-hold for the tip
             hold = self._ui_hold[key]
             if instant >= hold:
                 hold = instant
@@ -611,6 +886,9 @@ class AudioAnalyzer:
         bass = display["bass"]
         mid = display["mid"]
         treble = display["treble"]
+
+        # Multi-bar log spectrum (UI)
+        spectrum = self._update_spectrum(power_spec)
 
         centroid = self._spectral_centroid(mag, freqs)
         beat = self._update_beat(mag)
@@ -633,7 +911,7 @@ class AudioAnalyzer:
             stereo_bias = (rms_r - rms_l) / (rms_r + rms_l + 1e-9)
             stereo_bias = max(-1.0, min(1.0, stereo_bias))
 
-        # Advance slow hue phase from envelope energy (stable lights)
+        # Advance slow hue phase from auto-scaled envelope energy
         energy = 0.4 * env_bass + 0.35 * env_mid + 0.25 * env_treble
         self._phase = (
             self._phase + 0.008 * float(self.config.hue_speed) * (0.3 + 0.7 * energy)
@@ -649,14 +927,19 @@ class AudioAnalyzer:
             stereo_bias=stereo_bias,
             rms=rms,
             bands=env_levels,
+            spectrum=list(spectrum),
         )
 
     @property
     def phase(self) -> float:
         return self._phase
 
+    @property
+    def spectrum_bins(self) -> int:
+        return self._n_spec
+
     def color_for_position(self, position: str, frame: AnalysisFrame) -> tuple[int, int, int]:
-        """Map light color from envelope levels (smooth), not raw UI meters."""
+        """Map light color from auto-scaled envelope levels (smooth), not raw UI meters."""
         return entertainment_color(
             bass=self._env_ui.get("bass", frame.bass),
             mid=self._env_ui.get("mid", frame.mid),
