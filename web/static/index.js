@@ -1,6 +1,11 @@
 let lightsRefreshInterval = null;
 let isLoadingLights = false;
 
+/** @type {{name: string, description: string}[]} */
+let configurationsCache = [];
+let comboboxActiveIndex = -1;
+let comboboxIsOpen = false;
+
 function loadLightsStatus() {
     // Evita requisições simultâneas
     if (isLoadingLights) {
@@ -81,31 +86,281 @@ function startLightsAutoRefresh() {
     lightsRefreshInterval = setInterval(loadLightsStatus, 3000);
 }
 
-function loadConfigurations() {
-    $.getJSON(`/configurations`, function (data) {
-        const configurationsSelect = $('#configurations');
-        configurationsSelect.empty();
-        configurationsSelect.append($('<option>', {
-            value: '',
-            text: 'Selecione uma configuração...'
-        }));
-        $.each(data, function (index, item) {
-            configurationsSelect.append($('<option>', {
-                value: item.name,
-                text: `${item.name} - ${item.description.trim().slice(0, 80)}...`
-            }));
+function normalizeFilterText(text) {
+    return String(text || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+}
+
+function truncateDescription(description, maxLen) {
+    const text = String(description || '').trim();
+    if (text.length <= maxLen) {
+        return text;
+    }
+    return text.slice(0, maxLen) + '…';
+}
+
+function getFilteredConfigurations(query) {
+    const needle = normalizeFilterText(query);
+    if (!needle) {
+        return configurationsCache.slice();
+    }
+    return configurationsCache.filter(function (item) {
+        const haystack = normalizeFilterText(item.name + ' ' + (item.description || ''));
+        return haystack.indexOf(needle) !== -1;
+    });
+}
+
+function setComboboxValue(name, options) {
+    options = options || {};
+    const $hidden = $('#configurations');
+    const $filter = $('#configurations-filter');
+    const $wrap = $('#configurations-combobox');
+
+    $hidden.val(name || '');
+    if (name) {
+        $filter.val(name);
+        $wrap.addClass('has-value');
+    } else if (!options.keepFilterText) {
+        $filter.val('');
+        $wrap.removeClass('has-value');
+    } else {
+        $wrap.toggleClass('has-value', Boolean($filter.val()));
+    }
+
+    if (options.close !== false) {
+        closeComboboxMenu();
+    }
+}
+
+function openComboboxMenu() {
+    const $menu = $('#configurations-menu');
+    const $filter = $('#configurations-filter');
+    $menu.addClass('open');
+    $filter.attr('aria-expanded', 'true');
+    comboboxIsOpen = true;
+}
+
+function closeComboboxMenu() {
+    const $menu = $('#configurations-menu');
+    const $filter = $('#configurations-filter');
+    $menu.removeClass('open').empty();
+    $filter.attr('aria-expanded', 'false');
+    comboboxIsOpen = false;
+    comboboxActiveIndex = -1;
+}
+
+function updateComboboxActiveItem($items) {
+    $items.removeClass('active').attr('aria-selected', 'false');
+    if (comboboxActiveIndex < 0 || comboboxActiveIndex >= $items.length) {
+        return;
+    }
+    const $active = $items.eq(comboboxActiveIndex);
+    $active.addClass('active').attr('aria-selected', 'true');
+    const el = $active.get(0);
+    if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'nearest' });
+    }
+}
+
+function renderConfigurationsMenu(query) {
+    const $menu = $('#configurations-menu');
+    $menu.empty();
+
+    if (!configurationsCache.length) {
+        $menu.append(
+            $('<div>', {
+                class: 'config-combobox-empty',
+                text: 'Nenhuma configuração disponível'
+            })
+        );
+        openComboboxMenu();
+        return;
+    }
+
+    const filtered = getFilteredConfigurations(query);
+    if (!filtered.length) {
+        $menu.append(
+            $('<div>', {
+                class: 'config-combobox-empty',
+                text: 'Nenhum resultado para “' + query + '”'
+            })
+        );
+        comboboxActiveIndex = -1;
+        openComboboxMenu();
+        return;
+    }
+
+    filtered.forEach(function (item, index) {
+        const $btn = $('<button>', {
+            type: 'button',
+            class: 'config-combobox-item',
+            role: 'option',
+            'data-name': item.name,
+            'data-index': index,
+            'aria-selected': 'false'
         });
-    }).fail(function() {
-        $('#configurations').html('<option value="">Erro ao carregar configurações</option>');
+        $btn.append($('<span>', { class: 'item-name', text: item.name }));
+        $btn.append($('<span>', {
+            class: 'item-desc',
+            text: truncateDescription(item.description, 90)
+        }));
+        $menu.append($btn);
+    });
+
+    comboboxActiveIndex = 0;
+    updateComboboxActiveItem($menu.find('.config-combobox-item'));
+    openComboboxMenu();
+}
+
+function loadConfigurations() {
+    const $filter = $('#configurations-filter');
+    $filter.prop('disabled', true).attr('placeholder', 'Carregando configurações...');
+
+    $.getJSON(`/configurations`, function (data) {
+        configurationsCache = Array.isArray(data) ? data.slice() : [];
+        configurationsCache.sort(function (a, b) {
+            return String(a.name).localeCompare(String(b.name), 'pt-BR');
+        });
+        $filter.prop('disabled', false).attr('placeholder', 'Digite para filtrar configurações...');
+        if ($filter.is(':focus')) {
+            renderConfigurationsMenu($filter.val());
+        }
+    }).fail(function () {
+        configurationsCache = [];
+        $filter
+            .prop('disabled', false)
+            .attr('placeholder', 'Erro ao carregar configurações')
+            .val('');
+        setComboboxValue('');
+    });
+}
+
+function initConfigurationsCombobox() {
+    const $filter = $('#configurations-filter');
+    const $menu = $('#configurations-menu');
+    const $clear = $('#configurations-clear');
+    const $wrap = $('#configurations-combobox');
+
+    $filter.on('input', function () {
+        const text = $filter.val();
+        // Typing invalidates a previous selection until the user picks again
+        $('#configurations').val('');
+        $wrap.toggleClass('has-value', Boolean(String(text).trim()));
+        renderConfigurationsMenu(text);
+    });
+
+    $filter.on('focus', function () {
+        renderConfigurationsMenu($filter.val());
+    });
+
+    $filter.on('keydown', function (event) {
+        const $items = $menu.find('.config-combobox-item');
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            if (!comboboxIsOpen) {
+                renderConfigurationsMenu($filter.val());
+                return;
+            }
+            if (!$items.length) {
+                return;
+            }
+            comboboxActiveIndex = (comboboxActiveIndex + 1) % $items.length;
+            updateComboboxActiveItem($items);
+            return;
+        }
+
+        if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (!comboboxIsOpen || !$items.length) {
+                return;
+            }
+            comboboxActiveIndex = comboboxActiveIndex <= 0
+                ? $items.length - 1
+                : comboboxActiveIndex - 1;
+            updateComboboxActiveItem($items);
+            return;
+        }
+
+        if (event.key === 'Enter') {
+            if (comboboxIsOpen && $items.length && comboboxActiveIndex >= 0) {
+                event.preventDefault();
+                const name = $items.eq(comboboxActiveIndex).data('name');
+                setComboboxValue(name);
+            }
+            return;
+        }
+
+        if (event.key === 'Escape') {
+            if (comboboxIsOpen) {
+                event.preventDefault();
+                closeComboboxMenu();
+            }
+            return;
+        }
+
+        if (event.key === 'Tab') {
+            closeComboboxMenu();
+        }
+    });
+
+    $menu.on('mousedown', '.config-combobox-item', function (event) {
+        // Prevent input blur before click handler runs
+        event.preventDefault();
+        setComboboxValue($(this).data('name'));
+    });
+
+    $menu.on('mouseenter', '.config-combobox-item', function () {
+        const $items = $menu.find('.config-combobox-item');
+        comboboxActiveIndex = $items.index(this);
+        updateComboboxActiveItem($items);
+    });
+
+    $clear.on('click', function () {
+        setComboboxValue('');
+        $filter.trigger('focus');
+    });
+
+    $(document).on('mousedown', function (event) {
+        if (!$wrap.is(event.target) && $wrap.has(event.target).length === 0) {
+            // If user typed something that exactly matches a name, keep it selected
+            const typed = String($filter.val() || '').trim();
+            const selected = $('#configurations').val();
+            if (!selected && typed) {
+                const exact = configurationsCache.find(function (item) {
+                    return item.name === typed;
+                });
+                if (exact) {
+                    setComboboxValue(exact.name);
+                    return;
+                }
+            }
+            closeComboboxMenu();
+        }
     });
 }
 
 function applyConfiguration(event) {
     event.preventDefault();
 
-    const configName = $('#configurations').val();
+    let configName = $('#configurations').val();
+    if (!configName) {
+        // Allow applying when the typed text is an exact config name
+        const typed = String($('#configurations-filter').val() || '').trim();
+        const exact = configurationsCache.find(function (item) {
+            return item.name === typed;
+        });
+        if (exact) {
+            configName = exact.name;
+            setComboboxValue(configName);
+        }
+    }
     if (!configName) {
         alert('Por favor, selecione uma configuração.');
+        $('#configurations-filter').trigger('focus');
         return;
     }
 
@@ -234,6 +489,7 @@ function toggleTheme() {
 $(document).ready(function () {
     initTheme();
     checkBridgeStatus();
+    initConfigurationsCombobox();
     loadConfigurations();
     loadLightsStatus();
     startLightsAutoRefresh();

@@ -106,6 +106,90 @@
         .spin {
             animation: spin 0.5s linear;
         }
+        /* Combobox filtrável de configurações */
+        .config-combobox {
+            position: relative;
+        }
+        .config-combobox .form-control {
+            padding-right: 2.5rem;
+        }
+        .config-combobox .combobox-clear {
+            position: absolute;
+            top: 50%;
+            right: 0.5rem;
+            transform: translateY(-50%);
+            border: 0;
+            background: transparent;
+            color: var(--bs-secondary);
+            padding: 0.25rem;
+            line-height: 1;
+            display: none;
+            z-index: 2;
+        }
+        .config-combobox.has-value .combobox-clear {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .config-combobox .combobox-clear:hover {
+            color: var(--bs-body-color);
+        }
+        .config-combobox-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            z-index: 1050;
+            max-height: 280px;
+            overflow-y: auto;
+            margin-top: 0.25rem;
+            display: none;
+            border: 1px solid var(--bs-border-color);
+            border-radius: var(--bs-border-radius);
+            background: var(--bs-body-bg);
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        }
+        .config-combobox-menu.open {
+            display: block;
+        }
+        .config-combobox-item {
+            display: block;
+            width: 100%;
+            text-align: left;
+            border: 0;
+            background: transparent;
+            padding: 0.5rem 0.75rem;
+            color: var(--bs-body-color);
+            cursor: pointer;
+        }
+        .config-combobox-item:hover,
+        .config-combobox-item.active {
+            background: var(--bs-primary);
+            color: #fff;
+        }
+        .config-combobox-item .item-name {
+            display: block;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .config-combobox-item .item-desc {
+            display: block;
+            font-size: 0.75rem;
+            opacity: 0.85;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .config-combobox-item:hover .item-desc,
+        .config-combobox-item.active .item-desc {
+            opacity: 0.9;
+        }
+        .config-combobox-empty {
+            padding: 0.75rem;
+            color: var(--bs-secondary);
+            font-size: 0.875rem;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -154,13 +238,31 @@
             <form id="configForm">
                 <div class="row">
                     <div class="col-md-6 mb-3">
-                        <label for="configurations" class="form-label">
+                        <label for="configurations-filter" class="form-label">
                             <i class="bi bi-collection"></i> Escolha uma configuração:
                         </label>
-                        <select class="form-select" id="configurations">
-                            <option value="">Carregando configurações...</option>
-                        </select>
-                        <div class="form-text">Selecione um tema de iluminação predefinido</div>
+                        <div class="config-combobox" id="configurations-combobox">
+                            <input type="hidden" id="configurations" value="" autocomplete="off">
+                            <input
+                                type="search"
+                                class="form-control"
+                                id="configurations-filter"
+                                placeholder="Digite para filtrar configurações..."
+                                autocomplete="off"
+                                spellcheck="false"
+                                role="combobox"
+                                aria-autocomplete="list"
+                                aria-expanded="false"
+                                aria-controls="configurations-menu"
+                                aria-haspopup="listbox"
+                            >
+                            <button type="button" class="combobox-clear" id="configurations-clear"
+                                    title="Limpar seleção" aria-label="Limpar seleção">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                            <div class="config-combobox-menu" id="configurations-menu" role="listbox"></div>
+                        </div>
+                        <div class="form-text">Digite para filtrar e selecione um tema de iluminação</div>
                     </div>
                     <div class="col-md-3 mb-3">
                         <label for="transition_time_secs" class="form-label">
@@ -207,6 +309,6 @@
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-<script src="/static/index.js"></script>
+<script src="/static/index.js?v=combobox-1"></script>
 </body>
 </html>
