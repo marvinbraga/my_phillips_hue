@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -65,10 +65,20 @@ def test_rest_adapter_skips_disabled():
 
 def test_entertainment_adapter_maps_and_sends():
     clear_runtime_policy()
-    client = MagicMock(spec=EntertainmentClient)
+    # No spec=EntertainmentClient: Mock(spec=async class) auto-wraps start_stream /
+    # stop_stream as AsyncMock and begin_session would leave those coros un-awaited
+    # when run_coro is a plain MagicMock.
+    client = MagicMock()
     client.is_streaming = False
     client.active_area = None
-    client.run_coro = MagicMock(side_effect=lambda coro, timeout=15: None)
+    client.start_stream = MagicMock(return_value="start-marker")
+    client.stop_stream = MagicMock(return_value="stop-marker")
+
+    def run_coro(coro, timeout=15.0):  # noqa: ARG001
+        # Adapter passes the return value of start_stream/stop_stream (sync mocks).
+        return None
+
+    client.run_coro = MagicMock(side_effect=run_coro)
     client.send_frame = MagicMock()
 
     adapter = EntertainmentStreamAdapter(
@@ -96,6 +106,7 @@ def test_entertainment_adapter_maps_and_sends():
     # bri 127 scales blue channel: 255 * 127 // 254
     assert cmds[1].b == 255 * 127 // 254
     adapter.end_session()
+    assert client.run_coro.call_count >= 2  # begin + end
     clear_runtime_policy()
 
 
@@ -143,10 +154,15 @@ async def test_entertainment_client_list_areas_maps_models():
 
     fake_ch = MagicMock(channel_id=0, name="Play 1", service_id="svc", position=(0.0, 0.0, 0.0))
     fake_area = MagicMock(id="area-1", name="Sala", channels=[fake_ch])
-    fake_session = AsyncMock()
-    fake_session.get_entertainment_areas = AsyncMock(return_value=[fake_area])
 
-    with patch.object(client, "_ensure_session", AsyncMock(return_value=fake_session)):
+    class _FakeSession:
+        async def get_entertainment_areas(self) -> list:
+            return [fake_area]
+
+    async def ensure() -> _FakeSession:
+        return _FakeSession()
+
+    with patch.object(client, "_ensure_session", new=ensure):
         areas = await client.list_areas()
     assert len(areas) == 1
     assert areas[0].id == "area-1"
@@ -157,18 +173,44 @@ async def test_entertainment_client_list_areas_maps_models():
 async def test_entertainment_client_start_send_stop():
     creds = EntertainmentCredentials(username="u", clientkey="k")
     client = EntertainmentClient(host="10.0.0.1", credentials=creds)
-    fake_session = MagicMock()
-    fake_session.start = AsyncMock()
-    fake_session.send = MagicMock()
-    fake_session.stop = AsyncMock()
-    fake_session.aclose = AsyncMock()
-    fake_session.is_streaming = False
 
-    with patch.object(client, "_ensure_session", AsyncMock(return_value=fake_session)):
+    # Real async defs (no AsyncMock) avoid "coroutine never awaited" from mock
+    # machinery / library import side-effects under pytest.
+    calls: dict[str, list] = {"start": [], "send": [], "stop": [], "aclose": []}
+
+    class _FakeSession:
+        is_streaming = False
+
+        async def start(self, area_id: str) -> None:
+            calls["start"].append(area_id)
+            self.is_streaming = True
+
+        def send(self, cmds: list) -> None:
+            calls["send"].append(cmds)
+
+        async def stop(self) -> None:
+            calls["stop"].append(True)
+            self.is_streaming = False
+
+        async def aclose(self) -> None:
+            calls["aclose"].append(True)
+
+    fake_session = _FakeSession()
+
+    async def ensure() -> _FakeSession:
+        return fake_session
+
+    # Replace with a real coroutine function — do not wrap in MagicMock/AsyncMock
+    # (those leave un-awaited coroutines during hue_entertainment / aiohttp import).
+    with patch.object(client, "_ensure_session", new=ensure):
         await client.start_stream("area-1")
+        assert client.is_streaming is True
         client.send_frame([ChannelColor(0, 255, 0, 0)])
         await client.stop_stream()
 
-    fake_session.start.assert_awaited()
-    fake_session.send.assert_called()
+    assert calls["start"] == ["area-1"]
+    assert len(calls["send"]) == 1
+    assert calls["stop"] == [True]
+    assert calls["aclose"] == [True]
     assert client.is_streaming is False
+    assert client._session is None
