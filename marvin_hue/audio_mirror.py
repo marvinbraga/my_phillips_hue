@@ -969,6 +969,8 @@ class AudioMirror:
             f"transport={self._output.transport})"
         )
         try:
+            # Entertainment should already be started via await in the async route;
+            # begin_session is a no-op when streaming (or starts from worker thread).
             self._output.begin_session()
             self._session_started = True
         except Exception as e:
@@ -981,18 +983,23 @@ class AudioMirror:
         self.thread.start()
         return True
 
-    def stop(self) -> bool:
-        """Para o loop e limpa caches."""
+    def stop(self, *, end_output: bool = True) -> bool:
+        """Para o loop e limpa caches.
+
+        ``end_output=False`` when the async route will ``await stop_stream()``
+        to avoid deadlocking the event loop via ``run_coro``.
+        """
         logger.info("Stopping audio mirroring")
         self.running = False
         if self.thread:
             self.thread.join(timeout=2.0)
             self.thread = None
         if self._session_started:
-            try:
-                self._output.end_session()
-            except Exception as e:
-                logger.debug(f"end_session error: {e}")
+            if end_output:
+                try:
+                    self._output.end_session()
+                except Exception as e:
+                    logger.debug(f"end_session error: {e}")
             self._session_started = False
         self._current_colors.clear()
         self._smoothed_colors.clear()

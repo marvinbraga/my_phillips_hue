@@ -54,12 +54,32 @@ class EntertainmentStreamAdapter:
         return self._area_id
 
     def begin_session(self) -> None:
+        """Start stream from a worker thread, or no-op if already streaming.
+
+        From the FastAPI event-loop thread, pre-start with
+        ``await client.start_stream(area_id)`` before calling this.
+        """
         if self._client.is_streaming and self._client.active_area == self._area_id:
+            logger.debug(
+                f"Entertainment session already active area={self._area_id}"
+            )
             return
-        self._client.run_coro(
-            self._client.start_stream(self._area_id),
-            timeout=self._start_timeout,
-        )
+        try:
+            self._client.run_coro(
+                self._client.start_stream(self._area_id),
+                timeout=self._start_timeout,
+            )
+        except RuntimeError as e:
+            # Called from event loop without pre-start — surface clearly
+            if "event loop" in str(e).lower() or "await" in str(e).lower():
+                if self._client.is_streaming:
+                    return
+                raise RuntimeError(
+                    "Entertainment stream not started: await "
+                    "EntertainmentClient.start_stream() from the async route "
+                    "before begin_session()"
+                ) from e
+            raise
         logger.info(f"Entertainment session begun area={self._area_id}")
 
     def apply_frame(self, colors: list[LightFrameColor]) -> None:
@@ -77,10 +97,20 @@ class EntertainmentStreamAdapter:
             self._client.send_frame(cmds)
 
     def end_session(self) -> None:
+        if not self._client.is_streaming:
+            return
         try:
             self._client.run_coro(
                 self._client.stop_stream(),
                 timeout=self._stop_timeout,
             )
+        except RuntimeError as e:
+            # Async route should await stop_stream; ignore same-loop case
+            if "event loop" in str(e).lower() or "await" in str(e).lower():
+                logger.debug(
+                    "end_session skipped on event loop (await stop_stream in route)"
+                )
+                return
+            logger.warning(f"Entertainment end_session error: {e}")
         except Exception as e:
             logger.warning(f"Entertainment end_session error: {e}")

@@ -559,11 +559,12 @@ class ScreenMirror:
         self.thread.start()
         return True
 
-    def stop(self) -> bool:
+    def stop(self, *, end_output: bool = True) -> bool:
         """
         Para o espelhamento de tela e limpa caches de cores.
 
         Aguarda até 2 segundos para a thread terminar gracefully.
+        ``end_output=False`` when the async route will await stop_stream().
 
         Returns:
             True sempre (para consistência de API)
@@ -580,10 +581,11 @@ class ScreenMirror:
             self.thread.join(timeout=2.0)
             self.thread = None
         if self._session_started:
-            try:
-                self._output.end_session()
-            except Exception as e:
-                logger.debug(f"end_session error: {e}")
+            if end_output:
+                try:
+                    self._output.end_session()
+                except Exception as e:
+                    logger.debug(f"end_session error: {e}")
             self._session_started = False
         self._current_colors.clear()
         self._target_colors.clear()

@@ -182,6 +182,14 @@ async def _build_port_for_mirror(
     resolved_area, mapped = await _resolve_area_and_channels(
         client, area_id=area_id, lights=lights
     )
+    if mapped:
+        logger.info(
+            f"Entertainment channel map: area={resolved_area} mapped={len(mapped)}"
+        )
+    else:
+        logger.warning(
+            "Entertainment channel map empty — will use REST unless forced"
+        )
     return (
         build_audio_output_port(
             hue,
@@ -193,7 +201,43 @@ async def _build_port_for_mirror(
             transport_preference=pref,
         ),
         resolved_area,
+        mapped,
     )
+
+
+async def _ensure_entertainment_started(
+    port: Any,
+    client: EntertainmentClient | None,
+    area_id: str | None,
+    hue: HueController,
+    *,
+    transition_time: int = 0,
+) -> Any:
+    """
+    Await DTLS stream start from the FastAPI event loop.
+
+    Avoids ``run_coro`` deadlock when ``begin_session`` would block the same loop.
+    On failure, returns a pure REST port.
+    """
+    from marvin_hue.output.fallback import FallbackOutputPort
+    from marvin_hue.output.rest_adapter import RestPhueAdapter
+
+    uses_ent = port.transport == "entertainment" or isinstance(port, FallbackOutputPort)
+    if not uses_ent or client is None or not area_id:
+        return port
+
+    try:
+        await client.start_stream(area_id)
+        logger.info(f"Entertainment stream pre-started area={area_id}")
+        return port
+    except Exception as e:
+        logger.warning(f"Entertainment start failed, using REST: {e}")
+        try:
+            if client.is_streaming:
+                await client.stop_stream()
+        except Exception:
+            pass
+        return RestPhueAdapter(hue, transition_time=transition_time)
 
 
 @router.get("/mirror", response_class=HTMLResponse)
@@ -250,12 +294,20 @@ async def start_mirror(
                 transition_time = int(round(float(tt)))
             except (TypeError, ValueError):
                 transition_time = 0
-            port, resolved_area = await _build_port_for_mirror(
+            port, resolved_area, _mapped = await _build_port_for_mirror(
                 hue,
                 ent_client,
                 lights=lights,
                 area_id=area_id,
                 transport_preference=transport_pref,
+                transition_time=transition_time,
+            )
+            # Pre-start DTLS from this async handler (avoids run_coro deadlock).
+            port = await _ensure_entertainment_started(
+                port,
+                ent_client,
+                resolved_area,
+                hue,
                 transition_time=transition_time,
             )
             set_port = getattr(audio_mirror, "set_output_port", None)
@@ -318,12 +370,19 @@ async def start_mirror(
             transition_time = int(round(float(tt)))
         except (TypeError, ValueError):
             transition_time = 0
-        port, resolved_area = await _build_port_for_mirror(
+        port, resolved_area, _mapped = await _build_port_for_mirror(
             hue,
             ent_client,
             lights=lights,
             area_id=area_id,
             transport_preference=transport_pref,
+            transition_time=transition_time,
+        )
+        port = await _ensure_entertainment_started(
+            port,
+            ent_client,
+            resolved_area,
+            hue,
             transition_time=transition_time,
         )
         set_port = getattr(screen_mirror, "set_output_port", None)
@@ -367,6 +426,7 @@ async def stop_mirror(
     audio_mirror: AudioMirror = Depends(get_audio_mirror),
     hue: HueController = Depends(get_hue_controller),
     history: SceneHistoryService = Depends(get_scene_history_service),
+    ent_client: EntertainmentClient | None = Depends(get_entertainment_client),
 ):
     """Para o espelhamento ativo (tela ou música)."""
     mode = _active_mode(screen_mirror, audio_mirror)
@@ -379,10 +439,28 @@ async def stop_mirror(
         logger.warning(f"Scene snapshot before mirror stop failed: {snap_exc}")
 
     if mode == "audio":
-        audio_mirror.stop()
+        # Stop mirror thread without end_session (avoids event-loop deadlock)
+        stop_fn = getattr(audio_mirror, "stop")
+        try:
+            audio_mirror.stop(end_output=False)
+        except TypeError:
+            audio_mirror.stop()
+        if ent_client is not None and ent_client.is_streaming:
+            try:
+                await ent_client.stop_stream()
+            except Exception as e:
+                logger.warning(f"Entertainment stop_stream: {e}")
         return {"message": "Espelhamento de música parado"}
 
-    screen_mirror.stop()
+    try:
+        screen_mirror.stop(end_output=False)  # type: ignore[call-arg]
+    except TypeError:
+        screen_mirror.stop()
+    if ent_client is not None and ent_client.is_streaming:
+        try:
+            await ent_client.stop_stream()
+        except Exception as e:
+            logger.warning(f"Entertainment stop_stream: {e}")
     return {"message": "Espelhamento parado"}
 
 

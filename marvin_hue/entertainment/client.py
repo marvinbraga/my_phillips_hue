@@ -57,12 +57,27 @@ class EntertainmentClient:
 
     def run_coro(self, coro: Coroutine[Any, Any, T], timeout: float = 15.0) -> T:
         """
-        Run an async coroutine from a sync context (e.g. mirror thread).
+        Run an async coroutine from a **sync** context (e.g. mirror worker thread).
 
-        Uses ``run_coroutine_threadsafe`` when a loop is set; otherwise
-        ``asyncio.run`` for one-shot scripts (never call from inside a loop).
+        Uses ``run_coroutine_threadsafe`` when the app loop is running in
+        **another** thread. Must **not** be called from the app event-loop
+        thread (deadlock) — async route handlers should ``await``
+        ``start_stream`` / ``stop_stream`` instead.
         """
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+
         loop = self._loop
+        if running is not None and (loop is None or running is loop):
+            # Close the coroutine to avoid "never awaited" warnings, then fail.
+            coro.close()
+            raise RuntimeError(
+                "EntertainmentClient.run_coro cannot block the app event loop; "
+                "await start_stream/stop_stream from async code instead"
+            )
+
         if loop is not None and loop.is_running():
             future = asyncio.run_coroutine_threadsafe(coro, loop)
             return future.result(timeout=timeout)
