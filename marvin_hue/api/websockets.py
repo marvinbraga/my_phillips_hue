@@ -13,12 +13,38 @@ from marvin_hue.api.dependencies import (
     get_chat_unavailable_reason,
     get_entertainment_client,
     get_hue_controller,
+    get_manager,
     get_screen_mirror,
 )
 from marvin_hue.api.routes.mirror import _unified_status, prepare_audio_output_port
 from marvin_hue.logging_config import get_logger
 
 logger = get_logger("websockets")
+
+
+def _apply_audio_config_name(audio_mirror, config_name: object) -> None:
+    """
+    Hot-swap LightConfig base colors for audio mirror.
+
+    ``None`` / empty string clears the palette (free HSV path).
+    Unknown names are logged and ignored (keep current palette).
+    """
+    if config_name is None:
+        return
+    name = str(config_name).strip()
+    if not name:
+        audio_mirror.set_light_config(None)
+        return
+    try:
+        manager = get_manager()
+        cfg = manager.get_config(name)
+    except Exception as exc:
+        logger.warning(f"WS audio config resolve failed: {exc}")
+        return
+    if cfg is None:
+        logger.warning(f"WS audio config not found: {name!r}")
+        return
+    audio_mirror.set_light_config(cfg)
 
 
 class ConnectionManager:
@@ -120,6 +146,11 @@ def setup_websockets(app: FastAPI) -> None:
                                         f"WS audio Entertainment prep failed "
                                         f"(continuing with current port): {prep_exc}"
                                     )
+                                # Apply palette before start (same as HTTP path)
+                                if "config_name" in data:
+                                    _apply_audio_config_name(
+                                        audio_mirror, data.get("config_name")
+                                    )
                                 audio_mirror.start(
                                     fps=fps,
                                     brightness=brightness,
@@ -174,6 +205,11 @@ def setup_websockets(app: FastAPI) -> None:
                                     ]
                                 if "energy_gain" in data:
                                     audio_mirror.energy_gain = data["energy_gain"]
+                                # Hot-swap setup palette (was missing — UI change did nothing)
+                                if "config_name" in data:
+                                    _apply_audio_config_name(
+                                        audio_mirror, data.get("config_name")
+                                    )
                             else:
                                 if data.get("profile"):
                                     screen_mirror.apply_profile(data["profile"])

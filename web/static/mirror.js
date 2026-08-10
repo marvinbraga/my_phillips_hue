@@ -87,7 +87,9 @@ const AUDIO_PROFILES = {
 
 function getSelectedProfile() {
     if (currentMode === 'audio') {
-        return $('input[name="audio-profile"]:checked').val() || null;
+        // Default Party when user didn't pick a profile — bare defaults
+        // (fps=10, no beat boost) look "broken" next to system audio.
+        return $('input[name="audio-profile"]:checked').val() || 'party';
     }
     return $('input[name="mirror-profile"]:checked').val() || null;
 }
@@ -177,6 +179,18 @@ function syncSlidersFromStatus(status) {
             $(`input[name="mirror-profile"][value="${status.active_profile}"]`).prop('checked', true);
         }
     }
+    // Sync select from server only when not mid-edit (status WS must not
+    // overwrite a just-chosen option before hot-swap lands).
+    if (Object.prototype.hasOwnProperty.call(status, 'config_name')) {
+        const sel = $('#audio-config-select');
+        const el = sel.length ? sel.get(0) : null;
+        if (el && document.activeElement !== el && !sel.data('applying')) {
+            const serverVal = status.config_name || '';
+            if (sel.val() !== serverVal) {
+                sel.val(serverVal);
+            }
+        }
+    }
 }
 
 function setModeUI(mode) {
@@ -194,6 +208,11 @@ function setModeUI(mode) {
     $('#help-audio').toggleClass('d-none', currentMode !== 'audio');
 
     if (currentMode === 'audio') {
+        // Bare defaults (fps≈10, no beat profile) look "broken" — prefer Party.
+        if (!$('input[name="audio-profile"]:checked').length) {
+            $('input[name="audio-profile"][value="party"]').prop('checked', true);
+            applyAudioProfileToSliders('party');
+        }
         $('#mode-help').text(
             'Espelhamento de música: reage ao áudio do sistema (monitor PulseAudio/PipeWire).'
         );
@@ -564,6 +583,70 @@ function rgbToHex(r, g, b) {
     }).join('');
 }
 
+function getSelectedAudioConfigName() {
+    const val = ($('#audio-config-select').val() || '').trim();
+    return val || null;
+}
+
+/**
+ * Hot-swap the LightConfig palette while music is running (or arm it idle).
+ * Uses REST /mirror/settings so config_name is never dropped on the WS path.
+ */
+function applyAudioConfigSelection() {
+    const select = $('#audio-config-select');
+    const config_name = getSelectedAudioConfigName() || '';
+    select.data('applying', true);
+    return fetch('/mirror/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            mode: 'audio',
+            config_name: config_name,
+        }),
+    })
+        .then(async (response) => {
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const detail = data.detail || response.statusText;
+                alert(typeof detail === 'string' ? detail : JSON.stringify(detail));
+                return;
+            }
+            if (data.status) {
+                updateUI(data.status);
+            }
+        })
+        .catch((err) => alert('Erro ao trocar configuração: ' + err))
+        .finally(() => {
+            select.data('applying', false);
+        });
+}
+
+function loadAudioConfigurations() {
+    const select = $('#audio-config-select');
+    if (!select.length) {
+        return;
+    }
+    fetch('/configurations')
+        .then(r => r.json())
+        .then(data => {
+            const previous = select.val() || '';
+            select.find('option:not(:first)').remove();
+            const list = Array.isArray(data) ? data : [];
+            list.forEach(item => {
+                const name = item && item.name ? String(item.name) : '';
+                if (!name) {
+                    return;
+                }
+                const opt = $('<option></option>').attr('value', name).text(name);
+                select.append(opt);
+            });
+            if (previous) {
+                select.val(previous);
+            }
+        })
+        .catch(err => console.warn('audio configurations:', err));
+}
+
 function startMirror() {
     const fps = parseInt($('#fps-range').val(), 10);
     const brightness = parseInt($('#brightness-range').val(), 10);
@@ -571,6 +654,7 @@ function startMirror() {
     const mode = currentMode;
     const transport_preference = $('#transport-pref').val() || 'auto';
     const area_id = $('#ent-area-select').val() || null;
+    const config_name = mode === 'audio' ? getSelectedAudioConfigName() : null;
     const payload = { action: 'start', mode, fps, brightness, transport_preference };
     if (profile) {
         payload.profile = profile;
@@ -578,20 +662,27 @@ function startMirror() {
     if (area_id) {
         payload.area_id = area_id;
     }
+    if (config_name) {
+        payload.config_name = config_name;
+    }
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         // WS path may not support entertainment fields fully — prefer REST start
+        const body = {
+            mode,
+            fps,
+            brightness,
+            profile: profile || undefined,
+            transport_preference,
+            area_id: area_id || undefined,
+        };
+        if (config_name) {
+            body.config_name = config_name;
+        }
         fetch('/mirror/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                mode,
-                fps,
-                brightness,
-                profile: profile || undefined,
-                transport_preference,
-                area_id: area_id || undefined,
-            }),
+            body: JSON.stringify(body),
         })
         .then(response => response.json())
         .then(data => {
@@ -609,6 +700,9 @@ function startMirror() {
         }
         if (area_id) {
             body.area_id = area_id;
+        }
+        if (config_name) {
+            body.config_name = config_name;
         }
         fetch('/mirror/start', {
             method: 'POST',
@@ -727,6 +821,8 @@ function applySettings(options) {
         settings.saturation_boost = parseFloat($('#saturation-range').val());
     } else {
         settings.energy_gain = parseFloat($('#energy-gain-range').val());
+        // Always send config_name for audio so empty clears / selection hot-swaps
+        settings.config_name = getSelectedAudioConfigName() || '';
     }
     const profile = getSelectedProfile();
     if (includeProfile && profile) {
@@ -752,6 +848,9 @@ function applySettings(options) {
         }
         if (settings.profile) {
             body.profile = settings.profile;
+        }
+        if (mode === 'audio') {
+            body.config_name = settings.config_name;
         }
         fetch('/mirror/settings', {
             method: 'POST',
@@ -857,6 +956,7 @@ $(document).ready(function() {
     setModeUI('screen');
     fetchInitialStatus();
     loadEntertainmentStatus();
+    loadAudioConfigurations();
 
     connectWebSocket();
 
@@ -867,6 +967,13 @@ $(document).ready(function() {
     $('#ent-pair-btn').click(pairEntertainment);
     $('input[name="mirror-profile"]').on('change', onProfileSelected);
     $('input[name="audio-profile"]').on('change', onProfileSelected);
+    $('#audio-config-select').on('change', function() {
+        // Always apply palette via HTTP so it works even when WS settings
+        // path is lagging; clear smooth blend on the server immediately.
+        if (currentMode === 'audio') {
+            applyAudioConfigSelection();
+        }
+    });
 
     $('#tab-screen').on('click', function() {
         if (!isRunning || activeMode === 'screen' || !activeMode) {

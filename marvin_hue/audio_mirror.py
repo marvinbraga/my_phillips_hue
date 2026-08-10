@@ -24,6 +24,7 @@ from marvin_hue.audio_engine import (
     density_to_level,
     entertainment_color,
 )
+from marvin_hue.basics import LightConfig
 from marvin_hue.controllers import HueController
 from marvin_hue.eye_safety import is_enabled_for_app
 from marvin_hue.logging_config import get_logger
@@ -152,6 +153,55 @@ def band_color(band: str, energy: float) -> tuple[int, int, int]:
         max(0, min(255, int(base[0] * scale))),
         max(0, min(255, int(base[1] * scale))),
         max(0, min(255, int(base[2] * scale))),
+    )
+
+
+# Floor scale when energy≈0 so lights dim but keep a faint glow of the setup hue.
+_BASE_COLOR_FLOOR = 0.15
+# How much beat lifts toward white (preserves hue family, adds punch).
+_BEAT_WHITE_LIFT = 0.28
+
+
+def modulate_base_color(
+    base_rgb: tuple[int, int, int],
+    position: str,
+    *,
+    bass: float = 0.0,
+    mid: float = 0.0,
+    treble: float = 0.0,
+    beat: float = 0.0,
+    energy_gain: float = 1.0,
+) -> tuple[int, int, int]:
+    """
+    Escala a cor base da LightConfig pela energia da banda da posição.
+
+    Preserva a proporção R:G:B do setup (não inventa hue via centroide).
+    Silêncio → dim (floor); energia alta + beat → brilho e leve lift ao branco.
+    """
+    band = position_to_band(position)
+    if band == "bass":
+        raw_e = float(bass)
+    elif band == "treble":
+        raw_e = float(treble)
+    else:
+        raw_e = float(mid)
+    energy = max(0.0, min(1.0, raw_e * float(energy_gain)))
+    beat_c = max(0.0, min(1.0, float(beat)))
+
+    floor = _BASE_COLOR_FLOOR
+    scale = floor + (1.0 - floor) * energy
+    # Beat punch: slight brightness boost + blend toward white
+    scale = min(1.15, scale * (1.0 + 0.35 * beat_c))
+    white_mix = _BEAT_WHITE_LIFT * beat_c
+
+    r0, g0, b0 = base_rgb
+    r = r0 * scale * (1.0 - white_mix) + 255.0 * white_mix * scale
+    g = g0 * scale * (1.0 - white_mix) + 255.0 * white_mix * scale
+    b = b0 * scale * (1.0 - white_mix) + 255.0 * white_mix * scale
+    return (
+        max(0, min(255, int(round(r)))),
+        max(0, min(255, int(round(g)))),
+        max(0, min(255, int(round(b)))),
     )
 
 
@@ -361,16 +411,61 @@ def find_pulse_monitor_source(
     return None
 
 
+def _is_pulse_bridge_name(name: str) -> bool:
+    """True for PortAudio/Pulse bridge device names (not hardware ALSA)."""
+    low = name.lower().strip()
+    return low == "pulse" or low.startswith("pulse:")
+
+
+def _is_pipewire_bridge_name(name: str) -> bool:
+    """True for ALSA 'pipewire' bridge — does NOT honor PULSE_SOURCE."""
+    low = name.lower().strip()
+    return low == "pipewire" or low.startswith("pipewire:")
+
+
+def _is_hardware_capture_name(name: str) -> bool:
+    """Heuristic: hardware mics/webcams that are not system-output monitors."""
+    low = name.lower()
+    if "monitor" in low:
+        return False
+    if _is_pulse_bridge_name(name) or _is_pipewire_bridge_name(name):
+        return False
+    markers = (
+        "mic",
+        "microphone",
+        "webcam",
+        "camera",
+        "c920",
+        "wave",
+        "headset",
+        "input",
+        "analog",
+        "usb audio",
+        "hw:",
+    )
+    return any(m in low for m in markers)
+
+
 def find_monitor_device(
     query_devices: Callable[[], Any] | None = None,
+    *,
+    pulse_source: str | None = None,
 ) -> int | None:
     """
-    Escolhe device de captura, nesta ordem:
-    1. Nome contendo 'monitor' (sink monitor PA/PW)
-    2. 'pulse' ou 'pipewire' (com PULSE_SOURCE=monitor no open)
-    3. Default input (se for pulse/pipewire/monitor)
-    4. Default input qualquer
-    5. Primeiro device com canais de entrada (evita webcams se possível)
+    Escolhe device de captura para o *áudio do sistema* (não microfone).
+
+    Ordem:
+    1. Nome contendo 'monitor' (sink monitor exposto no PortAudio)
+    2. Device ``pulse`` — obrigatório quando há ``PULSE_SOURCE=*.monitor``;
+       o bridge ALSA ``pipewire`` **ignora** PULSE_SOURCE e usa o default
+       source do Pulse (quase sempre o microfone)
+    3. ``pipewire`` só se não houver ``pulse`` e não houver monitor source
+    4. Default input se for monitor/pulse
+    5. Fallback: primeiro input que não pareça microfone/webcam
+
+    Args:
+        pulse_source: source monitor resolvido via pactl (ex.: ``sink.monitor``).
+            Quando definido, força preferência por ``pulse``.
     """
     try:
         import sounddevice as sd
@@ -402,16 +497,51 @@ def find_monitor_device(
     if not inputs:
         return None
 
+    # 1) Explicit monitor device name (rare on PA/PW, common on some setups)
     for idx, _dev, name in inputs:
         if "monitor" in name.lower():
             logger.info(f"Audio device (monitor): index={idx} name={name!r}")
             return idx
 
+    pulse_idx: int | None = None
+    pipewire_idx: int | None = None
     for idx, _dev, name in inputs:
-        low = name.lower().strip()
-        if low in {"pulse", "pipewire"} or low.startswith("pulse") or low.startswith("pipewire"):
-            logger.info(f"Audio device (pulse/pipewire): index={idx} name={name!r}")
-            return idx
+        if pulse_idx is None and _is_pulse_bridge_name(name):
+            pulse_idx = idx
+        if pipewire_idx is None and _is_pipewire_bridge_name(name):
+            pipewire_idx = idx
+
+    # 2) Prefer PulseAudio host API when routing via PULSE_SOURCE=*.monitor
+    #    (pipewire ALSA device ignores PULSE_SOURCE → captures default mic)
+    if pulse_source or pulse_idx is not None:
+        if pulse_idx is not None:
+            logger.info(
+                f"Audio device (pulse bridge for system monitor): "
+                f"index={pulse_idx} pulse_source={pulse_source!r}"
+            )
+            return pulse_idx
+        if pulse_source and pipewire_idx is not None:
+            logger.warning(
+                "PULSE_SOURCE monitor is set but no 'pulse' device found; "
+                "using 'pipewire' may capture the microphone instead of "
+                f"system audio (pulse_source={pulse_source!r})"
+            )
+
+    # 3) pipewire only when we cannot use pulse routing
+    if pipewire_idx is not None and not pulse_source:
+        logger.info(
+            f"Audio device (pipewire): index={pipewire_idx} "
+            "(no monitor source; may follow default capture)"
+        )
+        return pipewire_idx
+
+    if pipewire_idx is not None:
+        # Last virtual fallback even with pulse_source if pulse missing
+        logger.warning(
+            f"Audio device (pipewire fallback): index={pipewire_idx} "
+            f"pulse_source={pulse_source!r} — system audio routing may fail"
+        )
+        return pipewire_idx
 
     default_in: int | None = None
     try:
@@ -428,21 +558,30 @@ def find_monitor_device(
             if idx != default_in:
                 continue
             low = name.lower()
-            if "monitor" in low or "pulse" in low or "pipewire" in low:
+            if "monitor" in low or _is_pulse_bridge_name(name) or _is_pipewire_bridge_name(name):
                 logger.info(f"Audio device (default PA/PW): index={idx} name={name!r}")
                 return idx
-        logger.info(f"Audio device (default input): index={default_in}")
-        return default_in
+            # Do not accept default hardware mic when we want system audio
+            if _is_hardware_capture_name(name):
+                logger.warning(
+                    f"Skipping default input (looks like mic/hw): "
+                    f"index={idx} name={name!r}"
+                )
+                break
+            logger.info(f"Audio device (default input): index={default_in}")
+            return default_in
 
     for idx, _dev, name in inputs:
-        low = name.lower()
-        if "webcam" in low or "camera" in low or "c920" in low:
+        if _is_hardware_capture_name(name):
             continue
-        logger.info(f"Audio device (first non-webcam input): index={idx} name={name!r}")
+        logger.info(f"Audio device (non-hw input): index={idx} name={name!r}")
         return idx
 
+    # Absolute last resort — will likely be a microphone
     idx, _dev, name = inputs[0]
-    logger.info(f"Audio device (first input): index={idx} name={name!r}")
+    logger.warning(
+        f"Audio device (last resort, may be microphone): index={idx} name={name!r}"
+    )
     return idx
 
 
@@ -583,6 +722,43 @@ class AudioMirror:
         self._session_started = False
         # Cached light positions — loaded on start / explicit reload; not every frame
         self._cached_positions: list[dict[str, Any]] | None = None
+        # LightConfig base colors: audio modulates intensity, not invents hue
+        self.config_name: str | None = None
+        self._base_colors: dict[str, tuple[int, int, int]] = {}
+        self._base_brightness: dict[str, int] = {}
+
+    def set_light_config(self, config: LightConfig | None) -> None:
+        """
+        Define cores base a partir de um LightConfig (setup).
+
+        Com config ativo, o áudio só modula intensidade/brilho das cores do
+        setup (preserva R:G:B). ``None`` limpa e volta ao path free-HSV.
+        """
+        if config is None:
+            self.config_name = None
+            self._base_colors.clear()
+            self._base_brightness.clear()
+            # Drop smooth history so the next frame is not stuck on the old palette
+            self._smoothed_colors.clear()
+            logger.info("Audio mirror base colors cleared (free entertainment path)")
+            return
+
+        colors: dict[str, tuple[int, int, int]] = {}
+        brightness: dict[str, int] = {}
+        for setting in config.settings:
+            name = str(setting.light_name)
+            color = setting.color
+            colors[name] = (int(color.red), int(color.green), int(color.blue))
+            brightness[name] = int(color.brightness)
+        self._base_colors = colors
+        self._base_brightness = brightness
+        self.config_name = str(config.name)
+        # Immediate palette switch (no long blend from previous setup hues)
+        self._smoothed_colors.clear()
+        logger.info(
+            f"Audio mirror base colors from config {self.config_name!r}: "
+            f"{len(colors)} lights"
+        )
 
     def set_output_port(self, port: LightOutputPort) -> None:
         """Replace output transport (call before start, or when idle)."""
@@ -789,8 +965,39 @@ class AudioMirror:
             if not name:
                 continue
             position = str(light.get("position", "ambient"))
-            # Light colors use envelope path (smooth); spectrum bars use frame.*
-            rgb = self._analyzer.color_for_position(position, frame)
+            env = getattr(self._analyzer, "_env_ui", {}) or {}
+            bass_e = float(env.get("bass", frame.bass))
+            mid_e = float(env.get("mid", frame.mid))
+            treble_e = float(env.get("treble", frame.treble))
+            energy_gain = float(self._analyzer.config.energy_gain)
+
+            base = self._base_colors.get(name)
+            if base is not None:
+                # Setup colors: modulate intensity only (preserve hue family)
+                rgb = modulate_base_color(
+                    base,
+                    position,
+                    bass=bass_e,
+                    mid=mid_e,
+                    treble=treble_e,
+                    beat=beat,
+                    energy_gain=energy_gain,
+                )
+            else:
+                # Free entertainment path (invents color from spectrum/centroid)
+                name_phase = (sum(ord(c) for c in name) % 1000) / 1000.0
+                rgb = entertainment_color(
+                    bass=bass_e,
+                    mid=mid_e,
+                    treble=treble_e,
+                    beat=float(frame.beat),
+                    centroid=float(frame.centroid),
+                    stereo_bias=float(frame.stereo_bias),
+                    position=position,
+                    phase=(float(self._analyzer.phase) + name_phase) % 1.0,
+                    hue_speed=float(self._analyzer.config.hue_speed),
+                    energy_gain=energy_gain,
+                )
             target = (rgb[0], rgb[1], rgb[2])
             if name in self._smoothed_colors:
                 smoothed = self._interpolate_color(self._smoothed_colors[name], target)
@@ -857,9 +1064,16 @@ class AudioMirror:
 
         prev_pulse_source = os.environ.get("PULSE_SOURCE")
         pulse_source = self._pulse_source
+        # PULSE_SOURCE must be set before opening the Pulse host-API stream.
+        # The ALSA "pipewire" device ignores this and follows default source (mic).
         if pulse_source:
             os.environ["PULSE_SOURCE"] = pulse_source
-            logger.info(f"PULSE_SOURCE={pulse_source}")
+            logger.info(f"PULSE_SOURCE={pulse_source} (system output monitor)")
+        else:
+            logger.warning(
+                "Opening audio stream without PULSE_SOURCE monitor — "
+                "likely capturing microphone/default source"
+            )
 
         try:
             with sd.InputStream(
@@ -934,17 +1148,29 @@ class AudioMirror:
         elif profile is None:
             self.brightness = 200
 
-        resolver = device_resolver or find_monitor_device
-        device = resolver()
+        # Resolve system-output monitor FIRST so device selection can prefer
+        # the PortAudio "pulse" bridge (honors PULSE_SOURCE). Choosing
+        # "pipewire" first captures the default mic (e.g. Elgato Wave).
+        self._pulse_source = find_pulse_monitor_source()
+        if self._pulse_source is None:
+            logger.warning(
+                "Nenhum sink monitor encontrado via pactl — a captura pode "
+                "usar o microfone. Confira: pactl list short sources | "
+                "grep monitor"
+            )
+
+        if device_resolver is not None:
+            device = device_resolver()
+        else:
+            device = find_monitor_device(pulse_source=self._pulse_source)
         if device is None:
             raise RuntimeError(
                 "Nenhum dispositivo de áudio encontrado. "
-                "No Linux, use PulseAudio/PipeWire (device 'pulse' ou 'pipewire') "
+                "No Linux, use PulseAudio/PipeWire (device 'pulse') "
                 "e garanta um sink monitor (o que você ouve). "
                 "Verifique com: pactl list short sources"
             )
         self._device_index = device
-        self._pulse_source = find_pulse_monitor_source()
         self._peak_tracker = PeakTracker()
         self._analyzer.reset()
         self._sync_analyzer_config()
@@ -963,7 +1189,7 @@ class AudioMirror:
             raise RuntimeError(
                 "Não foi possível abrir o dispositivo de áudio com uma taxa "
                 f"de amostragem válida (device={device}). "
-                "Tente o device pulse/pipewire. Detalhe: "
+                "Tente o device pulse. Detalhe: "
                 f"{exc}"
             ) from exc
 
@@ -1061,6 +1287,7 @@ class AudioMirror:
                 # ready if credentials path could use entertainment later
                 False
             ),
+            "config_name": self.config_name,
         }
 
     def set_status_callback(self, callback: Callable[[dict[str, Any]], None]) -> None:

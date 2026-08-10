@@ -305,3 +305,183 @@ def test_audio_settings_apply_profile(fastapi_test_client: TestClient) -> None:
     finally:
         dependencies.set_audio_mirror(orig_a)
         dependencies.set_screen_mirror(orig_s)
+
+
+def test_api_start_audio_with_config_name(fastapi_test_client: TestClient) -> None:
+    """config_name on start loads LightConfig and set_light_config before start."""
+    from marvin_hue.api import dependencies
+    from marvin_hue.basics import LightConfig, LightSetting
+    from marvin_hue.colors import Color
+
+    cfg = LightConfig(
+        name="concentration",
+        settings=[LightSetting("Hue Play 1", Color(255, 200, 100, 200))],
+    )
+    manager = MagicMock()
+    manager.get_config.return_value = cfg
+
+    audio = MagicMock(spec=AudioMirror)
+    running = {"v": False}
+
+    def _start(**_kwargs):
+        running["v"] = True
+        return True
+
+    audio.is_running.side_effect = lambda: running["v"]
+    audio.start.side_effect = _start
+    audio.get_status.return_value = {
+        "running": True,
+        "mode": "audio",
+        "fps": 30,
+        "brightness": 200,
+        "config_name": "concentration",
+        "colors": {},
+        "bass": 0.0,
+        "mid": 0.0,
+        "treble": 0.0,
+    }
+    screen = MagicMock(spec=ScreenMirror)
+    screen.is_running.return_value = False
+    screen.get_status.return_value = {"running": False, "colors": {}}
+
+    orig_a = dependencies._audio_mirror
+    orig_s = dependencies._screen_mirror
+    orig_m = dependencies._manager
+    dependencies.set_audio_mirror(audio)
+    dependencies.set_screen_mirror(screen)
+    dependencies.set_manager(manager)
+    try:
+        response = fastapi_test_client.post(
+            "/mirror/start",
+            json={"mode": "audio", "profile": "party", "config_name": "concentration"},
+        )
+        assert response.status_code == 200
+        manager.get_config.assert_called_with("concentration")
+        audio.set_light_config.assert_called_once_with(cfg)
+        audio.start.assert_called_once_with(
+            fps=None, brightness=None, profile="party"
+        )
+    finally:
+        dependencies.set_audio_mirror(orig_a)
+        dependencies.set_screen_mirror(orig_s)
+        dependencies.set_manager(orig_m)
+
+
+def test_api_start_audio_without_config_clears_base(
+    fastapi_test_client: TestClient,
+) -> None:
+    from marvin_hue.api import dependencies
+
+    audio = MagicMock(spec=AudioMirror)
+    audio.is_running.return_value = False
+    audio.start.return_value = True
+    audio.get_status.return_value = {
+        "running": True,
+        "mode": "audio",
+        "fps": 30,
+        "brightness": 200,
+        "config_name": None,
+        "colors": {},
+        "bass": 0.0,
+        "mid": 0.0,
+        "treble": 0.0,
+    }
+    screen = MagicMock(spec=ScreenMirror)
+    screen.is_running.return_value = False
+    screen.get_status.return_value = {"running": False, "colors": {}}
+
+    orig_a = dependencies._audio_mirror
+    orig_s = dependencies._screen_mirror
+    dependencies.set_audio_mirror(audio)
+    dependencies.set_screen_mirror(screen)
+    try:
+        response = fastapi_test_client.post(
+            "/mirror/start", json={"mode": "audio", "profile": "chill"}
+        )
+        assert response.status_code == 200
+        audio.set_light_config.assert_called_once_with(None)
+    finally:
+        dependencies.set_audio_mirror(orig_a)
+        dependencies.set_screen_mirror(orig_s)
+
+
+def test_api_start_audio_unknown_config_404(
+    fastapi_test_client: TestClient,
+) -> None:
+    from marvin_hue.api import dependencies
+
+    manager = MagicMock()
+    manager.get_config.return_value = None
+    audio = MagicMock(spec=AudioMirror)
+    audio.is_running.return_value = False
+    screen = MagicMock(spec=ScreenMirror)
+    screen.is_running.return_value = False
+
+    orig_a = dependencies._audio_mirror
+    orig_s = dependencies._screen_mirror
+    orig_m = dependencies._manager
+    dependencies.set_audio_mirror(audio)
+    dependencies.set_screen_mirror(screen)
+    dependencies.set_manager(manager)
+    try:
+        response = fastapi_test_client.post(
+            "/mirror/start",
+            json={"mode": "audio", "config_name": "does-not-exist"},
+        )
+        assert response.status_code == 404
+        audio.start.assert_not_called()
+    finally:
+        dependencies.set_audio_mirror(orig_a)
+        dependencies.set_screen_mirror(orig_s)
+        dependencies.set_manager(orig_m)
+
+
+def test_api_settings_hot_swap_config_name(
+    fastapi_test_client: TestClient,
+) -> None:
+    from marvin_hue.api import dependencies
+    from marvin_hue.basics import LightConfig, LightSetting
+    from marvin_hue.colors import Color
+
+    cfg = LightConfig(
+        name="relax",
+        settings=[LightSetting("L1", Color(100, 50, 20, 150))],
+    )
+    manager = MagicMock()
+    manager.get_config.return_value = cfg
+
+    audio = MagicMock(spec=AudioMirror)
+    audio.is_running.return_value = True
+    audio.get_status.return_value = {
+        "running": True,
+        "mode": "audio",
+        "fps": 30,
+        "brightness": 200,
+        "config_name": "relax",
+        "colors": {},
+        "bass": 0.0,
+        "mid": 0.0,
+        "treble": 0.0,
+    }
+    screen = MagicMock(spec=ScreenMirror)
+    screen.is_running.return_value = False
+    screen.get_status.return_value = {"running": False, "colors": {}}
+
+    orig_a = dependencies._audio_mirror
+    orig_s = dependencies._screen_mirror
+    orig_m = dependencies._manager
+    dependencies.set_audio_mirror(audio)
+    dependencies.set_screen_mirror(screen)
+    dependencies.set_manager(manager)
+    try:
+        response = fastapi_test_client.post(
+            "/mirror/settings",
+            json={"mode": "audio", "config_name": "relax"},
+        )
+        assert response.status_code == 200
+        manager.get_config.assert_called_with("relax")
+        audio.set_light_config.assert_called_once_with(cfg)
+    finally:
+        dependencies.set_audio_mirror(orig_a)
+        dependencies.set_screen_mirror(orig_s)
+        dependencies.set_manager(orig_m)

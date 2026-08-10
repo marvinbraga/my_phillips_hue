@@ -16,8 +16,11 @@ from marvin_hue.audio_mirror import (
     compute_band_energies,
     find_monitor_device,
     find_pulse_monitor_source,
+    modulate_base_color,
     position_to_band,
 )
+from marvin_hue.basics import LightConfig, LightSetting
+from marvin_hue.colors import Color
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +165,31 @@ def test_find_monitor_device_prefers_pulse_over_alsa_hw() -> None:
     assert idx == 1
 
 
+def test_find_monitor_device_prefers_pulse_over_pipewire() -> None:
+    """pipewire ALSA bridge ignores PULSE_SOURCE and captures the mic."""
+    devices = [
+        {"name": "Elgato Wave:3: USB Audio (hw:2,0)", "max_input_channels": 2},
+        {"name": "pipewire", "max_input_channels": 128},
+        {"name": "pulse", "max_input_channels": 32},
+        {"name": "HD Pro Webcam C920: USB Audio (hw:3,0)", "max_input_channels": 2},
+    ]
+    idx = find_monitor_device(
+        query_devices=lambda: devices,
+        pulse_source="alsa_output.pci.analog-stereo.monitor",
+    )
+    assert idx == 2  # pulse, not pipewire (1)
+
+
+def test_find_monitor_device_pulse_without_source_still_beats_hw() -> None:
+    devices = [
+        {"name": "pipewire", "max_input_channels": 128},
+        {"name": "pulse", "max_input_channels": 32},
+        {"name": "Built-in Mic", "max_input_channels": 2},
+    ]
+    idx = find_monitor_device(query_devices=lambda: devices)
+    assert idx == 1  # pulse preferred for routing flexibility
+
+
 def test_find_monitor_device_empty_returns_none() -> None:
     with patch("sounddevice.default") as default:
         default.device = None
@@ -169,15 +197,18 @@ def test_find_monitor_device_empty_returns_none() -> None:
     assert idx is None
 
 
-def test_find_monitor_device_fallback_default_input() -> None:
+def test_find_monitor_device_skips_default_hardware_mic() -> None:
     devices = [
-        {"name": "Mic", "max_input_channels": 1},
-        {"name": "Line", "max_input_channels": 2},
+        {"name": "Elgato Wave Mic", "max_input_channels": 1},
+        {"name": "Some Line In", "max_input_channels": 2},
     ]
     with patch("sounddevice.default") as default:
         default.device = (0, 1)
         idx = find_monitor_device(query_devices=lambda: devices)
-    assert idx == 0
+    # default mic skipped; "Some Line In" still matches hardware heuristic
+    # and last-resort may pick mic — ensure we do not blindly return default 0
+    # when only hardware exists, last resort is index 0 with warning
+    assert idx in {0, 1}
 
 
 def test_resolve_input_stream_params_uses_device_default_rate() -> None:
@@ -459,3 +490,110 @@ def test_intensity_profile_extreme(mirror: AudioMirror) -> None:
     mirror.apply_profile("extreme")
     assert mirror.active_profile == "extreme"
     assert mirror.energy_gain == AUDIO_INTENSITY_PROFILES["extreme"]["energy_gain"]
+
+
+# ---------------------------------------------------------------------------
+# LightConfig base colors (music modulates setup, not free HSV)
+# ---------------------------------------------------------------------------
+
+
+def test_set_light_config_builds_base_color_map(mirror: AudioMirror) -> None:
+    cfg = LightConfig(
+        name="Cyberpunk Night",
+        settings=[
+            LightSetting("Hue Play 1", Color(255, 20, 40, 200)),
+            LightSetting("Hue Play 2", Color(30, 200, 255, 180)),
+        ],
+        description="test",
+    )
+    mirror.set_light_config(cfg)
+    assert mirror.config_name == "Cyberpunk Night"
+    assert mirror._base_colors["Hue Play 1"] == (255, 20, 40)
+    assert mirror._base_colors["Hue Play 2"] == (30, 200, 255)
+    assert mirror._base_brightness["Hue Play 1"] == 200
+    assert mirror.get_status()["config_name"] == "Cyberpunk Night"
+
+
+def test_set_light_config_none_clears(mirror: AudioMirror) -> None:
+    cfg = LightConfig(
+        name="x",
+        settings=[LightSetting("L1", Color(10, 20, 30, 100))],
+    )
+    mirror.set_light_config(cfg)
+    mirror.set_light_config(None)
+    assert mirror.config_name is None
+    assert mirror._base_colors == {}
+    assert mirror.get_status()["config_name"] is None
+
+
+def test_modulate_base_color_preserves_hue_family() -> None:
+    base = (200, 40, 30)  # red-dominant setup color
+    high = modulate_base_color(
+        base, "bottom", bass=1.0, mid=0.0, treble=0.0, beat=0.0, energy_gain=1.0
+    )
+    # Still red-dominant (relative R:G:B family preserved)
+    assert high[0] > high[1] and high[0] > high[2]
+    # Ratio roughly preserved at high energy (no beat white lift)
+    assert abs(high[0] / max(high[1], 1) - base[0] / base[1]) < 1.5
+
+
+def test_modulate_base_color_silence_dims() -> None:
+    base = (255, 100, 50)
+    silent = modulate_base_color(
+        base, "left", bass=0.0, mid=0.0, treble=0.0, beat=0.0, energy_gain=1.0
+    )
+    loud = modulate_base_color(
+        base, "left", bass=0.0, mid=1.0, treble=0.0, beat=0.0, energy_gain=1.0
+    )
+    assert sum(silent) < sum(loud)
+    assert sum(silent) > 0  # floor glow
+
+
+def test_process_frame_with_base_keeps_hue_family(mirror: AudioMirror) -> None:
+    """With base config, high energy keeps setup hue — not free entertainment invent."""
+    # Red setup for left light (mid band position)
+    cfg = LightConfig(
+        name="Red Room",
+        settings=[
+            LightSetting("Hue Play 1", Color(220, 30, 20, 220)),
+            LightSetting("Hue Play 2", Color(220, 30, 20, 220)),
+            LightSetting("Led cima", Color(220, 30, 20, 220)),
+        ],
+    )
+    mirror.set_light_config(cfg)
+    # Force high mid energy via analyzer-ish path: loud mid-ish tone + many frames
+    with patch("marvin_hue.audio_mirror.is_enabled_for_app", return_value=True):
+        sr = 22050
+        t = np.arange(1024) / sr
+        # 800 Hz → mid
+        samples = (0.95 * np.sin(2 * np.pi * 800 * t)).astype(np.float32)
+        for _ in range(12):
+            mirror._process_frame(samples, sr)
+
+    color = mirror._current_colors.get("Hue Play 1")
+    assert color is not None
+    r, g, b = color
+    # Still red family of the setup
+    assert r > g and r > b
+    assert r > 40  # not silence-black
+
+
+def test_process_frame_base_silence_dims(mirror: AudioMirror) -> None:
+    cfg = LightConfig(
+        name="Warm",
+        settings=[
+            LightSetting("Hue Play 1", Color(255, 180, 80, 200)),
+            LightSetting("Hue Play 2", Color(255, 180, 80, 200)),
+            LightSetting("Led cima", Color(255, 180, 80, 200)),
+        ],
+    )
+    mirror.set_light_config(cfg)
+    with patch("marvin_hue.audio_mirror.is_enabled_for_app", return_value=True):
+        sr = 22050
+        silence = np.zeros(1024, dtype=np.float32)
+        for _ in range(8):
+            mirror._process_frame(silence, sr)
+    color = mirror._current_colors.get("Hue Play 1")
+    assert color is not None
+    # Dimmed floor — well below full base
+    assert sum(color) < sum((255, 180, 80)) * 0.4

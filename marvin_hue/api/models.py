@@ -72,6 +72,22 @@ class MirrorStartRequest(BaseModel):
         pattern=r"^(auto|rest|entertainment)$",
         description="Transporte: auto (default) | rest | entertainment",
     )
+    config_name: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "Nome da LightConfig cujas cores base o modo audio modula "
+            "(omitir = free HSV; string vazia limpa)"
+        ),
+    )
+
+    @field_validator("config_name")
+    @classmethod
+    def sanitize_mirror_start_config_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        sanitized = re.sub(r"[^\w\s\-]", "", v).strip()
+        return sanitized or None
 
 
 class MirrorSettingsRequest(BaseModel):
@@ -109,6 +125,22 @@ class MirrorSettingsRequest(BaseModel):
         pattern=r"^(auto|rest|entertainment)$",
         description="Preferência de transporte (aplicada no próximo start)",
     )
+    config_name: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "Hot-swap da LightConfig base no modo audio "
+            "(omitir = não alterar; string vazia limpa)"
+        ),
+    )
+
+    @field_validator("config_name")
+    @classmethod
+    def sanitize_mirror_settings_config_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        sanitized = re.sub(r"[^\w\s\-]", "", v).strip()
+        return sanitized or None
 
 
 class MirrorProfileRequest(BaseModel):

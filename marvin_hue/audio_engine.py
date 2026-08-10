@@ -155,10 +155,10 @@ def entertainment_color(
     # Base hue from brightness of spectrum (centroid) + slow drift
     # low centroid → warm (0.0–0.12), high → cyan/blue (0.45–0.62)
     base_hue = 0.02 + c * 0.55
-    # Bass pulls hue toward red/magenta-warm
-    base_hue = (base_hue - 0.08 * b + 0.04 * t) % 1.0
-    # Slow phase wander (hue_speed scales)
-    base_hue = (base_hue + float(phase) * 0.12 * max(0.1, hue_speed)) % 1.0
+    # Bass pulls hard toward red/orange so music with kick isn't stuck green
+    base_hue = (base_hue - 0.18 * b - 0.06 * beat_v + 0.06 * t) % 1.0
+    # Slow phase wander (hue_speed scales) + caller phase offset (per-light)
+    base_hue = (base_hue + float(phase) * 0.22 * max(0.1, hue_speed)) % 1.0
 
     # Position roles
     if pos in {"left", "top-left", "bottom-left"}:
@@ -168,12 +168,12 @@ def entertainment_color(
         base_hue = (base_hue + 0.04 + 0.06 * max(0.0, bias)) % 1.0
         energy = 0.45 * b + 0.45 * m + 0.10 * t
     elif pos == "bottom":
-        # Bass dominant — warmer
-        base_hue = (base_hue * 0.35 + 0.02 * 0.65) % 1.0
+        # Bass dominant — keep warm (red/orange); don't wash to green
+        base_hue = (0.02 + 0.06 * (1.0 - b) + 0.04 * m) % 1.0
         energy = 0.70 * b + 0.20 * m + 0.10 * t
     elif pos == "top":
-        # Treble + beat flash — cooler
-        base_hue = (base_hue * 0.4 + 0.55 * 0.6) % 1.0
+        # Treble + beat flash — cooler cyan/blue
+        base_hue = (0.48 + 0.12 * t + 0.05 * beat_v) % 1.0
         energy = 0.15 * b + 0.25 * m + 0.60 * t
         energy = min(1.0, energy + 0.35 * beat_v)
     else:
@@ -639,28 +639,38 @@ class AudioAnalyzer:
         return max(0.0, min(1.0, (math.log(hz_c) - lo) / (hi - lo)))
 
     def _update_beat(self, mag: np.ndarray) -> float:
-        """Spectral flux onset → beat pulse 0..1 with decay + refractory."""
+        """Spectral flux onset → beat pulse 0..1 with decay + refractory.
+
+        Weight low/mid bins (kicks/snares) more than airy highs so continuous
+        music still produces readable beat flashes on the lights.
+        """
         if self._prev_mag is None or self._prev_mag.shape != mag.shape:
             self._prev_mag = mag.copy()
             self._beat_env *= float(self.config.beat_decay)
             return self._beat_env
 
-        diff = mag - self._prev_mag
-        flux = float(np.sum(np.maximum(diff, 0.0)))
+        diff = np.maximum(mag - self._prev_mag, 0.0)
         self._prev_mag = mag.copy()
+        n = diff.size
+        if n <= 1:
+            flux = float(np.sum(diff))
+        else:
+            # Emphasize lower ~40% of bins (bass/mid energy onsets)
+            weights = np.linspace(1.6, 0.35, n, dtype=np.float64)
+            flux = float(np.sum(diff * weights))
 
         # Adaptive threshold via EMA of flux
-        alpha = 0.15
+        alpha = 0.12
         delta = flux - self._flux_ema
         self._flux_ema += alpha * delta
         self._flux_var = (1.0 - alpha) * self._flux_var + alpha * (delta * delta)
         std = math.sqrt(max(self._flux_var, 1e-12))
         sens = max(0.3, min(2.5, float(self.config.beat_sensitivity)))
-        # Higher sensitivity → lower threshold
-        thresh = self._flux_ema + (1.55 / sens) * std
+        # Higher sensitivity → lower threshold (easier onsets)
+        thresh = self._flux_ema + (1.05 / sens) * std
         onset = 0.0
-        if flux > thresh and flux > 1e-8:
-            onset = min(1.0, (flux - thresh) / (thresh + 1e-9) * 0.55 * sens)
+        if flux > thresh and flux > 1e-9:
+            onset = min(1.0, (flux - thresh) / (thresh + 1e-9) * 0.85 * sens)
             onset = max(0.0, min(1.0, onset))
 
         decay = max(0.5, min(0.98, float(self.config.beat_decay)))
@@ -669,13 +679,13 @@ class AudioAnalyzer:
             self._beat_refractory -= 1
             self._beat_env *= decay
             # Still allow a stronger late peak to punch through slightly
-            if onset > self._beat_env * 1.4:
-                self._beat_env = min(1.0, 0.55 * self._beat_env + 0.55 * onset)
-                self._beat_refractory = _BEAT_REFRACTORY_FRAMES
+            if onset > self._beat_env * 1.25:
+                self._beat_env = min(1.0, 0.4 * self._beat_env + 0.7 * onset)
+                self._beat_refractory = max(2, _BEAT_REFRACTORY_FRAMES // 2)
         elif onset > self._beat_env:
             # Snappier attack on beat envelope
-            self._beat_env = min(1.0, 0.18 * self._beat_env + 0.92 * onset)
-            self._beat_refractory = _BEAT_REFRACTORY_FRAMES
+            self._beat_env = min(1.0, 0.12 * self._beat_env + 0.95 * onset)
+            self._beat_refractory = max(2, _BEAT_REFRACTORY_FRAMES // 2)
         else:
             self._beat_env *= decay
         return max(0.0, min(1.0, self._beat_env))

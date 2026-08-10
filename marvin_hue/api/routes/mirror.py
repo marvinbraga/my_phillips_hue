@@ -16,10 +16,12 @@ from marvin_hue.api.dependencies import (
     get_audio_mirror,
     get_entertainment_client,
     get_hue_controller,
+    get_manager,
     get_scene_history_service,
     get_screen_mirror,
     set_entertainment_client,
 )
+from marvin_hue.basics import LightSetupsManager
 from marvin_hue.api.models import (
     EntertainmentPairRequest,
     MirrorProfileRequest,
@@ -315,6 +317,7 @@ async def start_mirror(
     audio_mirror: AudioMirror = Depends(get_audio_mirror),
     hue: HueController = Depends(get_hue_controller),
     ent_client: EntertainmentClient | None = Depends(get_entertainment_client),
+    manager: LightSetupsManager = Depends(get_manager),
 ):
     """
     Inicia espelhamento de tela ou áudio.
@@ -345,6 +348,21 @@ async def start_mirror(
             )
         _stop_if_running(screen_mirror)
         try:
+            # Base colors from selected LightConfig (modulated by audio).
+            # No config_name → free entertainment HSV path (explicit clear).
+            if request.config_name:
+                cfg = manager.get_config(request.config_name)
+                if cfg is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=(
+                            f"Configuração '{request.config_name}' não encontrada"
+                        ),
+                    )
+                audio_mirror.set_light_config(cfg)
+            else:
+                audio_mirror.set_light_config(None)
+
             port = await prepare_audio_output_port(
                 audio_mirror,
                 hue,
@@ -370,6 +388,8 @@ async def start_mirror(
                 "message": "Espelhamento de música iniciado",
                 "status": _unified_status(screen_mirror, audio_mirror),
             }
+        except HTTPException:
+            raise
         except RuntimeError as e:
             raise HTTPException(status_code=503, detail=str(e)) from e
         except ValueError as e:
@@ -512,6 +532,7 @@ async def update_mirror_settings(
     request: MirrorSettingsRequest,
     screen_mirror: ScreenMirror = Depends(get_screen_mirror),
     audio_mirror: AudioMirror = Depends(get_audio_mirror),
+    manager: LightSetupsManager = Depends(get_manager),
 ):
     """Atualiza configurações do modo ativo (ou mode explícito)."""
     global _pending_transport_preference, _pending_area_id
@@ -546,6 +567,24 @@ async def update_mirror_settings(
                 audio_mirror.transition_time = request.transition_time
             if request.energy_gain is not None:
                 audio_mirror.energy_gain = request.energy_gain
+            # Hot-swap LightConfig base colors when config_name present in body.
+            # Field was provided only if client sent it (None after sanitize of "").
+            # Use model_fields_set so omit ≠ explicit null/empty clear.
+            if "config_name" in request.model_fields_set:
+                if request.config_name:
+                    cfg = manager.get_config(request.config_name)
+                    if cfg is None:
+                        raise HTTPException(
+                            status_code=404,
+                            detail=(
+                                f"Configuração '{request.config_name}' não encontrada"
+                            ),
+                        )
+                    audio_mirror.set_light_config(cfg)
+                else:
+                    audio_mirror.set_light_config(None)
+        except HTTPException:
+            raise
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         return {
