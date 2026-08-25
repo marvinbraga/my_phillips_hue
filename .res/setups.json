@@ -5735,6 +5735,84 @@
           }
         }
       ]
+    },
+    {
+      "name": "arquiteto_sistemas_em_flow",
+      "description": "Teal profundo + índigo suave para clareza de arquitetura em flow, teto legível e um único acento de cobre — sem neon, sem café, sem amarelo-claro.",
+      "settings": [
+        {
+          "light_name": "Lâmpada 2",
+          "color": {
+            "red": 197,
+            "green": 239,
+            "blue": 250,
+            "brightness": 200
+          }
+        },
+        {
+          "light_name": "Lâmpada 1",
+          "color": {
+            "red": 207,
+            "green": 244,
+            "blue": 242,
+            "brightness": 210
+          }
+        },
+        {
+          "light_name": "Hue Iris",
+          "color": {
+            "red": 246,
+            "green": 148,
+            "blue": 78,
+            "brightness": 118
+          }
+        },
+        {
+          "light_name": "Hue Play 1",
+          "color": {
+            "red": 55,
+            "green": 229,
+            "blue": 255,
+            "brightness": 158
+          }
+        },
+        {
+          "light_name": "Hue Play 2",
+          "color": {
+            "red": 111,
+            "green": 136,
+            "blue": 255,
+            "brightness": 145
+          }
+        },
+        {
+          "light_name": "Fita Led",
+          "color": {
+            "red": 114,
+            "green": 128,
+            "blue": 131,
+            "brightness": 52
+          }
+        },
+        {
+          "light_name": "Lâmpada 4",
+          "color": {
+            "red": 199,
+            "green": 236,
+            "blue": 245,
+            "brightness": 196
+          }
+        },
+        {
+          "light_name": "Led cima",
+          "color": {
+            "red": 118,
+            "green": 130,
+            "blue": 149,
+            "brightness": 55
+          }
+        }
+      ]
     }
   ]
 }
