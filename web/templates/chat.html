@@ -126,6 +126,20 @@
             background: #dc3545;
         }
 
+        .model-badge {
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+        }
+
+        [data-bs-theme="dark"] .model-badge {
+            background: rgba(255, 255, 255, 0.14);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
         .chat-messages {
             flex: 1 1 auto;
             min-height: 0;
@@ -372,6 +386,11 @@
                 font-size: 1.15rem;
             }
 
+            .chat-header .status {
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+
             .chat-input {
                 padding: 0.6rem 0.75rem;
                 padding-bottom: max(0.6rem, env(safe-area-inset-bottom, 0px));
@@ -496,6 +515,7 @@
                     <div class="status">
                         <span class="status-dot" id="status-dot"></span>
                         <span id="status-text">Conectando...</span>
+                        <span class="badge model-badge" id="model-badge" hidden>—</span>
                     </div>
                 </div>
                 <div class="lights-panel" id="lights-panel">
@@ -833,6 +853,12 @@
             try {
                 const response = await fetch('/api/chat/status');
                 const data = await response.json();
+                const modelBadge = document.getElementById('model-badge');
+
+                if (data.provider && data.model) {
+                    modelBadge.textContent = `${data.provider} · ${data.model}`;
+                    modelBadge.hidden = false;
+                }
 
                 if (!data.available) {
                     addMessage(`Aviso: ${data.error}`, 'error');

@@ -39,23 +39,35 @@ async def chat_page(request: Request):
     return templates.TemplateResponse(request, "chat.html", {"active": "chat"})
 
 
+def _status_provider_model(chat_agent: HueLightAgent | None) -> tuple[str, str]:
+    """Provider/model efetivos: config do agente vivo, senão settings."""
+    if chat_agent is not None:
+        live = getattr(chat_agent, "_config", None)
+        provider = getattr(live, "provider", None)
+        model = getattr(live, "model", None)
+        if provider and model:
+            return str(provider), str(model)
+    return settings.chat_provider, settings.chat_model
+
+
 @router.get("/api/chat/status")
 async def chat_status(chat_agent: HueLightAgent | None = Depends(get_chat_agent)):
     """Retorna o status do agente de chat."""
+    provider, model = _status_provider_model(chat_agent)
     if chat_agent is None:
         reason = get_chat_unavailable_reason()
         return {
             "available": False,
             "error": reason
             or "Agente de chat não inicializado. Verifique as chaves de API.",
-            "provider": settings.chat_provider,
-            "model": settings.chat_model,
+            "provider": provider,
+            "model": model,
         }
 
     return {
         "available": True,
-        "provider": settings.chat_provider,
-        "model": settings.chat_model,
+        "provider": provider,
+        "model": model,
     }
 
 

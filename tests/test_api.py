@@ -294,6 +294,10 @@ class TestPageEndpoints:
         response = fastapi_test_client.get("/chat")
 
         assert response.status_code in [200, 307]
+        if response.status_code == 200:
+            html = response.text
+            assert 'id="model-badge"' in html
+            assert "/api/chat/status" in html
 
 
 class TestChatEndpoints:
@@ -301,14 +305,20 @@ class TestChatEndpoints:
 
     def test_chat_status(self, fastapi_test_client):
         """Test GET /api/chat/status endpoint."""
+        from marvin_hue.config import settings
+
         response = fastapi_test_client.get("/api/chat/status")
 
         assert response.status_code == 200
         data = response.json()
         assert "available" in data
+        assert data["provider"] == settings.chat_provider
+        assert data["model"] == settings.chat_model
 
     def test_chat_status_unavailable(self, fastapi_test_client):
         """Test chat status when agent is unavailable includes diagnostic reason."""
+        from marvin_hue.config import settings
+
         response = fastapi_test_client.get("/api/chat/status")
         data = response.json()
 
@@ -317,10 +327,37 @@ class TestChatEndpoints:
         assert data["available"] is False
         assert "error" in data
         assert "XAI_API_KEY" in data["error"]
-        assert "provider" in data
-        assert "model" in data
+        assert data["provider"] == settings.chat_provider
+        assert data["model"] == settings.chat_model
         # Must not leak secret-looking material beyond env var *names*
         assert "sk-" not in data["error"].lower()
+
+    def test_chat_status_uses_live_agent_config(self, fastapi_test_client):
+        """When an agent is present, provider/model come from its live config."""
+        from types import SimpleNamespace
+
+        from marvin_hue.api import dependencies
+        from marvin_hue.config import settings
+
+        live_provider = "xai" if settings.chat_provider != "xai" else "anthropic"
+        live_model = (
+            "grok-4.6" if settings.chat_model != "grok-4.6" else "claude-sonnet"
+        )
+        fake_agent = SimpleNamespace(
+            _config=SimpleNamespace(provider=live_provider, model=live_model)
+        )
+        dependencies.set_chat_agent(fake_agent)
+
+        response = fastapi_test_client.get("/api/chat/status")
+        data = response.json()
+
+        assert response.status_code == 200
+        assert data["available"] is True
+        assert data["provider"] == live_provider
+        assert data["model"] == live_model
+        assert data["provider"] != settings.chat_provider or data[
+            "model"
+        ] != settings.chat_model
 
     def test_send_chat_message_unavailable(self, fastapi_test_client):
         """Test sending message when chat is unavailable returns diagnostic 503."""
