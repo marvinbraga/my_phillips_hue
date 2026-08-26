@@ -91,7 +91,7 @@
         setText('schedules-enabled', schedules.enabled_count);
         setText(
             'schedules-runner',
-            schedules.runner_alive ? 'vivo' : 'não iniciado (fase E)'
+            schedules.runner_alive ? 'em execução' : 'parado'
         );
 
         setText('health-updated', 'Atualizado: ' + formatTs(data.timestamp));

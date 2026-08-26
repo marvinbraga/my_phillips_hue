@@ -16,6 +16,8 @@ from marvin_hue.controllers import HueController
 from marvin_hue.logging_config import get_logger
 from marvin_hue.screen_mirror import ScreenMirror
 from marvin_hue.services.light_registry import LightRegistryService
+from marvin_hue.services.schedule_runner import ScheduleRunner
+from marvin_hue.services.schedule_service import ScheduleService
 
 logger = get_logger("services.health")
 
@@ -27,6 +29,8 @@ async def collect_health(
     chat_agent: HueLightAgent | None,
     chat_reason: str | None,
     registry: LightRegistryService | None,
+    schedule_runner: ScheduleRunner | None = None,
+    schedule_service: ScheduleService | None = None,
 ) -> dict[str, Any]:
     """Build the health snapshot for API and dashboard.
 
@@ -43,7 +47,7 @@ async def collect_health(
         "reason": None if chat_agent is not None else chat_reason,
     }
     registry_block = await _registry_block(registry)
-    schedules_block = _schedules_block()
+    schedules_block = await _schedules_block(schedule_runner, schedule_service)
 
     return {
         "bridge": bridge_block,
@@ -92,7 +96,9 @@ async def _lights_block(
     if registry is not None:
         try:
             registered = await registry.list_lights(include_deleted=False)
-            disabled_in_app = sum(1 for light in registered if not light.enabled_for_app)
+            disabled_in_app = sum(
+                1 for light in registered if not light.enabled_for_app
+            )
         except Exception as exc:
             logger.warning(f"Health registry disabled count failed: {exc}")
 
@@ -140,9 +146,25 @@ async def _registry_block(
     }
 
 
-def _schedules_block() -> dict[str, Any]:
-    """Placeholder until schedule runner is wired into lifespan."""
+def _runner_alive(runner: ScheduleRunner | None) -> bool:
+    if runner is None:
+        return False
+    return bool(runner.is_running)
+
+
+async def _schedules_block(
+    runner: ScheduleRunner | None,
+    schedule_service: ScheduleService | None,
+) -> dict[str, Any]:
+    enabled_count = 0
+    if schedule_service is not None:
+        try:
+            schedules = await schedule_service.list_schedules()
+            enabled_count = sum(1 for item in schedules if item.enabled)
+        except Exception as exc:
+            logger.warning(f"Health schedules count failed: {exc}")
+
     return {
-        "enabled_count": 0,
-        "runner_alive": False,
+        "enabled_count": enabled_count,
+        "runner_alive": _runner_alive(runner),
     }

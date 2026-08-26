@@ -51,9 +51,23 @@ class TestHealthApi:
         schedules = data["schedules"]
         assert "enabled_count" in schedules
         assert "runner_alive" in schedules
+        # Fixture does not start ScheduleRunner
+        assert schedules["runner_alive"] is False
+        assert isinstance(schedules["enabled_count"], int)
 
         # ISO-like timestamp
         datetime.fromisoformat(data["timestamp"])
+
+    def test_api_health_runner_alive_when_injected(self, fastapi_test_client):
+        from types import SimpleNamespace
+
+        from marvin_hue.api import dependencies
+
+        dependencies.set_schedule_runner(SimpleNamespace(is_running=True))
+        response = fastapi_test_client.get("/api/health")
+        assert response.status_code == 200
+        schedules = response.json()["schedules"]
+        assert schedules["runner_alive"] is True
 
     def test_api_health_bridge_connected_with_mock(self, fastapi_test_client):
         response = fastapi_test_client.get("/api/health")
@@ -103,9 +117,32 @@ class TestHealthApi:
         assert mirror["running"] is True
         assert mirror["fps"] == 30
 
-    def test_api_health_registry_last_sync(
-        self, fastapi_test_client, monkeypatch
-    ):
+    def test_api_health_enabled_count_from_live_service(self, fastapi_test_client):
+        created = fastapi_test_client.post(
+            "/api/schedules",
+            json={
+                "name": "health-probe",
+                "time_hhmm": "07:30",
+                "action_type": "power_on",
+                "enabled": True,
+            },
+        )
+        assert created.status_code == 201, created.text
+        disabled = fastapi_test_client.post(
+            "/api/schedules",
+            json={
+                "name": "health-probe-off",
+                "time_hhmm": "08:00",
+                "action_type": "power_off",
+                "enabled": False,
+            },
+        )
+        assert disabled.status_code == 201, disabled.text
+        response = fastapi_test_client.get("/api/health")
+        assert response.status_code == 200
+        assert response.json()["schedules"]["enabled_count"] == 1
+
+    def test_api_health_registry_last_sync(self, fastapi_test_client, monkeypatch):
         from marvin_hue.api import dependencies
 
         svc = dependencies.get_light_registry_service()

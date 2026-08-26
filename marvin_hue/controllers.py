@@ -1,11 +1,13 @@
 from typing import Any
+
 from phue import Bridge, Light
 
+from marvin_hue.apply_result import ApplyResult
+from marvin_hue.basics import LightConfig, LightSetting
 from marvin_hue.colors import Color
-from marvin_hue.basics import LightConfig
 from marvin_hue.eye_safety import clamp_eye_safety, is_enabled_for_app
-from marvin_hue.utils import RGBtoXYAdapter, ColorConverter
 from marvin_hue.logging_config import get_logger
+from marvin_hue.utils import ColorConverter, RGBtoXYAdapter
 
 logger = get_logger("controllers")
 
@@ -45,7 +47,7 @@ class HueController:
             logger.error(f"Erro ao conectar à bridge {ip_address}: {e}")
             raise ConnectionError(f"Não foi possível conectar à bridge Hue: {e}") from e
 
-    def set_light_color(self, light_name: str, color: Color) -> Light:
+    def set_light_color(self, light_name: str, color: Color) -> None:
         """
         Define a cor de uma lâmpada específica.
 
@@ -53,31 +55,15 @@ class HueController:
             light_name: Nome da lâmpada
             color: Objeto Color com RGB e brightness
 
-        Returns:
-            Light: Objeto da lâmpada atualizada
-
         Raises:
             ValueError: Se a lâmpada não for encontrada ou valores forem inválidos
         """
         logger.debug(
-            f"Setting light '{light_name}' to RGB({color.red}, {color.green}, {color.blue}), brightness={color.brightness}"
+            f"Setting light '{light_name}' to RGB({color.red}, {color.green}, "
+            f"{color.blue}), brightness={color.brightness}"
         )
 
-        # Verifica se a lâmpada existe
-        light = self._get_light_by_name(light_name)
-        if light is None:
-            logger.warning(f"Light '{light_name}' not found")
-            raise ValueError(
-                f"Lâmpada '{light_name}' não encontrada. Lâmpadas disponíveis: {self.list_lights()}"
-            )
-
-        if not is_enabled_for_app(light_name):
-            logger.warning(
-                f"Light '{light_name}' desabilitada no app (enabled_for_app=false); skip set_light_color"
-            )
-            raise ValueError(
-                f"Lâmpada '{light_name}' desabilitada no app (enabled_for_app=false)"
-            )
+        light = self._require_light(light_name)
 
         try:
             # Converte RGB para XY (já validado em RGBtoXYAdapter)
@@ -85,9 +71,7 @@ class HueController:
 
             # Valida coordenadas XY
             if not self._validate_xy(xy):
-                logger.warning(
-                    f"Coordenadas XY fora do gamut: {xy}, usando valores corrigidos"
-                )
+                logger.warning(f"Coordenadas XY fora do gamut: {xy}, usando valores corrigidos")
                 xy = self._clamp_xy(xy)
 
             # Aplica as configurações.
@@ -97,7 +81,6 @@ class HueController:
             light.xy = xy
             light.brightness = clamp_eye_safety(light_name, color.brightness, scale="hue")
             logger.debug(f"Successfully applied color to '{light_name}'")
-            return light
 
         except ValueError as e:
             logger.error(f"Erro ao definir cor para '{light_name}': {e}")
@@ -106,37 +89,45 @@ class HueController:
             logger.error(f"Erro inesperado ao definir cor para '{light_name}': {e}")
             raise RuntimeError(f"Erro ao aplicar cor: {e}") from e
 
+    def set_transition_time(self, light_name: str, tenths: int) -> None:
+        """Set Hue transition time in tenths of a second (phue ``transitiontime``).
+
+        Hides ``phue.Light`` from callers that previously mutated the object
+        returned by ``set_light_color``.
+        """
+        if tenths < 0:
+            raise ValueError(f"Transition time negativo: {tenths}")
+        light = self._require_light(light_name)
+        light.transitiontime = int(tenths)
+        logger.debug(f"Transition time for '{light_name}' set to {tenths} tenths")
+
     def apply_light_config(
         self, light_config: LightConfig, transition_time_secs: float = 0
-    ) -> "HueController":
-        """
-        Aplica uma configuração completa de iluminação.
+    ) -> ApplyResult:
+        """Apply a full lighting configuration, one light at a time.
 
-        Args:
-            light_config: Configuração de iluminação
-            transition_time_secs: Tempo de transição em segundos (0 = imediato)
+        Disabled lights (``enabled_for_app=false``) are skipped and omitted
+        from both ``applied`` and ``failed``. Per-light errors are recorded
+        and do not abort the remaining settings.
 
         Returns:
-            HueController: Self para encadeamento
-
-        Raises:
-            ValueError: Se houver erros na configuração
+            ApplyResult: names that succeeded and (name, error) pairs that failed.
         """
         if not light_config or not hasattr(light_config, "settings"):
             raise ValueError("LightConfig inválido")
 
-        # Valida transition_time
         if transition_time_secs < 0:
-            logger.warning(
-                f"Transition time negativo ({transition_time_secs}), usando 0"
-            )
+            logger.warning(f"Transition time negativo ({transition_time_secs}), usando 0")
             transition_time_secs = 0
 
         logger.info(
-            f"Applying configuration '{light_config.name}' with {len(light_config.settings)} lights (transition: {transition_time_secs}s)"
+            f"Applying configuration '{light_config.name}' with "
+            f"{len(light_config.settings)} lights "
+            f"(transition: {transition_time_secs}s)"
         )
 
-        errors = []
+        applied: list[str] = []
+        failed: list[tuple[str, str]] = []
         for setting in light_config.settings:
             if not is_enabled_for_app(setting.light_name):
                 logger.debug(
@@ -144,27 +135,45 @@ class HueController:
                 )
                 continue
             try:
-                light = self.set_light_color(setting.light_name, setting.color)
-                if transition_time_secs > 0:
-                    # Hue usa décimos de segundo (transitiontime * 10)
-                    light.transitiontime = int(transition_time_secs * 10)
-                light.on = True
+                self._apply_one_setting(setting, transition_time_secs)
             except ValueError as e:
-                logger.warning(
-                    f"Erro ao aplicar configuração para '{setting.light_name}': {e}"
-                )
-                errors.append(str(e))
-            except Exception as e:
+                logger.warning(f"Erro ao aplicar configuração para '{setting.light_name}': {e}")
+                failed.append((setting.light_name, str(e)))
+            except Exception as e:  # noqa: BLE001 — isolate per-light failures
                 logger.error(
                     f"Erro inesperado ao aplicar configuração para '{setting.light_name}': {e}"
                 )
-                errors.append(str(e))
+                failed.append((setting.light_name, str(e)))
+            else:
+                applied.append(setting.light_name)
 
-        if errors:
-            logger.warning(f"Configuração aplicada com {len(errors)} erro(s): {errors}")
+        result = ApplyResult(applied=tuple(applied), failed=tuple(failed))
+        if result.failed:
+            logger.warning(
+                f"Configuração aplicada com {len(result.failed)} erro(s): {list(result.failed)}"
+            )
+        else:
+            logger.info(f"Configuration '{light_config.name}' applied successfully")
+        return result
 
-        logger.info(f"Configuration '{light_config.name}' applied successfully")
-        return self
+    def _apply_one_setting(self, setting: LightSetting, transition_time_secs: float) -> None:
+        """Apply one setting; raises on failure (caught by apply_light_config)."""
+        self.set_light_color(setting.light_name, setting.color)
+        if transition_time_secs > 0:
+            self.set_transition_time(setting.light_name, int(transition_time_secs * 10))
+        self.turn_on(setting.light_name)
+
+    def _require_light(self, light_name: str) -> Light:
+        light = self._get_light_by_name(light_name)
+        if light is None:
+            logger.warning(f"Light '{light_name}' not found")
+            raise ValueError(
+                f"Lâmpada '{light_name}' não encontrada. Lâmpadas disponíveis: {self.list_lights()}"
+            )
+        if not is_enabled_for_app(light_name):
+            logger.warning(f"Light '{light_name}' desabilitada no app (enabled_for_app=false)")
+            raise ValueError(f"Lâmpada '{light_name}' desabilitada no app (enabled_for_app=false)")
+        return light
 
     def _refresh_cache(self) -> None:
         """
@@ -359,9 +368,7 @@ class HueController:
                     }  # Cinza quando desligada
                 lights_status.append(status)
             except Exception as e:
-                logger.warning(
-                    f"Error getting status for light '{light.name}': {str(e)}"
-                )
+                logger.warning(f"Error getting status for light '{light.name}': {e!s}")
                 # Adiciona status mínimo para lâmpadas com erro
                 lights_status.append(
                     {
@@ -375,7 +382,7 @@ class HueController:
                 )
         return lights_status
 
-    def _xy_to_rgb(self, xy: tuple, brightness: int = 254) -> tuple[int, int, int]:
+    def _xy_to_rgb(self, xy: tuple[float, float], brightness: int = 254) -> tuple[int, int, int]:
         """
         DEPRECATED: Use ColorConverter.xy_to_rgb() instead.
 

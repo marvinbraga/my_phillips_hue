@@ -53,17 +53,46 @@ class LightRegistryService:
         await self._repo.close()
 
     async def refresh_runtime_policy(self) -> None:
-        """Push active registry eye limits + disabled names into eye_safety cache."""
+        """Push active registry eye limits + disabled names into eye_safety cache.
+
+        NULL `eye_safety_limit_pct` rows whose name is in EYE_SAFETY_LIMITS are
+        persisted with that fallback so the catalog is not NULL forever.
+        Hardcoded EYE_SAFETY_LIMITS remains the runtime fallback.
+        """
         from marvin_hue.eye_safety import set_runtime_policy
 
         lights = await self._repo.list_all(include_deleted=False)
         limits: dict[str, int | None] = {}
         disabled: set[str] = set()
         for light in lights:
-            limits[light.name] = light.eye_safety_limit_pct
-            if not light.enabled_for_app:
-                disabled.add(light.name)
+            seeded = await self._seed_eye_safety_if_null(light)
+            limits[seeded.name] = seeded.eye_safety_limit_pct
+            if not seeded.enabled_for_app:
+                disabled.add(seeded.name)
         set_runtime_policy(limits_pct=limits, disabled_names=disabled)
+
+    async def _seed_eye_safety_if_null(self, light: RegisteredLight) -> RegisteredLight:
+        from marvin_hue.eye_safety import EYE_SAFETY_LIMITS
+
+        if light.eye_safety_limit_pct is not None:
+            return light
+        fallback = EYE_SAFETY_LIMITS.get(light.name)
+        if fallback is None:
+            return light
+        seeded = RegisteredLight(
+            id=light.id,
+            name=light.name,
+            nickname=light.nickname,
+            room=light.room,
+            notes=light.notes,
+            bridge_light_id=light.bridge_light_id,
+            eye_safety_limit_pct=fallback,
+            enabled_for_app=light.enabled_for_app,
+            deleted_at=light.deleted_at,
+            created_at=light.created_at,
+            updated_at=datetime.now(timezone.utc),
+        )
+        return await self._repo.update(seeded)
 
     async def list_lights(
         self, *, include_deleted: bool = False
@@ -88,9 +117,7 @@ class LightRegistryService:
     ) -> RegisteredLight:
         existing = await self._repo.get_by_name(name.strip(), include_deleted=False)
         if existing is not None:
-            raise LightConflictError(
-                f"Active light with name {name!r} already exists"
-            )
+            raise LightConflictError(f"Active light with name {name!r} already exists")
 
         now = datetime.now(timezone.utc)
         light = RegisteredLight(

@@ -56,17 +56,17 @@
     },
     {
       "name": "Hue Play 1",
-      "location": "Frente, lado direito, atrás do monitor",
-      "position_relative_to_user": "front_right_behind_monitor",
-      "distance": "close",
-      "notes": "Iluminação de acento por trás do monitor, lado direito"
-    },
-    {
-      "name": "Hue Play 2",
       "location": "Frente, lado esquerdo, atrás do monitor",
       "position_relative_to_user": "front_left_behind_monitor",
       "distance": "close",
       "notes": "Iluminação de acento por trás do monitor, lado esquerdo"
+    },
+    {
+      "name": "Hue Play 2",
+      "location": "Frente, lado direito, atrás do monitor",
+      "position_relative_to_user": "front_right_behind_monitor",
+      "distance": "close",
+      "notes": "Iluminação de acento por trás do monitor, lado direito"
     },
     {
       "name": "Hue Iris",

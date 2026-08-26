@@ -9,6 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from marvin_hue.apply_result import ApplyResult
 from marvin_hue.basics import LightConfig, LightSetting
 from marvin_hue.colors import Color
 from marvin_hue.controllers import HueController
@@ -25,9 +26,7 @@ class TestHueControllerInitialization:
 
     def test_controller_bridge_connection(self, mock_phue_bridge, monkeypatch):
         """Test that controller connects to bridge."""
-        monkeypatch.setattr(
-            "marvin_hue.controllers.Bridge", lambda ip: mock_phue_bridge
-        )
+        monkeypatch.setattr("marvin_hue.controllers.Bridge", lambda _ip: mock_phue_bridge)
 
         HueController("192.168.1.100")
 
@@ -49,20 +48,26 @@ class TestHueControllerSetLightColor:
         """Test setting a light color."""
         color = Color(255, 128, 64, 200)
 
-        light = mock_hue_controller.set_light_color("Lâmpada 1", color)
+        result = mock_hue_controller.set_light_color("Lâmpada 1", color)
 
-        assert light is not None
+        assert result is None
+        light = mock_hue_controller._get_light_by_name("Lâmpada 1")
         assert light.brightness == 200
 
-    def test_set_light_color_returns_light(self, mock_hue_controller):
-        """Test that set_light_color returns the light object."""
+    def test_set_light_color_returns_none(self, mock_hue_controller):
+        """phue.Light stays behind the controller — no Light leak on the public API."""
         color = Color(100, 150, 200, 180)
 
         result = mock_hue_controller.set_light_color("Lâmpada 1", color)
 
-        assert result is not None
-        assert hasattr(result, "brightness")
-        assert hasattr(result, "xy")
+        assert result is None
+        light = mock_hue_controller._get_light_by_name("Lâmpada 1")
+        assert light.brightness == 180
+        assert hasattr(light, "xy")
+
+    def test_set_light_color_annotated_returns_none(self) -> None:
+        hints = HueController.set_light_color.__annotations__
+        assert hints["return"] in (type(None), None, "None")
 
     def test_set_light_color_with_different_colors(self, mock_hue_controller):
         """Test setting various colors."""
@@ -74,17 +79,18 @@ class TestHueControllerSetLightColor:
         ]
 
         for color in test_colors:
-            light = mock_hue_controller.set_light_color("Lâmpada 1", color)
-            assert light is not None
+            result = mock_hue_controller.set_light_color("Lâmpada 1", color)
+            assert result is None
+            light = mock_hue_controller._get_light_by_name("Lâmpada 1")
             assert light.brightness == color.brightness
 
     def test_set_light_color_updates_xy(self, mock_hue_controller):
         """Test that XY coordinates are updated."""
         color = Color(255, 100, 50, 200)
 
-        light = mock_hue_controller.set_light_color("Lâmpada 1", color)
+        mock_hue_controller.set_light_color("Lâmpada 1", color)
 
-        # Check that xy was set (mocked, but should be called)
+        light = mock_hue_controller._get_light_by_name("Lâmpada 1")
         assert hasattr(light, "xy")
 
     def test_set_light_nonexistent(self, mock_hue_controller):
@@ -95,6 +101,19 @@ class TestHueControllerSetLightColor:
         with pytest.raises(ValueError, match="não encontrada"):
             mock_hue_controller.set_light_color("Nonexistent Light", color)
 
+    def test_set_transition_time(self, mock_hue_controller):
+        mock_hue_controller.set_transition_time("Lâmpada 1", 20)
+        light = mock_hue_controller._get_light_by_name("Lâmpada 1")
+        assert light.transitiontime == 20
+
+    def test_set_transition_time_unknown_light_raises(self, mock_hue_controller):
+        with pytest.raises(ValueError, match="não encontrada"):
+            mock_hue_controller.set_transition_time("Ghost", 5)
+
+    def test_set_transition_time_rejects_negative(self, mock_hue_controller):
+        with pytest.raises(ValueError, match="negativ"):
+            mock_hue_controller.set_transition_time("Lâmpada 1", -1)
+
 
 class TestHueControllerApplyLightConfig:
     """Tests for applying light configurations."""
@@ -103,17 +122,17 @@ class TestHueControllerApplyLightConfig:
         """Test applying a light configuration."""
         result = mock_hue_controller.apply_light_config(sample_light_config)
 
-        assert result == mock_hue_controller
+        assert isinstance(result, ApplyResult)
 
-    def test_apply_light_config_with_transition(
-        self, mock_hue_controller, sample_light_config
-    ):
+    def test_apply_light_config_with_transition(self, mock_hue_controller, sample_light_config):
         """Test applying configuration with transition time."""
-        result = mock_hue_controller.apply_light_config(
-            sample_light_config, transition_time_secs=2
-        )
+        result = mock_hue_controller.apply_light_config(sample_light_config, transition_time_secs=2)
 
-        assert result == mock_hue_controller
+        assert isinstance(result, ApplyResult)
+        for name in result.applied:
+            light = mock_hue_controller._get_light_by_name(name)
+            assert light.transitiontime == 20
+            assert light.on is True
 
     def test_apply_light_config_processes_all_settings(self, mock_hue_controller):
         """Test that all settings in config are processed."""
@@ -134,8 +153,9 @@ class TestHueControllerApplyLightConfig:
 
         result = mock_hue_controller.apply_light_config(config)
 
-        # Should complete without error
-        assert result == mock_hue_controller
+        assert isinstance(result, ApplyResult)
+        assert result.ok is True
+        assert result.applied == ()
 
 
 class TestHueControllerLightLookup:
@@ -390,9 +410,7 @@ class TestHueControllerIntegration:
     def test_apply_config_workflow(self, mock_hue_controller, sample_light_config):
         """Test full workflow: apply config then verify."""
         # Apply configuration
-        mock_hue_controller.apply_light_config(
-            sample_light_config, transition_time_secs=1
-        )
+        mock_hue_controller.apply_light_config(sample_light_config, transition_time_secs=1)
 
         # Get status to verify (in mock, this won't show changes, but test the flow)
         status = mock_hue_controller.get_lights_status()
@@ -408,8 +426,8 @@ class TestHueControllerIntegration:
         ]
 
         for color in colors:
-            light = mock_hue_controller.set_light_color("Lâmpada 1", color)
-            assert light is not None
+            result = mock_hue_controller.set_light_color("Lâmpada 1", color)
+            assert result is None
 
 
 class TestHueControllerErrorHandling:
@@ -434,4 +452,7 @@ class TestHueControllerErrorHandling:
         # Should not raise exception
         result = mock_hue_controller.apply_light_config(config)
 
-        assert result == mock_hue_controller
+        assert isinstance(result, ApplyResult)
+        assert result.partial is True
+        assert "Lâmpada 1" in result.applied
+        assert result.failed[0][0] == "Invalid Light"

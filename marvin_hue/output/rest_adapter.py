@@ -34,12 +34,11 @@ class RestPhueAdapter:
                 continue
             try:
                 # HueController.set_light_color already clamps eye safety
-                light = self._hue.set_light_color(
+                self._hue.set_light_color(
                     c.light_name,
                     Color(c.r, c.g, c.b, max(0, min(254, int(c.brightness)))),
                 )
-                if light is not None:
-                    light.transitiontime = int(self.transition_time)
+                self._hue.set_transition_time(c.light_name, int(self.transition_time))
             except ValueError as e:
                 logger.debug(f"REST light '{c.light_name}' unavailable: {e}")
             except Exception as e:

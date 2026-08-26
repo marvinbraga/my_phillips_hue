@@ -4,64 +4,121 @@ Gerenciamento de conexões WebSocket para espelhamento e chat.
 """
 
 import asyncio
+from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from marvin_hue.api.dependencies import (
-    get_audio_mirror,
     get_chat_agent,
     get_chat_unavailable_reason,
-    get_entertainment_client,
-    get_hue_controller,
-    get_manager,
-    get_screen_mirror,
+    get_mirror_control_service,
 )
-from marvin_hue.api.routes.mirror import _unified_status, prepare_audio_output_port
 from marvin_hue.logging_config import get_logger
+from marvin_hue.services.mirror_control import (
+    MirrorAlreadyActiveError,
+    MirrorConfigNotFoundError,
+    MirrorControlService,
+    MirrorNotActiveError,
+    MirrorValidationError,
+)
 
 logger = get_logger("websockets")
 
 
-def _apply_audio_config_name(audio_mirror, config_name: object) -> None:
-    """
-    Hot-swap LightConfig base colors for audio mirror.
+async def dispatch_ws_mirror_action(
+    data: dict[str, Any],
+    service: MirrorControlService,
+) -> dict[str, Any] | None:
+    """Adapt a WS command payload to MirrorControlService start/stop/settings."""
+    action = data.get("action")
+    if action == "start":
+        mode = data.get("mode") or "screen"
+        try:
+            result = await service.start(
+                mode,
+                profile=data.get("profile"),
+                fps=data.get("fps"),
+                brightness=data.get("brightness"),
+                area_id=data.get("area_id"),
+                transport_preference=data.get("transport_preference"),
+                config_name=data.get("config_name"),
+            )
+        except MirrorAlreadyActiveError:
+            return None
+        except (
+            MirrorValidationError,
+            MirrorConfigNotFoundError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
+            logger.warning(f"Invalid mirror start: {exc}")
+            return {"error": str(exc), "running": False, "mode": mode}
+        if isinstance(result, dict):
+            status = result.get("status")
+            if isinstance(status, dict):
+                return status
+        return None
 
-    ``None`` / empty string clears the palette (free HSV path).
-    Unknown names are logged and ignored (keep current palette).
-    """
-    if config_name is None:
-        return
-    name = str(config_name).strip()
-    if not name:
-        audio_mirror.set_light_config(None)
-        return
-    try:
-        manager = get_manager()
-        cfg = manager.get_config(name)
-    except Exception as exc:
-        logger.warning(f"WS audio config resolve failed: {exc}")
-        return
-    if cfg is None:
-        logger.warning(f"WS audio config not found: {name!r}")
-        return
-    audio_mirror.set_light_config(cfg)
+    if action == "stop":
+        try:
+            await service.stop()
+        except MirrorNotActiveError:
+            return None
+        return service.unified_status()
+
+    if action == "settings":
+        try:
+            result = await service.apply_settings(
+                mode=data.get("mode"),
+                profile=data.get("profile"),
+                fps=data.get("fps") if "fps" in data else None,
+                brightness=data.get("brightness") if "brightness" in data else None,
+                saturation_boost=(
+                    data.get("saturation_boost") if "saturation_boost" in data else None
+                ),
+                smoothing_factor=(
+                    data.get("smoothing_factor") if "smoothing_factor" in data else None
+                ),
+                transition_time=(
+                    data.get("transition_time") if "transition_time" in data else None
+                ),
+                energy_gain=data.get("energy_gain") if "energy_gain" in data else None,
+                entertainment_area_id=data.get("entertainment_area_id"),
+                transport_preference=data.get("transport_preference"),
+                config_name=data.get("config_name"),
+                config_name_provided="config_name" in data,
+            )
+        except (
+            MirrorValidationError,
+            MirrorConfigNotFoundError,
+            ValueError,
+        ) as exc:
+            logger.warning(f"Invalid mirror settings: {exc}")
+            return {"error": str(exc)}
+        if isinstance(result, dict):
+            status = result.get("status")
+            if isinstance(status, dict):
+                return status
+        return None
+
+    return None
 
 
 class ConnectionManager:
     """Gerencia conexões WebSocket."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_connections: list[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self.active_connections.append(websocket)
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket) -> None:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
-    async def broadcast(self, message: dict):
+    async def broadcast(self, message: dict[str, Any]) -> None:
         """Envia mensagem para todas as conexões ativas."""
         disconnected = []
         for connection in self.active_connections:
@@ -77,14 +134,14 @@ class ConnectionManager:
 class ChatConnectionManager:
     """Gerencia conexões WebSocket do chat."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_connections: list[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self.active_connections.append(websocket)
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket) -> None:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
@@ -97,140 +154,30 @@ def setup_websockets(app: FastAPI) -> None:
     """Configura os endpoints WebSocket na aplicação."""
 
     @app.websocket("/ws/mirror")
-    async def websocket_mirror(websocket: WebSocket):
+    async def websocket_mirror(websocket: WebSocket) -> None:
         """WebSocket para streaming de cores/spectrum em tempo real."""
         await ws_manager.connect(websocket)
-        screen_mirror = get_screen_mirror()
-        audio_mirror = get_audio_mirror()
+        svc = get_mirror_control_service()
 
         try:
             while True:
-                any_running = screen_mirror.is_running() or audio_mirror.is_running()
-                if any_running:
-                    status = _unified_status(screen_mirror, audio_mirror)
+                status = svc.unified_status()
+                running = bool(status.get("running")) or status.get("mode") in (
+                    "screen",
+                    "audio",
+                )
+                if running:
                     await websocket.send_json(status)
-                    # Áudio precisa de espectro mais fluido (~25 FPS); tela ~12 FPS
-                    if audio_mirror.is_running():
-                        await asyncio.sleep(0.04)
-                    else:
-                        await asyncio.sleep(0.08)
+                    timeout = 0.04 if status.get("mode") == "audio" else 0.08
                 else:
-                    await asyncio.sleep(0.5)
-
+                    timeout = 0.5
                 try:
                     data = await asyncio.wait_for(
-                        websocket.receive_json(), timeout=0.01
+                        websocket.receive_json(), timeout=timeout
                     )
-                    action = data.get("action")
-                    mode = data.get("mode") or "screen"
-
-                    if action == "start":
-                        profile = data.get("profile")
-                        fps = data.get("fps")
-                        brightness = data.get("brightness")
-                        if mode == "audio":
-                            if audio_mirror.is_running():
-                                continue
-                            if screen_mirror.is_running():
-                                screen_mirror.stop()
-                            try:
-                                # Mirror HTTP /mirror/start wiring for Entertainment
-                                hue = get_hue_controller()
-                                ent_client = get_entertainment_client()
-                                try:
-                                    await prepare_audio_output_port(
-                                        audio_mirror, hue, ent_client
-                                    )
-                                except Exception as prep_exc:
-                                    logger.warning(
-                                        f"WS audio Entertainment prep failed "
-                                        f"(continuing with current port): {prep_exc}"
-                                    )
-                                # Apply palette before start (same as HTTP path)
-                                if "config_name" in data:
-                                    _apply_audio_config_name(
-                                        audio_mirror, data.get("config_name")
-                                    )
-                                audio_mirror.start(
-                                    fps=fps,
-                                    brightness=brightness,
-                                    profile=profile,
-                                )
-                            except (ValueError, RuntimeError) as e:
-                                logger.warning(f"Invalid audio mirror start: {e}")
-                                await websocket.send_json(
-                                    {"error": str(e), "running": False, "mode": "audio"}
-                                )
-                        else:
-                            if screen_mirror.is_running():
-                                continue
-                            if audio_mirror.is_running():
-                                audio_mirror.stop()
-                            try:
-                                screen_mirror.start(
-                                    fps=fps,
-                                    brightness=brightness,
-                                    profile=profile,
-                                )
-                            except ValueError as e:
-                                logger.warning(f"Invalid mirror start: {e}")
-
-                    elif action == "stop":
-                        if audio_mirror.is_running():
-                            audio_mirror.stop()
-                        if screen_mirror.is_running():
-                            screen_mirror.stop()
-
-                    elif action == "settings":
-                        target = data.get("mode") or (
-                            "audio"
-                            if audio_mirror.is_running()
-                            else "screen"
-                        )
-                        try:
-                            if target == "audio":
-                                if data.get("profile"):
-                                    audio_mirror.apply_profile(data["profile"])
-                                if "fps" in data:
-                                    audio_mirror.fps = data["fps"]
-                                if "brightness" in data:
-                                    audio_mirror.brightness = data["brightness"]
-                                if "smoothing_factor" in data:
-                                    audio_mirror.smoothing_factor = data[
-                                        "smoothing_factor"
-                                    ]
-                                if "transition_time" in data:
-                                    audio_mirror.transition_time = data[
-                                        "transition_time"
-                                    ]
-                                if "energy_gain" in data:
-                                    audio_mirror.energy_gain = data["energy_gain"]
-                                # Hot-swap setup palette (was missing — UI change did nothing)
-                                if "config_name" in data:
-                                    _apply_audio_config_name(
-                                        audio_mirror, data.get("config_name")
-                                    )
-                            else:
-                                if data.get("profile"):
-                                    screen_mirror.apply_profile(data["profile"])
-                                if "fps" in data:
-                                    screen_mirror.fps = data["fps"]
-                                if "brightness" in data:
-                                    screen_mirror.brightness = data["brightness"]
-                                if "saturation_boost" in data:
-                                    screen_mirror.saturation_boost = data[
-                                        "saturation_boost"
-                                    ]
-                                if "smoothing_factor" in data:
-                                    screen_mirror.smoothing_factor = data[
-                                        "smoothing_factor"
-                                    ]
-                                if "transition_time" in data:
-                                    screen_mirror.transition_time = data[
-                                        "transition_time"
-                                    ]
-                        except ValueError as e:
-                            logger.warning(f"Invalid mirror settings: {e}")
+                    reply = await dispatch_ws_mirror_action(data, svc)
+                    if reply is not None:
+                        await websocket.send_json(reply)
                 except asyncio.TimeoutError:
                     pass
 

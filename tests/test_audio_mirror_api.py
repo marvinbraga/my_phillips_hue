@@ -188,8 +188,8 @@ def test_stop_audio_when_running(fastapi_test_client: TestClient) -> None:
     try:
         response = fastapi_test_client.post("/mirror/stop")
         assert response.status_code == 200
-        audio.stop.assert_called_once()
-        screen.stop.assert_not_called()
+        audio.stop.assert_called_once_with(end_output=False)
+        screen.stop.assert_called_once_with(end_output=False)
     finally:
         dependencies.set_audio_mirror(orig_a)
         dependencies.set_screen_mirror(orig_s)

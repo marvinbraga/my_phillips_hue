@@ -4,6 +4,7 @@ Todos os modelos de validação de dados da API.
 """
 
 import re
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -15,7 +16,13 @@ class ApplyConfigRequest(BaseModel):
         default=0, ge=0, le=60, description="Tempo de transição em segundos"
     )
     duration_minutes: float | None = Field(
-        default=None, ge=0, le=1440, description="Duração em minutos"
+        default=None,
+        ge=0,
+        le=1440,
+        description=(
+            "Campo legado aceito por compatibilidade; ignorado. "
+            "Não agenda restauração automática das luzes."
+        ),
     )
 
     @field_validator("config_name")
@@ -24,6 +31,25 @@ class ApplyConfigRequest(BaseModel):
         """Remove caracteres potencialmente perigosos."""
         sanitized = re.sub(r"[^\w\s\-]", "", v)
         return sanitized.strip()
+
+
+class ApplyFailedLight(BaseModel):
+    name: str
+    error: str
+
+
+class ApplyConfigDetails(BaseModel):
+    config_name: str
+    transition_time_secs: float
+
+
+class ApplyConfigResponse(BaseModel):
+    """POST /apply body for 200 (ok), 207 (partial) and 500 (all failed)."""
+
+    message: str
+    applied: list[str]
+    failed: list[ApplyFailedLight]
+    details: ApplyConfigDetails
 
 
 class LightPosition(BaseModel):
@@ -46,10 +72,16 @@ class MirrorStartRequest(BaseModel):
         description="Modo: screen (tela) | audio (música)",
     )
     fps: int | None = Field(
-        default=None, ge=1, le=60, description="FPS para espelhamento (sobrescreve profile)"
+        default=None,
+        ge=1,
+        le=60,
+        description="FPS para espelhamento (sobrescreve profile)",
     )
     brightness: int | None = Field(
-        default=None, ge=0, le=254, description="Brilho das lâmpadas (sobrescreve profile)"
+        default=None,
+        ge=0,
+        le=254,
+        description="Brilho das lâmpadas (sobrescreve profile)",
     )
     profile: str | None = Field(
         default=None,
@@ -382,9 +414,7 @@ class ScheduleCreateRequest(BaseModel):
 
 class ScheduleUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    time_hhmm: str | None = Field(
-        default=None, pattern=r"^([01]\d|2[0-3]):([0-5]\d)$"
-    )
+    time_hhmm: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
     action_type: str | None = Field(
         default=None,
         pattern=r"^(apply_config|power_on|power_off|apply_group|turn_on|turn_off)$",
@@ -415,4 +445,3 @@ class ScheduleResponse(BaseModel):
     last_run_at: str | None
     created_at: str
     updated_at: str
-

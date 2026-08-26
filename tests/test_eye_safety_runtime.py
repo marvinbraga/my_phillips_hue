@@ -12,7 +12,9 @@ def teardown_function() -> None:
 
 
 def test_fallback_hardcoded_when_no_runtime() -> None:
+    assert es.EYE_SAFETY_LIMITS == {"Fita Led": 25, "Led cima": 25}
     assert es.eye_safety_limit_pct("Fita Led") == 25
+    assert es.eye_safety_limit_pct("Led cima") == 25
     assert es.eye_safety_limit_pct("Lâmpada 1") is None
 
 

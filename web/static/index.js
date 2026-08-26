@@ -365,7 +365,6 @@ function applyConfiguration(event) {
     }
 
     const transitionTimeSecs = $('#transition_time_secs').val() || 0;
-    const durationMinutes = $('#duration_minutes').val() || null;
 
     const btn = $('#apply-btn');
     const originalHtml = btn.html();
@@ -377,8 +376,7 @@ function applyConfiguration(event) {
         contentType: 'application/json',
         data: JSON.stringify({
             config_name: configName,
-            transition_time_secs: parseFloat(transitionTimeSecs),
-            duration_minutes: durationMinutes ? parseFloat(durationMinutes) : null
+            transition_time_secs: parseFloat(transitionTimeSecs)
         }),
         success: function (data) {
             btn.html('<i class="bi bi-check-circle"></i> Aplicado!').removeClass('btn-primary').addClass('btn-success');
@@ -404,8 +402,7 @@ function turnOffAllLights() {
         contentType: 'application/json',
         data: JSON.stringify({
             config_name: 'all_off',
-            transition_time_secs: 1,
-            duration_minutes: null
+            transition_time_secs: 1
         }),
         success: function (data) {
             btn.html('<i class="bi bi-check-circle"></i> Desligadas!');

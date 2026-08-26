@@ -59,8 +59,24 @@ def test_rest_adapter_skips_disabled():
     hue.set_light_color.assert_called_once()
     args = hue.set_light_color.call_args[0]
     assert args[0] == "On Light"
+    hue.set_transition_time.assert_called_once_with("On Light", 2)
     adapter.end_session()
     clear_runtime_policy()
+
+
+def test_rest_adapter_does_not_mutate_returned_light():
+    """Transition time is a controller command, not a phue.Light leak."""
+
+    class _Sentinel:
+        transitiontime = 0
+
+    hue = MagicMock()
+    sentinel = _Sentinel()
+    hue.set_light_color.return_value = sentinel
+    adapter = RestPhueAdapter(hue, transition_time=3)
+    adapter.apply_frame([LightFrameColor("Lamp", 1, 2, 3, 10)])
+    assert sentinel.transitiontime == 0
+    hue.set_transition_time.assert_called_once_with("Lamp", 3)
 
 
 def test_entertainment_adapter_maps_and_sends():
@@ -74,8 +90,7 @@ def test_entertainment_adapter_maps_and_sends():
     client.start_stream = MagicMock(return_value="start-marker")
     client.stop_stream = MagicMock(return_value="stop-marker")
 
-    def run_coro(coro, timeout=15.0):  # noqa: ARG001
-        # Adapter passes the return value of start_stream/stop_stream (sync mocks).
+    def run_coro(*_args: object, **_kwargs: object) -> None:
         return None
 
     client.run_coro = MagicMock(side_effect=run_coro)

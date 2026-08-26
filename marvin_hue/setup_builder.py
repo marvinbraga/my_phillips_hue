@@ -18,6 +18,7 @@ logger = get_logger("setup_builder")
 STANDARD_LIGHTS = [
     "Lâmpada 1",
     "Lâmpada 2",
+    "Lâmpada 3",
     "Lâmpada 4",
     "Hue Iris",
     "Hue Play 1",

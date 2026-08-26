@@ -15,6 +15,10 @@ from marvin_hue.domain.schedules import (
 )
 from marvin_hue.logging_config import get_logger
 from marvin_hue.persistence.schedule_repository import ScheduleRepository
+from marvin_hue.services.apply_config import (
+    ApplyConfigNotFoundError,
+    ApplyConfigService,
+)
 from marvin_hue.services.group_service import GroupService
 
 logger = get_logger("services.schedule")
@@ -254,17 +258,21 @@ class ScheduleService:
             raise ScheduleValidationError(
                 "action_payload.config_name is required for apply_config"
             )
-        config = self._manager.get_config(config_name)
-        if config is None:
-            raise ScheduleValidationError(f"Unknown config_name: {config_name!r}")
         transition = float(payload.get("transition_time_secs") or 0)
         hue = self._hue
-        assert hue is not None
+        if hue is None:
+            raise ScheduleValidationError("Hue controller is not configured")
 
-        def _apply() -> None:
-            hue.apply_light_config(config, transition)
-
-        await asyncio.to_thread(_apply)
+        try:
+            await ApplyConfigService(self._manager, hue).apply(
+                config_name,
+                transition_time=transition,
+                source="schedule",
+            )
+        except ApplyConfigNotFoundError as exc:
+            raise ScheduleValidationError(
+                f"Unknown config_name: {config_name!r}"
+            ) from exc
         return {"action": "apply_config", "config_name": config_name}
 
     async def _exec_power(self, *, on: bool, payload: dict[str, Any]) -> dict[str, Any]:

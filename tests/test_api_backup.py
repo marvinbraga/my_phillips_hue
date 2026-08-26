@@ -90,3 +90,57 @@ class TestBackupAPI:
             "/api/backup/import", files=files, data={"strategy": "merge"}
         )
         assert r.status_code == 400
+
+    def test_export_does_not_open_extra_sqlite_repos(
+        self, fastapi_test_client, monkeypatch
+    ):
+        from marvin_hue.persistence.group_repository import SqliteGroupRepository
+        from marvin_hue.persistence.schedule_repository import SqliteScheduleRepository
+
+        async def _forbid_open(*args, **kwargs):
+            raise AssertionError(
+                "BackupService must reuse lifespan repos; "
+                "do not call Sqlite*Repository.open"
+            )
+
+        monkeypatch.setattr(SqliteGroupRepository, "open", _forbid_open)
+        monkeypatch.setattr(SqliteScheduleRepository, "open", _forbid_open)
+        r = fastapi_test_client.get("/api/backup/export")
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"].startswith("application/zip")
+
+    def test_import_reloads_setups_manager(
+        self, fastapi_test_client, tmp_path, monkeypatch
+    ):
+        from marvin_hue.api import dependencies
+
+        setups = tmp_path / "setups.json"
+        positions = tmp_path / "positions.json"
+        setups.write_text(json.dumps({"setups": []}), encoding="utf-8")
+        positions.write_text(json.dumps({"lights": []}), encoding="utf-8")
+        monkeypatch.setattr(
+            "marvin_hue.api.routes.backup.settings.setups_file", str(setups)
+        )
+        monkeypatch.setattr(
+            "marvin_hue.api.routes.backup.settings.positions_file", str(positions)
+        )
+
+        exported = fastapi_test_client.get("/api/backup/export")
+        assert exported.status_code == 200
+
+        manager = dependencies.get_manager()
+        load_calls: list[bool] = []
+        orig_load = manager.load
+
+        def _spy_load():
+            load_calls.append(True)
+            return orig_load()
+
+        monkeypatch.setattr(manager, "load", _spy_load)
+
+        files = {"file": ("backup.zip", exported.content, "application/zip")}
+        imp = fastapi_test_client.post(
+            "/api/backup/import", files=files, data={"strategy": "merge"}
+        )
+        assert imp.status_code == 200, imp.text
+        assert load_calls, "LightSetupsManager.load() must run after setups import"

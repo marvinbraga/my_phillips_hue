@@ -6,7 +6,7 @@ e Hue Entertainment (pair / areas / status).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -15,13 +15,10 @@ from fastapi.templating import Jinja2Templates
 from marvin_hue.api.dependencies import (
     get_audio_mirror,
     get_entertainment_client,
-    get_hue_controller,
-    get_manager,
-    get_scene_history_service,
+    get_mirror_control_service,
     get_screen_mirror,
     set_entertainment_client,
 )
-from marvin_hue.basics import LightSetupsManager
 from marvin_hue.api.models import (
     EntertainmentPairRequest,
     MirrorProfileRequest,
@@ -35,17 +32,23 @@ from marvin_hue.audio_mirror import (
     AudioMirror,
 )
 from marvin_hue.config import settings
-from marvin_hue.controllers import HueController
-from marvin_hue.entertainment.channel_map import map_lights_to_channels
 from marvin_hue.entertainment.client import EntertainmentClient
 from marvin_hue.entertainment.credentials import (
     load_entertainment_credentials,
     save_entertainment_credentials,
 )
 from marvin_hue.logging_config import get_logger
-from marvin_hue.output.factory import build_audio_output_port
 from marvin_hue.screen_mirror import MIRROR_PROFILES, ScreenMirror
-from marvin_hue.services.scene_history import SceneHistoryService
+from marvin_hue.services.mirror_control import (
+    MirrorAlreadyActiveError,
+    MirrorConfigNotFoundError,
+    MirrorControlService,
+    MirrorNotActiveError,
+    MirrorValidationError,
+    active_mode,
+    entertainment_ready,
+    safe_transport,
+)
 
 logger = get_logger("mirror")
 
@@ -56,250 +59,24 @@ templates = Jinja2Templates(directory="web/templates")
 _SCREEN_PROFILES = frozenset(MIRROR_PROFILES.keys())
 _AUDIO_PROFILES = frozenset(ALL_AUDIO_PROFILES.keys())
 
-# Last transport preference from settings API (applied on next start)
-_pending_transport_preference: str = "auto"
-_pending_area_id: str | None = None
 
-
-def _active_mode(screen: ScreenMirror, audio: AudioMirror) -> str | None:
-    if audio.is_running():
-        return "audio"
-    if screen.is_running():
-        return "screen"
-    return None
-
-
-def _entertainment_ready(client: EntertainmentClient | None) -> bool:
-    return client is not None and client.is_ready
-
-
-def _safe_transport(mirror: ScreenMirror | AudioMirror) -> str:
-    """Best-effort transport name; never return MagicMock/non-str (JSON-safe)."""
-    try:
-        port = getattr(mirror, "output_port", None)
-        t = getattr(port, "transport", None) if port is not None else None
-        if t in ("rest", "entertainment"):
-            return t  # type: ignore[return-value]
-        if isinstance(t, str) and t:
-            return t
-    except Exception:
-        pass
-    return "rest"
-
-
-def _safe_area_id(mirror: ScreenMirror | AudioMirror) -> str | None:
-    try:
-        area = getattr(mirror, "entertainment_area_id", None)
-        if isinstance(area, str):
-            return area
-    except Exception:
-        pass
-    return None
-
-
-def _unified_status(screen: ScreenMirror, audio: AudioMirror) -> dict[str, Any]:
-    """Status unificado com mode, running e spectrum (se audio)."""
-    mode = _active_mode(screen, audio)
-    ent = get_entertainment_client()
-    ready = _entertainment_ready(ent)
-    if mode == "audio":
-        status = audio.get_status()
-        if not isinstance(status, dict):
-            status = {"running": bool(audio.is_running())}
-        status["mode"] = "audio"
-        status.setdefault("bass", 0.0)
-        status.setdefault("mid", 0.0)
-        status.setdefault("treble", 0.0)
-        status.setdefault("beat", 0.0)
-        status.setdefault("spectrum", [])
-        status.setdefault("entertainment_enabled", bool(settings.entertainment_enabled))
-        status["entertainment_ready"] = ready
-        status.setdefault("transport", _safe_transport(audio))
-        if not isinstance(status.get("transport"), str):
-            status["transport"] = _safe_transport(audio)
-        status.setdefault("entertainment_area_id", _safe_area_id(audio))
-        return status
-    status = screen.get_status()
-    if not isinstance(status, dict):
-        status = {"running": bool(screen.is_running())}
-    status["mode"] = "screen" if mode == "screen" else None
-    status.setdefault("bass", 0.0)
-    status.setdefault("mid", 0.0)
-    status.setdefault("treble", 0.0)
-    status.setdefault("beat", 0.0)
-    status.setdefault("spectrum", [])  # empty when not in audio mode
-    status.setdefault("transport", _safe_transport(screen))
-    status.setdefault("entertainment_enabled", bool(settings.entertainment_enabled))
-    status["entertainment_ready"] = ready
-    status.setdefault("entertainment_area_id", _safe_area_id(screen))
-    # Ensure transport is a plain string even if mock put something else
-    if not isinstance(status.get("transport"), str):
-        status["transport"] = _safe_transport(screen)
-    return status
-
-
-def _stop_if_running(mirror: ScreenMirror | AudioMirror) -> None:
-    if mirror.is_running():
-        mirror.stop()
-
-
-async def _resolve_area_and_channels(
-    client: EntertainmentClient | None,
-    *,
-    area_id: str | None,
-    lights: list[dict[str, Any]] | Any,
-) -> tuple[str | None, list]:
-    """Return (area_id, mapped_channels) or (None, [])."""
-    if client is None or not client.is_ready:
-        return None, []
-    # Defensive: mocks or bad return types
-    if not isinstance(lights, list):
-        lights = []
-    try:
-        areas = await client.list_areas()
-    except Exception as e:
-        logger.warning(f"list_areas failed: {e}")
-        return None, []
-    if not areas:
-        return None, []
-
-    chosen_id = area_id or _pending_area_id or settings.entertainment_area_id
-    area = None
-    if chosen_id:
-        for a in areas:
-            if a.id == chosen_id:
-                area = a
-                break
-    if area is None:
-        area = areas[0]
-        chosen_id = area.id
-
-    mapped = map_lights_to_channels(area, lights)
-    return chosen_id, mapped
-
-
-async def _build_port_for_mirror(
-    hue: HueController,
-    client: EntertainmentClient | None,
-    *,
-    lights: list[dict[str, Any]],
-    area_id: str | None,
-    transport_preference: str,
-    transition_time: int = 0,
-):
-    pref = (transport_preference or "auto").strip().lower()
-    resolved_area, mapped = await _resolve_area_and_channels(
-        client, area_id=area_id, lights=lights
-    )
-    if mapped:
-        logger.info(
-            f"Entertainment channel map: area={resolved_area} mapped={len(mapped)}"
-        )
-    else:
-        logger.warning(
-            "Entertainment channel map empty — will use REST unless forced"
-        )
-    return (
-        build_audio_output_port(
-            hue,
-            entertainment_enabled=settings.entertainment_enabled,
-            client=client,
-            area_id=resolved_area,
-            mapped_channels=mapped or None,
-            transition_time=transition_time,
-            transport_preference=pref,
-        ),
-        resolved_area,
-        mapped,
-    )
-
-
-async def _ensure_entertainment_started(
-    port: Any,
-    client: EntertainmentClient | None,
-    area_id: str | None,
-    hue: HueController,
-    *,
-    transition_time: int = 0,
-) -> Any:
-    """
-    Await DTLS stream start from the FastAPI event loop.
-
-    Avoids ``run_coro`` deadlock when ``begin_session`` would block the same loop.
-    On failure, returns a pure REST port.
-    """
-    from marvin_hue.output.fallback import FallbackOutputPort
-    from marvin_hue.output.rest_adapter import RestPhueAdapter
-
-    uses_ent = port.transport == "entertainment" or isinstance(port, FallbackOutputPort)
-    if not uses_ent or client is None or not area_id:
-        return port
-
-    try:
-        await client.start_stream(area_id)
-        logger.info(f"Entertainment stream pre-started area={area_id}")
-        return port
-    except Exception as e:
-        logger.warning(f"Entertainment start failed, using REST: {e}")
-        try:
-            if client.is_streaming:
-                await client.stop_stream()
-        except Exception:
-            pass
-        return RestPhueAdapter(hue, transition_time=transition_time)
-
-
-async def prepare_audio_output_port(
-    audio_mirror: AudioMirror,
-    hue: HueController,
-    ent_client: EntertainmentClient | None,
-    *,
-    transport_preference: str | None = None,
-    area_id: str | None = None,
-) -> Any:
-    """
-    Shared HTTP/WS helper: build + pre-start Entertainment (or REST) and attach
-    the port to ``audio_mirror``. Returns the resolved port.
-    """
-    transport_pref = (
-        transport_preference
-        or _pending_transport_preference
-        or "auto"
-    )
-    resolved_area_in = area_id or _pending_area_id or settings.entertainment_area_id
-    load_pos = getattr(audio_mirror, "load_light_positions", None)
-    lights = load_pos() if callable(load_pos) else []
-    if not isinstance(lights, list):
-        lights = []
-    tt = getattr(audio_mirror, "transition_time", 0) or 0
-    try:
-        transition_time = int(round(float(tt)))
-    except (TypeError, ValueError):
-        transition_time = 0
-    port, resolved_area, _mapped = await _build_port_for_mirror(
-        hue,
-        ent_client,
-        lights=lights,
-        area_id=resolved_area_in,
-        transport_preference=transport_pref,
-        transition_time=transition_time,
-    )
-    port = await _ensure_entertainment_started(
-        port,
-        ent_client,
-        resolved_area,
-        hue,
-        transition_time=transition_time,
-    )
-    set_port = getattr(audio_mirror, "set_output_port", None)
-    if callable(set_port):
-        set_port(port)
-    try:
-        audio_mirror.entertainment_enabled = settings.entertainment_enabled
-        audio_mirror.entertainment_area_id = resolved_area
-    except Exception:
-        pass
-    return port
+def _raise_mirror_http(
+    exc: Exception, *, mode: str | None = None, action: str = "iniciar"
+) -> NoReturn:
+    """Map use-case errors to HTTPException (never leaks from the service)."""
+    if isinstance(exc, (MirrorAlreadyActiveError, MirrorNotActiveError)):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if isinstance(exc, (MirrorValidationError, ValueError)):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if isinstance(exc, MirrorConfigNotFoundError):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, RuntimeError):
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    label = "espelhamento de música" if mode == "audio" else "espelhamento"
+    logger.exception(f"Error in {label}: {exc}")
+    raise HTTPException(
+        status_code=500, detail=f"Erro ao {action} {label}: {str(exc)}"
+    ) from exc
 
 
 @router.get("/mirror", response_class=HTMLResponse)
@@ -313,12 +90,8 @@ async def mirror_page(request: Request):
 @router.post("/mirror/start")
 async def start_mirror(
     request: MirrorStartRequest,
-    screen_mirror: ScreenMirror = Depends(get_screen_mirror),
-    audio_mirror: AudioMirror = Depends(get_audio_mirror),
-    hue: HueController = Depends(get_hue_controller),
-    ent_client: EntertainmentClient | None = Depends(get_entertainment_client),
-    manager: LightSetupsManager = Depends(get_manager),
-):
+    svc: MirrorControlService = Depends(get_mirror_control_service),
+) -> dict[str, Any]:
     """
     Inicia espelhamento de tela ou áudio.
 
@@ -326,296 +99,80 @@ async def start_mirror(
     exclusivos: iniciar um para o outro automaticamente.
     """
     mode = request.mode or "screen"
-    transport_pref = (
-        request.transport_preference
-        or _pending_transport_preference
-        or "auto"
-    )
-    area_id = request.area_id or _pending_area_id or settings.entertainment_area_id
-
-    if mode == "audio":
-        if request.profile is not None and request.profile not in _AUDIO_PROFILES:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Perfil '{request.profile}' inválido para modo audio. "
-                    f"Use: {', '.join(sorted(_AUDIO_PROFILES))}"
-                ),
-            )
-        if audio_mirror.is_running():
-            raise HTTPException(
-                status_code=400, detail="Espelhamento de música já está ativo"
-            )
-        _stop_if_running(screen_mirror)
-        try:
-            # Base colors from selected LightConfig (modulated by audio).
-            # No config_name → free entertainment HSV path (explicit clear).
-            if request.config_name:
-                cfg = manager.get_config(request.config_name)
-                if cfg is None:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=(
-                            f"Configuração '{request.config_name}' não encontrada"
-                        ),
-                    )
-                audio_mirror.set_light_config(cfg)
-            else:
-                audio_mirror.set_light_config(None)
-
-            port = await prepare_audio_output_port(
-                audio_mirror,
-                hue,
-                ent_client,
-                transport_preference=transport_pref,
-                area_id=area_id,
-            )
-
-            fps = request.fps
-            if (
-                fps is None
-                and port.transport == "entertainment"
-                and request.profile is None
-            ):
-                fps = settings.entertainment_fps
-
-            audio_mirror.start(
-                fps=fps,
-                brightness=request.brightness,
-                profile=request.profile,
-            )
-            return {
-                "message": "Espelhamento de música iniciado",
-                "status": _unified_status(screen_mirror, audio_mirror),
-            }
-        except HTTPException:
-            raise
-        except RuntimeError as e:
-            raise HTTPException(status_code=503, detail=str(e)) from e
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-        except Exception as e:
-            logger.exception(f"Error starting audio mirror: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Erro ao iniciar espelhamento de música: {str(e)}",
-            ) from e
-
-    # mode == screen
-    if request.profile is not None and request.profile not in _SCREEN_PROFILES:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Perfil '{request.profile}' inválido para modo screen. "
-                f"Use: {', '.join(sorted(_SCREEN_PROFILES))}"
-            ),
-        )
-    if screen_mirror.is_running():
-        raise HTTPException(status_code=400, detail="Espelhamento já está ativo")
-
-    _stop_if_running(audio_mirror)
     try:
-        load_pos = getattr(screen_mirror, "load_light_positions", None)
-        lights = load_pos() if callable(load_pos) else []
-        if not isinstance(lights, list):
-            lights = []
-        tt = getattr(screen_mirror, "transition_time", 0) or 0
-        try:
-            transition_time = int(round(float(tt)))
-        except (TypeError, ValueError):
-            transition_time = 0
-        port, resolved_area, _mapped = await _build_port_for_mirror(
-            hue,
-            ent_client,
-            lights=lights,
-            area_id=area_id,
-            transport_preference=transport_pref,
-            transition_time=transition_time,
-        )
-        port = await _ensure_entertainment_started(
-            port,
-            ent_client,
-            resolved_area,
-            hue,
-            transition_time=transition_time,
-        )
-        set_port = getattr(screen_mirror, "set_output_port", None)
-        if callable(set_port):
-            set_port(port)
-        try:
-            screen_mirror.entertainment_enabled = settings.entertainment_enabled
-            screen_mirror.entertainment_area_id = resolved_area
-        except Exception:
-            pass
-
-        fps = request.fps
-        if (
-            fps is None
-            and port.transport == "entertainment"
-            and request.profile is None
-        ):
-            fps = settings.entertainment_fps
-
-        screen_mirror.start(
-            fps=fps,
-            brightness=request.brightness,
+        return await svc.start(
+            mode,
             profile=request.profile,
+            fps=request.fps,
+            brightness=request.brightness,
+            area_id=request.area_id,
+            transport_preference=request.transport_preference,
+            config_name=request.config_name,
         )
-        return {
-            "message": "Espelhamento iniciado",
-            "status": _unified_status(screen_mirror, audio_mirror),
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        logger.exception(f"Error starting mirror: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Erro ao iniciar espelhamento: {str(e)}"
-        ) from e
+    except (
+        MirrorAlreadyActiveError,
+        MirrorNotActiveError,
+        MirrorValidationError,
+        MirrorConfigNotFoundError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        _raise_mirror_http(exc, mode=mode)
+    except Exception as exc:
+        _raise_mirror_http(exc, mode=mode)
 
 
 @router.post("/mirror/stop")
 async def stop_mirror(
-    screen_mirror: ScreenMirror = Depends(get_screen_mirror),
-    audio_mirror: AudioMirror = Depends(get_audio_mirror),
-    hue: HueController = Depends(get_hue_controller),
-    history: SceneHistoryService = Depends(get_scene_history_service),
-    ent_client: EntertainmentClient | None = Depends(get_entertainment_client),
-):
+    svc: MirrorControlService = Depends(get_mirror_control_service),
+) -> dict[str, Any]:
     """Para o espelhamento ativo (tela ou música)."""
-    mode = _active_mode(screen_mirror, audio_mirror)
-    if mode is None:
-        raise HTTPException(status_code=400, detail="Espelhamento não está ativo")
-
     try:
-        await history.snapshot(hue, source="mirror_stop", label="before mirror stop")
-    except Exception as snap_exc:
-        logger.warning(f"Scene snapshot before mirror stop failed: {snap_exc}")
-
-    if mode == "audio":
-        # Stop mirror thread without end_session (avoids event-loop deadlock)
-        stop_fn = getattr(audio_mirror, "stop")
-        try:
-            audio_mirror.stop(end_output=False)
-        except TypeError:
-            audio_mirror.stop()
-        if ent_client is not None and ent_client.is_streaming:
-            try:
-                await ent_client.stop_stream()
-            except Exception as e:
-                logger.warning(f"Entertainment stop_stream: {e}")
-        return {"message": "Espelhamento de música parado"}
-
-    try:
-        screen_mirror.stop(end_output=False)  # type: ignore[call-arg]
-    except TypeError:
-        screen_mirror.stop()
-    if ent_client is not None and ent_client.is_streaming:
-        try:
-            await ent_client.stop_stream()
-        except Exception as e:
-            logger.warning(f"Entertainment stop_stream: {e}")
-    return {"message": "Espelhamento parado"}
+        return await svc.stop()
+    except MirrorNotActiveError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/mirror/status")
 async def mirror_status(
-    screen_mirror: ScreenMirror = Depends(get_screen_mirror),
-    audio_mirror: AudioMirror = Depends(get_audio_mirror),
-):
+    svc: MirrorControlService = Depends(get_mirror_control_service),
+) -> dict[str, Any]:
     """Status unificado: mode, running, cores e spectrum (bass/mid/treble)."""
-    return _unified_status(screen_mirror, audio_mirror)
+    return svc.unified_status()
 
 
 @router.post("/mirror/settings")
 async def update_mirror_settings(
     request: MirrorSettingsRequest,
-    screen_mirror: ScreenMirror = Depends(get_screen_mirror),
-    audio_mirror: AudioMirror = Depends(get_audio_mirror),
-    manager: LightSetupsManager = Depends(get_manager),
-):
+    svc: MirrorControlService = Depends(get_mirror_control_service),
+) -> dict[str, Any]:
     """Atualiza configurações do modo ativo (ou mode explícito)."""
-    global _pending_transport_preference, _pending_area_id
-
-    if request.transport_preference is not None:
-        _pending_transport_preference = request.transport_preference
-    if request.entertainment_area_id is not None:
-        _pending_area_id = request.entertainment_area_id
-        for m in (screen_mirror, audio_mirror):
-            try:
-                m.entertainment_area_id = request.entertainment_area_id
-            except Exception:
-                pass
-
-    mode = request.mode or _active_mode(screen_mirror, audio_mirror) or "screen"
-
-    if mode == "audio":
-        try:
-            if request.profile is not None:
-                if request.profile not in _AUDIO_PROFILES:
-                    raise ValueError(
-                        f"Perfil '{request.profile}' inválido para modo audio"
-                    )
-                audio_mirror.apply_profile(request.profile)
-            if request.fps is not None:
-                audio_mirror.fps = request.fps
-            if request.brightness is not None:
-                audio_mirror.brightness = request.brightness
-            if request.smoothing_factor is not None:
-                audio_mirror.smoothing_factor = request.smoothing_factor
-            if request.transition_time is not None:
-                audio_mirror.transition_time = request.transition_time
-            if request.energy_gain is not None:
-                audio_mirror.energy_gain = request.energy_gain
-            # Hot-swap LightConfig base colors when config_name present in body.
-            # Field was provided only if client sent it (None after sanitize of "").
-            # Use model_fields_set so omit ≠ explicit null/empty clear.
-            if "config_name" in request.model_fields_set:
-                if request.config_name:
-                    cfg = manager.get_config(request.config_name)
-                    if cfg is None:
-                        raise HTTPException(
-                            status_code=404,
-                            detail=(
-                                f"Configuração '{request.config_name}' não encontrada"
-                            ),
-                        )
-                    audio_mirror.set_light_config(cfg)
-                else:
-                    audio_mirror.set_light_config(None)
-        except HTTPException:
-            raise
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-        return {
-            "message": "Configurações de áudio atualizadas",
-            "status": _unified_status(screen_mirror, audio_mirror),
-        }
-
     try:
-        if request.profile is not None:
-            if request.profile not in _SCREEN_PROFILES:
-                raise ValueError(
-                    f"Perfil '{request.profile}' inválido para modo screen"
-                )
-            screen_mirror.apply_profile(request.profile)
-        if request.fps is not None:
-            screen_mirror.fps = request.fps
-        if request.brightness is not None:
-            screen_mirror.brightness = request.brightness
-        if request.saturation_boost is not None:
-            screen_mirror.saturation_boost = request.saturation_boost
-        if request.smoothing_factor is not None:
-            screen_mirror.smoothing_factor = request.smoothing_factor
-        if request.transition_time is not None:
-            screen_mirror.transition_time = request.transition_time
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-    return {
-        "message": "Configurações atualizadas",
-        "status": _unified_status(screen_mirror, audio_mirror),
-    }
+        return await svc.apply_settings(
+            mode=request.mode,
+            profile=request.profile,
+            fps=request.fps,
+            brightness=request.brightness,
+            saturation_boost=request.saturation_boost,
+            smoothing_factor=request.smoothing_factor,
+            transition_time=request.transition_time,
+            energy_gain=request.energy_gain,
+            entertainment_area_id=request.entertainment_area_id,
+            transport_preference=request.transport_preference,
+            config_name=request.config_name,
+            config_name_provided="config_name" in request.model_fields_set,
+        )
+    except (
+        MirrorAlreadyActiveError,
+        MirrorNotActiveError,
+        MirrorValidationError,
+        MirrorConfigNotFoundError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        _raise_mirror_http(exc, mode=request.mode, action="atualizar")
+    except Exception as exc:
+        _raise_mirror_http(exc, mode=request.mode, action="atualizar")
 
 
 @router.get("/mirror/profiles")
@@ -633,6 +190,7 @@ async def set_mirror_profile(
     request: MirrorProfileRequest,
     screen_mirror: ScreenMirror = Depends(get_screen_mirror),
     audio_mirror: AudioMirror = Depends(get_audio_mirror),
+    svc: MirrorControlService = Depends(get_mirror_control_service),
 ):
     """Aplica um perfil nomeado sem reiniciar o loop."""
     mode = request.mode
@@ -660,7 +218,7 @@ async def set_mirror_profile(
 
     return {
         "message": f"Perfil '{request.profile}' aplicado",
-        "status": _unified_status(screen_mirror, audio_mirror),
+        "status": svc.unified_status(),
     }
 
 
@@ -674,9 +232,10 @@ async def entertainment_status(
     screen_mirror: ScreenMirror = Depends(get_screen_mirror),
     audio_mirror: AudioMirror = Depends(get_audio_mirror),
     ent_client: EntertainmentClient | None = Depends(get_entertainment_client),
+    svc: MirrorControlService = Depends(get_mirror_control_service),
 ):
     """Status do transporte Entertainment: enabled, ready, streaming, areas."""
-    ready = _entertainment_ready(ent_client)
+    ready = entertainment_ready(ent_client)
     areas_out: list[dict[str, Any]] = []
     if ready and ent_client is not None:
         try:
@@ -692,12 +251,12 @@ async def entertainment_status(
         except Exception as e:
             logger.warning(f"entertainment status list_areas: {e}")
 
-    mode = _active_mode(screen_mirror, audio_mirror)
+    mode = active_mode(screen_mirror, audio_mirror)
     transport = "rest"
     if mode == "audio":
-        transport = _safe_transport(audio_mirror)
+        transport = safe_transport(audio_mirror)
     elif mode == "screen":
-        transport = _safe_transport(screen_mirror)
+        transport = safe_transport(screen_mirror)
 
     return {
         "enabled": settings.entertainment_enabled,
@@ -706,7 +265,7 @@ async def entertainment_status(
         "active_area_id": ent_client.active_area if ent_client else None,
         "areas": areas_out,
         "transport": transport,
-        "default_area_id": settings.entertainment_area_id or _pending_area_id,
+        "default_area_id": settings.entertainment_area_id or svc.pending_area_id,
         "fps_default": settings.entertainment_fps,
     }
 

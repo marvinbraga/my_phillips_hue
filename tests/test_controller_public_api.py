@@ -1,8 +1,11 @@
 from unittest.mock import MagicMock
 
+import pytest
+
 
 def _make_controller():
     from marvin_hue.controllers import HueController
+
     c = HueController.__new__(HueController)  # sem conectar à bridge
     l1, l2 = MagicMock(name="Fita Led"), MagicMock(name="Teto")
     l1.name, l2.name = "Fita Led", "Lâmpada 1"
@@ -30,3 +33,15 @@ def test_set_all():
     c, l1, l2 = _make_controller()
     c.set_all(False)
     assert l1.on is False and l2.on is False
+
+
+def test_set_transition_time_public():
+    c, l1, _ = _make_controller()
+    assert c.set_transition_time("Fita Led", 15) is None
+    assert l1.transitiontime == 15
+
+
+def test_set_transition_time_missing_light_raises():
+    c, _, _ = _make_controller()
+    with pytest.raises(ValueError, match="não encontrada"):
+        c.set_transition_time("Não existe", 1)

@@ -16,10 +16,23 @@ from marvin_hue.domain.groups import (
 )
 from marvin_hue.logging_config import get_logger
 from marvin_hue.persistence.group_repository import GroupRepository
+from marvin_hue.services.apply_config import ApplyConfigService
 
 logger = get_logger("services.group")
 
 _UNSET: object = object()
+
+
+class _LoadedConfigLookup:
+    """Adapter so apply_config can reuse ApplyConfigService without a manager."""
+
+    def __init__(self, config: LightConfig) -> None:
+        self._config = config
+
+    def get_config(self, name: str) -> LightConfig | None:
+        if name == self._config.name:
+            return self._config
+        return None
 
 
 class HueGroupController(Protocol):
@@ -182,18 +195,13 @@ class GroupService:
         """Apply a LightConfig filtered to group member light names."""
         group = await self._repo.get_by_id(group_id, include_deleted=False)
         names = set(await self._repo.list_member_light_names(group_id))
-        filtered_settings = [s for s in config.settings if s.light_name in names]
-        filtered = LightConfig(
-            name=config.name,
-            settings=filtered_settings,
-            description=config.description,
+        await ApplyConfigService(_LoadedConfigLookup(config), hue).apply(
+            config.name,
+            transition_time=transition_time_secs,
+            source="group",
+            light_names=names,
         )
-
-        def _apply() -> None:
-            hue.apply_light_config(filtered, transition_time_secs)
-
-        await asyncio.to_thread(_apply)
-        applied_names = [s.light_name for s in filtered_settings]
+        applied_names = [s.light_name for s in config.settings if s.light_name in names]
         logger.info(
             f"Group apply_config group_id={group.id} config={config.name!r} "
             f"applied={applied_names}"

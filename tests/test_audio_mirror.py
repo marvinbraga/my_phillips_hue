@@ -14,14 +14,11 @@ from marvin_hue.audio_mirror import (
     PeakTracker,
     band_color,
     compute_band_energies,
-    find_monitor_device,
-    find_pulse_monitor_source,
     modulate_base_color,
     position_to_band,
 )
 from marvin_hue.basics import LightConfig, LightSetting
 from marvin_hue.colors import Color
-
 
 # ---------------------------------------------------------------------------
 # Pure mapping helpers
@@ -49,13 +46,33 @@ def test_position_to_band(position: str, expected: str) -> None:
     assert position_to_band(position) == expected
 
 
+def test_color_helpers_live_in_audio_color_module() -> None:
+    """Band/modulate helpers are a focused module, re-exported by audio_mirror."""
+    from marvin_hue import audio_color, audio_mirror
+
+    assert audio_mirror.position_to_band is audio_color.position_to_band
+    assert audio_mirror.band_color is audio_color.band_color
+    assert audio_mirror.modulate_base_color is audio_color.modulate_base_color
+    assert audio_mirror.PeakTracker is audio_color.PeakTracker
+    assert audio_mirror.compute_band_energies is audio_color.compute_band_energies
+    assert audio_mirror.power_to_level is audio_color.power_to_level
+
+
+def test_device_helpers_reexported_from_audio_mirror() -> None:
+    from marvin_hue import audio_device, audio_mirror
+
+    assert audio_mirror.find_monitor_device is audio_device.find_monitor_device
+    assert audio_mirror.find_pulse_monitor_source is audio_device.find_pulse_monitor_source
+    assert audio_mirror.resolve_input_stream_params is audio_device.resolve_input_stream_params
+
+
 def test_band_color_bass_is_warm() -> None:
     r, g, b = band_color("bass", 1.0)
     assert r > g and r > b  # red/orange dominant
 
 
 def test_band_color_treble_is_cool() -> None:
-    r, g, b = band_color("treble", 1.0)
+    r, _g, b = band_color("treble", 1.0)
     assert b > r  # blue/cyan dominant
 
 
@@ -117,153 +134,6 @@ def test_power_to_level_has_range() -> None:
     assert quiet < mid < loud
     assert loud <= 1.0
     assert mid < 0.95
-
-
-def test_find_pulse_monitor_source_prefers_default_sink_monitor() -> None:
-    class Result:
-        def __init__(self, stdout: str, returncode: int = 0) -> None:
-            self.stdout = stdout
-            self.returncode = returncode
-
-    def fake_run(args, **_kwargs):
-        if args[:3] == ["pactl", "get-default-sink"]:
-            return Result("alsa_output.pci-0000_09_00.4.analog-stereo\n")
-        if args[:3] == ["pactl", "list", "short"]:
-            return Result(
-                "66\talsa_input.mic\tPipeWire\ts16le 1ch 48000Hz\tRUNNING\n"
-                "67\talsa_output.pci-0000_09_00.4.analog-stereo.monitor\t"
-                "PipeWire\ts32le 2ch 48000Hz\tRUNNING\n"
-            )
-        return Result("", 1)
-
-    src = find_pulse_monitor_source(run_cmd=fake_run)
-    assert src == "alsa_output.pci-0000_09_00.4.analog-stereo.monitor"
-
-
-# ---------------------------------------------------------------------------
-# Device selection
-# ---------------------------------------------------------------------------
-
-
-def test_find_monitor_device_prefers_monitor_name() -> None:
-    devices = [
-        {"name": "Built-in Mic", "max_input_channels": 2},
-        {"name": "alsa_output.pci.analog-stereo.monitor", "max_input_channels": 2},
-        {"name": "Webcam", "max_input_channels": 1},
-    ]
-    idx = find_monitor_device(query_devices=lambda: devices)
-    assert idx == 1
-
-
-def test_find_monitor_device_prefers_pulse_over_alsa_hw() -> None:
-    devices = [
-        {"name": "HD-Audio Generic: ALC1220 Analog (hw:1,0)", "max_input_channels": 2},
-        {"name": "pulse", "max_input_channels": 32},
-        {"name": "HD Pro Webcam C920: USB Audio (hw:3,0)", "max_input_channels": 2},
-    ]
-    idx = find_monitor_device(query_devices=lambda: devices)
-    assert idx == 1
-
-
-def test_find_monitor_device_prefers_pulse_over_pipewire() -> None:
-    """pipewire ALSA bridge ignores PULSE_SOURCE and captures the mic."""
-    devices = [
-        {"name": "Elgato Wave:3: USB Audio (hw:2,0)", "max_input_channels": 2},
-        {"name": "pipewire", "max_input_channels": 128},
-        {"name": "pulse", "max_input_channels": 32},
-        {"name": "HD Pro Webcam C920: USB Audio (hw:3,0)", "max_input_channels": 2},
-    ]
-    idx = find_monitor_device(
-        query_devices=lambda: devices,
-        pulse_source="alsa_output.pci.analog-stereo.monitor",
-    )
-    assert idx == 2  # pulse, not pipewire (1)
-
-
-def test_find_monitor_device_pulse_without_source_still_beats_hw() -> None:
-    devices = [
-        {"name": "pipewire", "max_input_channels": 128},
-        {"name": "pulse", "max_input_channels": 32},
-        {"name": "Built-in Mic", "max_input_channels": 2},
-    ]
-    idx = find_monitor_device(query_devices=lambda: devices)
-    assert idx == 1  # pulse preferred for routing flexibility
-
-
-def test_find_monitor_device_empty_returns_none() -> None:
-    with patch("sounddevice.default") as default:
-        default.device = None
-        idx = find_monitor_device(query_devices=lambda: [])
-    assert idx is None
-
-
-def test_find_monitor_device_skips_default_hardware_mic() -> None:
-    devices = [
-        {"name": "Elgato Wave Mic", "max_input_channels": 1},
-        {"name": "Some Line In", "max_input_channels": 2},
-    ]
-    with patch("sounddevice.default") as default:
-        default.device = (0, 1)
-        idx = find_monitor_device(query_devices=lambda: devices)
-    # default mic skipped; "Some Line In" still matches hardware heuristic
-    # and last-resort may pick mic — ensure we do not blindly return default 0
-    # when only hardware exists, last resort is index 0 with warning
-    assert idx in {0, 1}
-
-
-def test_resolve_input_stream_params_uses_device_default_rate() -> None:
-    from marvin_hue.audio_mirror import resolve_input_stream_params
-
-    def query(device=None):
-        if device is None:
-            return []
-        return {
-            "name": "pulse",
-            "max_input_channels": 2,
-            "default_samplerate": 44100.0,
-        }
-
-    accepted: list[int] = []
-
-    def check(**kwargs):
-        rate = int(kwargs["samplerate"])
-        if rate == 22050:
-            raise ValueError("invalid sample rate")
-        accepted.append(rate)
-
-    rate, channels, block = resolve_input_stream_params(
-        0,
-        query_devices=query,
-        check_input_settings=check,
-    )
-    assert rate == 44100
-    assert channels == 2
-    assert block >= 256
-    assert 22050 not in accepted or accepted[0] == 44100
-
-
-def test_resolve_input_stream_params_skips_invalid_rates() -> None:
-    from marvin_hue.audio_mirror import resolve_input_stream_params
-
-    def query(device=None):
-        return {
-            "name": "ALC1220",
-            "max_input_channels": 2,
-            "default_samplerate": 22050.0,  # reported but invalid on check
-        }
-
-    def check(**kwargs):
-        rate = int(kwargs["samplerate"])
-        if rate not in (48000, 44100):
-            raise ValueError(f"Invalid sample rate {rate}")
-
-    rate, channels, _block = resolve_input_stream_params(
-        4,
-        query_devices=query,
-        check_input_settings=check,
-    )
-    assert rate in (48000, 44100)
-    assert channels == 2
 
 
 # ---------------------------------------------------------------------------
@@ -416,9 +286,7 @@ def test_process_frame_populates_spectrum_in_status(mirror: AudioMirror) -> None
     assert len(status["spectrum"]) == DEFAULT_SPECTRUM_BINS
 
 
-def test_positions_cached_not_reread_every_frame(
-    mirror: AudioMirror, positions_file: str
-) -> None:
+def test_positions_cached_not_reread_every_frame(mirror: AudioMirror) -> None:
     """load_light_positions should not re-open JSON every process_frame."""
     with (
         patch("marvin_hue.audio_mirror.is_enabled_for_app", return_value=True),

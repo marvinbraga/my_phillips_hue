@@ -1,19 +1,30 @@
 """
 Tests for the setup_builder module.
 
-These tests verify that the new JSON-based configuration system works correctly
-and is backward compatible with the old class-based system.
+These tests verify that JSON-based configurations work with LightConfigBuilder
+and LightSetupsManager (canonical catalog path).
 """
 
 import json
 import os
+
 import pytest
-from marvin_hue.setup_builder import (
-    LightConfigBuilder,
-    STANDARD_LIGHTS,
-)
-from marvin_hue.basics import LightConfig
+
+from marvin_hue.basics import LightConfig, LightSetupsManager
 from marvin_hue.colors import Color
+from marvin_hue.setup_builder import (
+    STANDARD_LIGHTS,
+    LightConfigBuilder,
+)
+
+
+def _repo_setups_path() -> str:
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_dir, ".res", "setups.json")
+
+
+def _production_manager() -> LightSetupsManager:
+    return LightSetupsManager(_repo_setups_path())
 
 
 class TestLightConfigBuilder:
@@ -175,94 +186,34 @@ class TestLightConfigBuilder:
         assert LightConfigBuilder.validate_config(invalid_color) is False
 
 
-class TestBackwardCompatibility:
-    """Tests for backward compatibility with legacy setup classes."""
+class TestJsonSetupsCatalog:
+    """JSON catalog via LightSetupsManager (replaces class/enum catalogs)."""
 
-    def test_legacy_class_import(self):
-        """Test that legacy classes can still be imported and instantiated."""
-        import warnings
+    def test_concentration_loads_from_json(self):
+        config = _production_manager().get_config("concentration")
 
-        # Capture warnings during import
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            from marvin_hue.setups import SetupConcentration
-
-            config = SetupConcentration()
-
-            # Check that a deprecation warning was issued
-            assert len(w) >= 1
-            assert any(
-                issubclass(warning.category, DeprecationWarning) for warning in w
-            )
-
+        assert config is not None
         assert isinstance(config, LightConfig)
         assert config.name == "concentration"
         assert len(config.settings) > 0
 
-    def test_legacy_enum_compatibility(self):
-        """Test that the old LightConfigEnum still works."""
-        import warnings
+    def test_named_setups_load_from_json(self):
+        manager = _production_manager()
+        for name in ("purple_home", "cyberpunk_night", "arco_iris_apos_chuva"):
+            config = manager.get_config(name)
+            assert config is not None
+            assert config.name == name
+            assert len(config.settings) > 0
 
-        # Capture warnings during import
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            from marvin_hue.factories import LightConfigEnum
+    def test_manager_loads_configs(self):
+        manager = _production_manager()
+        names = [config.name for config in manager.configs]
 
-            # Check that a deprecation warning was issued
-            assert len(w) >= 1
-            assert any(
-                issubclass(warning.category, DeprecationWarning) for warning in w
-            )
-
-        # Enum should still be functional
-        assert hasattr(LightConfigEnum, "SETUP_CONCENTRATION")
-        config = LightConfigEnum.SETUP_CONCENTRATION.get_instance()
-        assert isinstance(config, LightConfig)
-
-    def test_all_legacy_classes_load_from_json(self):
-        """Test that legacy classes successfully load configurations from JSON."""
-        import warnings
-
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            from marvin_hue.setups import (
-                PurpleHome,
-                CyberpunkNight,
-                ArcoIrisAposChuva,
-            )
-
-            # These classes load from JSON internally
-            config1 = PurpleHome()
-            config2 = CyberpunkNight()
-            config3 = ArcoIrisAposChuva()
-
-        assert config1.name == "purple_home"
-        assert config2.name == "cyberpunk_night"
-        assert config3.name == "arco_iris_apos_chuva"
-
-        # All should have settings
-        assert len(config1.settings) > 0
-        assert len(config2.settings) > 0
-        assert len(config3.settings) > 0
-
-
-class TestNewRegistry:
-    """Tests for the new LightConfigRegistry."""
-
-    def test_registry_loads_configs(self):
-        """Test that the registry loads configurations from JSON."""
-        from marvin_hue.factories_new import get_registry
-
-        registry = get_registry()
-
-        assert len(registry.config_names) > 0
-        assert "concentration" in registry.config_names
+        assert len(names) > 0
+        assert "concentration" in names
 
     def test_get_config_by_name(self):
-        """Test retrieving a configuration by name."""
-        from marvin_hue.factories_new import get_config
-
-        config = get_config("concentration")
+        config = _production_manager().get_config("concentration")
 
         assert config is not None
         assert config.name == "concentration"
@@ -270,116 +221,68 @@ class TestNewRegistry:
         assert len(config.settings) > 0
 
     def test_get_nonexistent_config(self):
-        """Test retrieving a non-existent configuration."""
-        from marvin_hue.factories_new import get_config
-
-        config = get_config("nonexistent_config_xyz")
-
+        config = _production_manager().get_config("nonexistent_config_xyz")
         assert config is None
 
     def test_list_all_configs(self):
-        """Test listing all available configurations."""
-        from marvin_hue.factories_new import list_all_configs
-
-        configs = list_all_configs()
+        configs = _production_manager().configs
 
         assert isinstance(configs, list)
         assert len(configs) > 0
+        assert configs[0].name
+        assert isinstance(configs[0].description, str)
 
-        # Check structure
-        first_config = configs[0]
-        assert "name" in first_config
-        assert "description" in first_config
-
-        # Check for known configs
-        config_names = [c["name"] for c in configs]
-        assert "concentration" in config_names
-        assert "cyberpunk_night" in config_names
-
-    def test_registry_singleton(self):
-        """Test that the registry is a singleton."""
-        from marvin_hue.factories_new import LightConfigRegistry
-
-        registry1 = LightConfigRegistry()
-        registry2 = LightConfigRegistry()
-
-        assert registry1 is registry2
+        names = [config.name for config in configs]
+        assert "concentration" in names
+        assert "cyberpunk_night" in names
 
 
-class TestEquivalence:
-    """Tests to verify that new system produces equivalent results to old system."""
+class TestJsonCoversStandardLights:
+    """Production JSON scenes cover the physical STANDARD_LIGHTS set."""
 
-    def test_concentration_equivalence(self):
-        """Test that concentration config is equivalent in both systems."""
-        import warnings
+    def test_concentration_includes_standard_lights(self):
+        config = _production_manager().get_config("concentration")
+        assert config is not None
+        light_names = {setting.light_name for setting in config.settings}
+        assert set(STANDARD_LIGHTS).issubset(light_names)
+        assert "Lâmpada 3" in light_names
 
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            from marvin_hue.setups import SetupConcentration
-            from marvin_hue.factories_new import get_config
-
-            # Get from old system
-            old_config = SetupConcentration()
-
-            # Get from new system
-            new_config = get_config("concentration")
-
-        assert old_config.name == new_config.name
-
-        # JSON may have more lights than the old class (e.g., Lâmpada 3)
-        # Check that all lights from old config are in new config
-        old_light_names = {s.light_name for s in old_config.settings}
-        new_light_names = {s.light_name for s in new_config.settings}
-
-        assert old_light_names.issubset(new_light_names), (
-            f"Old config lights {old_light_names} not all in new config {new_light_names}"
-        )
-
-        # For lights that exist in both, check they have the same colors
-        old_settings_by_name = {s.light_name: s for s in old_config.settings}
-        new_settings_by_name = {s.light_name: s for s in new_config.settings}
-
-        for light_name in old_light_names:
-            old_setting = old_settings_by_name[light_name]
-            new_setting = new_settings_by_name[light_name]
-
-            assert old_setting.color.red == new_setting.color.red
-            assert old_setting.color.green == new_setting.color.green
-            assert old_setting.color.blue == new_setting.color.blue
-            assert old_setting.color.brightness == new_setting.color.brightness
-
-    def test_all_enum_configs_available_in_new_system(self):
-        """Test that all configs from enum are available in new system."""
-        import warnings
-
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            from marvin_hue.factories import LightConfigEnum
-            from marvin_hue.factories_new import get_config
-
-            # Check each enum member
-            for enum_member in LightConfigEnum:
-                old_config = enum_member.get_instance()
-                new_config = get_config(old_config.name)
-
-                assert new_config is not None, (
-                    f"Config {old_config.name} not found in new system"
-                )
-                assert new_config.name == old_config.name
+    def test_known_setups_available_in_json(self):
+        manager = _production_manager()
+        for name in (
+            "concentration",
+            "cyberpunk_night",
+            "purple_home",
+            "arco_iris_apos_chuva",
+        ):
+            config = manager.get_config(name)
+            assert config is not None, f"Config {name} not found in JSON catalog"
+            assert config.name == name
 
 
 class TestStandardLights:
     """Tests for STANDARD_LIGHTS constant."""
 
     def test_standard_lights_list(self):
-        """Test that STANDARD_LIGHTS contains expected light names."""
+        """STANDARD_LIGHTS is the 9 physical lights, ceiling order 1–4."""
         assert isinstance(STANDARD_LIGHTS, list)
-        assert len(STANDARD_LIGHTS) > 0
-
-        # Check for known lights
-        assert "Lâmpada 1" in STANDARD_LIGHTS
+        assert len(STANDARD_LIGHTS) == 9
+        assert STANDARD_LIGHTS[:4] == [
+            "Lâmpada 1",
+            "Lâmpada 2",
+            "Lâmpada 3",
+            "Lâmpada 4",
+        ]
+        assert "Lâmpada 3" in STANDARD_LIGHTS
         assert "Hue Iris" in STANDARD_LIGHTS
         assert "Fita Led" in STANDARD_LIGHTS
+        assert STANDARD_LIGHTS[4:] == [
+            "Hue Iris",
+            "Hue Play 1",
+            "Hue Play 2",
+            "Fita Led",
+            "Led cima",
+        ]
 
 
 class TestJSONIntegration:
@@ -387,17 +290,11 @@ class TestJSONIntegration:
 
     def test_setups_json_exists(self):
         """Test that setups.json file exists."""
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        json_path = os.path.join(base_dir, ".res", "setups.json")
-
-        assert os.path.exists(json_path), "setups.json file not found"
+        assert os.path.exists(_repo_setups_path()), "setups.json file not found"
 
     def test_setups_json_valid(self):
         """Test that setups.json contains valid data."""
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        json_path = os.path.join(base_dir, ".res", "setups.json")
-
-        with open(json_path, "r", encoding="utf-8") as f:
+        with open(_repo_setups_path(), "r", encoding="utf-8") as f:
             data = json.load(f)
 
         assert "setups" in data
@@ -413,15 +310,11 @@ class TestJSONIntegration:
 
     def test_all_setups_valid_structure(self):
         """Test that all setups in JSON have valid structure."""
-        from marvin_hue.factories_new import get_registry
+        manager = _production_manager()
 
-        registry = get_registry()
-
-        # Try to get each config - this will fail if structure is invalid
-        for name in registry.config_names:
-            config = registry.get_config(name)
-            assert config is not None
+        for config in manager.configs:
             assert isinstance(config, LightConfig)
+            assert config.name
             assert len(config.settings) > 0
 
 

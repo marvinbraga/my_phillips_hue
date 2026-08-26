@@ -95,7 +95,7 @@ class TestApplyConfigurationEndpoint:
         assert "detail" in data
 
     def test_apply_configuration_with_duration(self, fastapi_test_client):
-        """Test applying configuration with duration."""
+        """duration_minutes is accepted for compatibility but not scheduled."""
         configs_response = fastapi_test_client.get("/configurations")
         configs = configs_response.json()
 
@@ -108,8 +108,9 @@ class TestApplyConfigurationEndpoint:
 
             assert response.status_code == 200
             data = response.json()
-            assert "details" in data
-            assert data["details"]["duration_minutes"] == 30.0
+            assert "duration_minutes" not in data
+            details = data.get("details") or {}
+            assert "duration_minutes" not in details
 
     def test_apply_invalid_request_body(self, fastapi_test_client):
         """Test POST /apply with invalid request body."""
@@ -355,9 +356,10 @@ class TestChatEndpoints:
         assert data["available"] is True
         assert data["provider"] == live_provider
         assert data["model"] == live_model
-        assert data["provider"] != settings.chat_provider or data[
-            "model"
-        ] != settings.chat_model
+        assert (
+            data["provider"] != settings.chat_provider
+            or data["model"] != settings.chat_model
+        )
 
     def test_send_chat_message_unavailable(self, fastapi_test_client):
         """Test sending message when chat is unavailable returns diagnostic 503."""

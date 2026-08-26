@@ -4,53 +4,71 @@ Aplicação assíncrona para controle de luzes Philips Hue.
 """
 
 import asyncio
-from contextlib import asynccontextmanager, AsyncExitStack
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, Request  # noqa: E402
-from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import HTMLResponse  # noqa: E402
-from fastapi.staticfiles import StaticFiles  # noqa: E402
-from fastapi.templating import Jinja2Templates  # noqa: E402
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.routing import APIRoute
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
-from marvin_hue.basics import LightSetupsManager  # noqa: E402
-from marvin_hue.controllers import HueController  # noqa: E402
-from marvin_hue.audio_mirror import AudioMirror  # noqa: E402
-from marvin_hue.screen_mirror import ScreenMirror  # noqa: E402
-from marvin_hue.chat import create_hue_agent  # noqa: E402
-from marvin_hue.logging_config import get_logger  # noqa: E402
-from marvin_hue.config import settings  # noqa: E402
-from marvin_hue.api import dependencies  # noqa: E402
-from marvin_hue.api.middleware.api_key import ApiKeyMiddleware  # noqa: E402
-from marvin_hue.api.routes import (  # noqa: E402
-    status,
-    configurations,
-    positions,
-    mirror,
-    chat,
-    lights,
-    groups,
-    history,
-    schedules,
-    health,
+from marvin_hue.api import dependencies
+from marvin_hue.api.exception_handlers import register_exception_handlers
+from marvin_hue.api.middleware.api_key import ApiKeyMiddleware
+from marvin_hue.api.routes import (
     backup,
+    chat,
+    configurations,
+    groups,
+    health,
+    history,
+    lights,
+    mirror,
+    positions,
+    schedules,
+    status,
 )
-from marvin_hue.api.websockets import setup_websockets  # noqa: E402
-from marvin_hue.entertainment.client import EntertainmentClient  # noqa: E402
-from marvin_hue.entertainment.credentials import (  # noqa: E402
+from marvin_hue.api.websockets import setup_websockets
+from marvin_hue.audio_mirror import AudioMirror
+from marvin_hue.basics import LightSetupsManager
+from marvin_hue.chat import create_hue_agent
+from marvin_hue.config import settings
+from marvin_hue.controllers import HueController
+from marvin_hue.entertainment.client import EntertainmentClient
+from marvin_hue.entertainment.credentials import (
     load_entertainment_credentials,
 )
+from marvin_hue.logging_config import get_logger
+from marvin_hue.screen_mirror import ScreenMirror
 
 logger = get_logger("app")
 
 
+def _api_alias_operation_id(route: APIRoute) -> str:
+    """Unique OpenAPI operation id for prefixed alias routes."""
+    return f"api_alias_{route.name}"
+
+
+def _json_alias_router(router: APIRouter, skip_paths: frozenset[str]) -> APIRouter:
+    """Copy JSON routes so HTML pages are not mounted under /api."""
+    alias = APIRouter()
+    for route in router.routes:
+        if getattr(route, "path", None) not in skip_paths:
+            alias.routes.append(route)
+    return alias
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Gerencia o ciclo de vida da aplicação."""
     # Startup
+    dependencies.bind_fastapi_app(app)
     logger.info("Starting Marvin Hue application")
     logger.info(
         f"Configuration: bridge_ip={settings.bridge_ip}, api_port={settings.api_port}, log_level={settings.log_level}"
@@ -95,18 +113,18 @@ async def lifespan(app: FastAPI):
     dependencies.set_entertainment_client(ent_client)
 
     # App-owned SQLite services (separate connections per repo; same DB file)
-    from marvin_hue.persistence.schema import init_db
-    from marvin_hue.persistence.light_repository import SqliteLightRegistryRepository
     from marvin_hue.persistence.group_repository import SqliteGroupRepository
+    from marvin_hue.persistence.light_repository import SqliteLightRegistryRepository
     from marvin_hue.persistence.scene_history_repository import (
         SqliteSceneHistoryRepository,
     )
     from marvin_hue.persistence.schedule_repository import SqliteScheduleRepository
-    from marvin_hue.services.light_registry import LightRegistryService
+    from marvin_hue.persistence.schema import init_db
     from marvin_hue.services.group_service import GroupService
+    from marvin_hue.services.light_registry import LightRegistryService
     from marvin_hue.services.scene_history import SceneHistoryService
-    from marvin_hue.services.schedule_service import ScheduleService
     from marvin_hue.services.schedule_runner import ScheduleRunner
+    from marvin_hue.services.schedule_service import ScheduleService
 
     light_repo: SqliteLightRegistryRepository | None = None
     group_repo: SqliteGroupRepository | None = None
@@ -136,6 +154,18 @@ async def lifespan(app: FastAPI):
         dependencies.set_scene_history_service(history_service)
         dependencies.set_schedule_service(schedule_service)
 
+        async def _backup_refresh() -> None:
+            await light_registry.refresh_runtime_policy()
+
+        dependencies.set_backup_service(
+            dependencies.build_backup_service(
+                light_repo,
+                group_repo=group_repo,
+                schedule_repo=schedule_repo,
+                on_lights_changed=_backup_refresh,
+            )
+        )
+
         await light_registry.refresh_runtime_policy()
         logger.info(f"App DB services initialized at {settings.app_db_path}")
         logger.info("Eye-safety / enabled_for_app policy loaded from registry")
@@ -150,6 +180,7 @@ async def lifespan(app: FastAPI):
         dependencies.set_scene_history_service(None)
         dependencies.set_schedule_service(None)
         dependencies.set_schedule_runner(None)
+        dependencies.set_backup_service(None)
         # Fail closed: hard-fail startup so misconfig is visible.
         raise
 
@@ -166,6 +197,7 @@ async def lifespan(app: FastAPI):
         checkpointer = None
         if settings.chat_checkpoint == "sqlite":
             from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
             checkpointer = await stack.enter_async_context(
                 AsyncSqliteSaver.from_conn_string(settings.chat_checkpoint_db)
             )
@@ -215,6 +247,8 @@ async def lifespan(app: FastAPI):
                 reason = f"Falha ao inicializar agente: {sanitized}"
             dependencies.set_chat_agent(None, reason=reason)
 
+        dependencies.populate_app_state(app)
+
         try:
             yield
         finally:
@@ -233,6 +267,7 @@ async def lifespan(app: FastAPI):
             dependencies.set_scene_history_service(None)
             dependencies.set_group_service(None)
             dependencies.set_light_registry_service(None)
+            dependencies.set_backup_service(None)
             from marvin_hue.eye_safety import clear_runtime_policy
 
             clear_runtime_policy()
@@ -261,6 +296,8 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+register_exception_handlers(app)
+dependencies.bind_fastapi_app(app)
 
 # Configurar CORS
 app.add_middleware(
@@ -286,8 +323,23 @@ app.include_router(groups.router)
 app.include_router(history.router)
 app.include_router(schedules.router)
 app.include_router(configurations.router)
+app.include_router(
+    configurations.router,
+    prefix="/api",
+    generate_unique_id_function=_api_alias_operation_id,
+)
 app.include_router(positions.router)
+app.include_router(
+    _json_alias_router(positions.router, frozenset({"/positions-config"})),
+    prefix="/api",
+    generate_unique_id_function=_api_alias_operation_id,
+)
 app.include_router(mirror.router)
+app.include_router(
+    _json_alias_router(mirror.router, frozenset({"/mirror"})),
+    prefix="/api",
+    generate_unique_id_function=_api_alias_operation_id,
+)
 app.include_router(chat.router)
 app.include_router(health.router)
 app.include_router(backup.router)
@@ -298,7 +350,7 @@ setup_websockets(app)
 
 # Página principal
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(request: Request) -> HTMLResponse:
     """Página principal."""
     return templates.TemplateResponse(request, "index.html", {"active": "controle"})
 

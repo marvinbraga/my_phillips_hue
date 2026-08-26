@@ -11,6 +11,11 @@
       "enabled": true
     },
     {
+      "name": "Lâmpada 3",
+      "position": "none",
+      "enabled": true
+    },
+    {
       "name": "Lâmpada 4",
       "position": "none",
       "enabled": true

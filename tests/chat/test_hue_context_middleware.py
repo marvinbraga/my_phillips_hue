@@ -26,8 +26,8 @@ def test_context_injected_into_system_prompt(fake_controller, fake_manager):
 
     mw.wrap_model_call(req, handler)
     assert "BASE" in captured["prompt"]
-    assert "Fita Led" in captured["prompt"]            # status vivo
-    assert "noite_relaxante" in captured["prompt"]      # preset
+    assert "Fita Led" in captured["prompt"]  # status vivo
+    assert "noite_relaxante" in captured["prompt"]  # preset
 
 
 def test_status_block_is_cached(fake_controller, fake_manager):
@@ -35,7 +35,9 @@ def test_status_block_is_cached(fake_controller, fake_manager):
     não martelam a bridge."""
     from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
 
-    mw = HueContextMiddleware(fake_controller, fake_manager, locations_path=None, status_ttl_s=60.0)
+    mw = HueContextMiddleware(
+        fake_controller, fake_manager, locations_path=None, status_ttl_s=60.0
+    )
 
     def handler(req):
         return "resp"
@@ -90,3 +92,114 @@ def test_status_block_degrades_on_bridge_error(fake_controller, fake_manager):
     mw.wrap_model_call(req, handler)  # não levanta
     assert "BASE" in captured["prompt"]
     assert "Fita Led" not in captured["prompt"]  # status ausente, mas turno vivo
+
+
+def test_locations_block_prefers_registry_rows(fake_controller, fake_manager):
+    """Registry snapshot is source of truth; JSON is fallback only."""
+    from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
+
+    class _Row:
+        name = "Fita Led"
+        eye_safety_limit_pct = 25
+        room = "escritorio"
+        notes = "próxima aos olhos"
+
+    mw = HueContextMiddleware(
+        fake_controller,
+        fake_manager,
+        locations_path="/nao/existe.json",
+        registry_rows=[_Row()],
+    )
+    captured = {}
+
+    def handler(req):
+        captured["prompt"] = req.system_message.content
+        return "resp"
+
+    req = MagicMock()
+    req.system_prompt = "BASE"
+    req.override.side_effect = lambda **kw: type("R", (), kw)()
+
+    mw.wrap_model_call(req, handler)
+    assert "Fita Led" in captured["prompt"]
+    assert "25%" in captured["prompt"]
+
+
+def test_locations_block_falls_back_to_json_when_registry_none(
+    fake_controller, fake_manager, tmp_path
+):
+    loc = tmp_path / "locs.json"
+    loc.write_text(
+        '{"lights": [{"name": "Led cima", "max_brightness_percent": 25}]}',
+        encoding="utf-8",
+    )
+    from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
+
+    mw = HueContextMiddleware(fake_controller, fake_manager, locations_path=str(loc))
+    captured = {}
+
+    def handler(req):
+        captured["prompt"] = req.system_message.content
+        return "resp"
+
+    req = MagicMock()
+    req.system_prompt = "BASE"
+    req.override.side_effect = lambda **kw: type("R", (), kw)()
+
+    mw.wrap_model_call(req, handler)
+    assert "Led cima" in captured["prompt"]
+    assert "25%" in captured["prompt"]
+
+
+def test_registry_restrictions_skip_invalid_rows(fake_controller, fake_manager):
+    from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
+
+    class _Blank:
+        name = "  "
+        eye_safety_limit_pct = 25
+
+    class _NoLimit:
+        name = "Lâmpada 1"
+        eye_safety_limit_pct = None
+
+    mw = HueContextMiddleware(
+        fake_controller,
+        fake_manager,
+        locations_path=None,
+        registry_rows=[_Blank(), _NoLimit()],
+    )
+    captured = {}
+
+    def handler(req):
+        captured["prompt"] = req.system_message.content
+        return "resp"
+
+    req = MagicMock()
+    req.system_prompt = "BASE"
+    req.override.side_effect = lambda **kw: type("R", (), kw)()
+
+    mw.wrap_model_call(req, handler)
+    assert "Restrições físicas" not in captured["prompt"]
+
+
+def test_json_restrictions_block_degrades_on_bad_json(
+    fake_controller, fake_manager, tmp_path
+):
+    loc = tmp_path / "bad.json"
+    loc.write_text("{not json", encoding="utf-8")
+    from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
+
+    mw = HueContextMiddleware(fake_controller, fake_manager, locations_path=str(loc))
+    captured = {}
+
+    def handler(req):
+        captured["prompt"] = req.system_message.content
+        return "resp"
+
+    req = MagicMock()
+    req.system_prompt = "BASE"
+    req.override.side_effect = lambda **kw: type("R", (), kw)()
+
+    mw.wrap_model_call(req, handler)
+    assert "BASE" in captured["prompt"]
+    assert "Restrições físicas" not in captured["prompt"]

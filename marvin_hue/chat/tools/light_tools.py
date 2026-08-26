@@ -22,20 +22,44 @@ Disabled lights (``enabled_for_app=false``)
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Protocol, Sequence
+from typing import Protocol
 
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.colors import Color
+from marvin_hue.controllers import HueController
 from marvin_hue.eye_safety import is_enabled_for_app
 
 
 _DEFAULT_LOCATIONS_PATH = ".res/light_physical_locations.json"
 _DEFAULT_ROOM = "sem_sala"
+
+
+@dataclass(frozen=True)
+class RegistryLocation:
+    """Registry snapshot row used by get_light_locations (name is Hue join key)."""
+
+    name: str
+    room: str
+    notes: str | None = None
+    eye_safety_limit_pct: int | None = None
+
+
+class RegistryRoomIndex(dict[str, list[str]]):
+    """room → light names, plus registry location rows when built from catalog."""
+
+    def __init__(
+        self,
+        rooms: Mapping[str, Sequence[str]],
+        locations: tuple[RegistryLocation, ...] | None = None,
+    ) -> None:
+        super().__init__({str(k): [str(n) for n in v] for k, v in rooms.items()})
+        self.locations = locations
 
 
 class RoomIndex(Protocol):
@@ -50,14 +74,23 @@ class RoomIndex(Protocol):
         ...
 
 
+def _eye_safety_pct(raw: object) -> int | None:
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return None
+    return raw
+
+
 def build_room_index_from_registry_rows(
     lights: Sequence[object],
 ) -> dict[str, list[str]]:
     """Build room_index from registry-like objects (name, room, enabled_for_app).
 
     Disabled lights are omitted. Empty/missing room → ``sem_sala``.
+    Carries ``RegistryLocation`` rows (name, room, notes, eye_safety_limit_pct)
+    so get_light_locations can prefer the catalog over JSON.
     """
     room_index: dict[str, list[str]] = {}
+    locations: list[RegistryLocation] = []
     for lt in lights:
         if not bool(getattr(lt, "enabled_for_app", True)):
             continue
@@ -67,7 +100,19 @@ def build_room_index_from_registry_rows(
         room_raw = getattr(lt, "room", None)
         room = (str(room_raw).strip() if room_raw is not None else "") or _DEFAULT_ROOM
         room_index.setdefault(room, []).append(name)
-    return room_index
+        notes_raw = getattr(lt, "notes", None)
+        notes = str(notes_raw).strip() if notes_raw else None
+        locations.append(
+            RegistryLocation(
+                name=name,
+                room=room,
+                notes=notes or None,
+                eye_safety_limit_pct=_eye_safety_pct(
+                    getattr(lt, "eye_safety_limit_pct", None)
+                ),
+            )
+        )
+    return RegistryRoomIndex(room_index, tuple(locations))
 
 
 def _room_index_from_locations(path: str) -> dict[str, list[str]]:
@@ -93,15 +138,28 @@ def _room_index_from_locations(path: str) -> dict[str, list[str]]:
     return room_index
 
 
+def _locations_from_room_index(
+    room_index: Mapping[str, Sequence[str]],
+) -> tuple[RegistryLocation, ...] | None:
+    existing = getattr(room_index, "locations", None)
+    if existing is not None:
+        return tuple(existing)
+    return tuple(
+        RegistryLocation(name=str(n), room=str(room))
+        for room, names in room_index.items()
+        for n in names
+    )
+
+
 def _normalize_room_index(
     room_index: Mapping[str, Sequence[str]] | None,
     locations_path: str,
 ) -> dict[str, list[str]]:
     if room_index is not None:
-        return {
-            str(room): [str(n) for n in names]
-            for room, names in room_index.items()
+        rooms = {
+            str(room): [str(n) for n in names] for room, names in room_index.items()
         }
+        return RegistryRoomIndex(rooms, _locations_from_room_index(room_index))
     return _room_index_from_locations(locations_path)
 
 
@@ -118,6 +176,114 @@ def _match_room(rooms: Mapping[str, Sequence[str]], room: str) -> str | None:
 
 def _enabled_names(names: Sequence[str]) -> list[str]:
     return [n for n in names if is_enabled_for_app(n)]
+
+
+def _registry_location_lines(loc: RegistryLocation, *, heading: bool) -> str:
+    if heading:
+        lines = [f"Lâmpada '{loc.name}':", f"• Localização: {loc.room}"]
+        if loc.eye_safety_limit_pct is not None:
+            lines.append(
+                f"• ⚠️ Intensidade máxima recomendada: {loc.eye_safety_limit_pct}%"
+            )
+        if loc.notes:
+            lines.append(f"• Observação: {loc.notes}")
+        return "\n".join(lines)
+    info = f"\n• {loc.name}: {loc.room}"
+    if loc.eye_safety_limit_pct is not None:
+        info += f"\n  ⚠️ Intensidade máxima recomendada: {loc.eye_safety_limit_pct}%"
+    if loc.notes:
+        info += f"\n  📝 {loc.notes}"
+    return info
+
+
+def _format_registry_locations(
+    locations: Sequence[RegistryLocation], light_name: str
+) -> str:
+    enabled = [loc for loc in locations if loc.name and is_enabled_for_app(loc.name)]
+    if light_name.lower() == "all":
+        if not enabled:
+            return "Nenhuma lâmpada habilitada no registry."
+        parts = ["Localizações físicas das lâmpadas:"]
+        parts.extend(_registry_location_lines(loc, heading=False) for loc in enabled)
+        return "\n".join(parts)
+    target = light_name.lower()
+    for loc in locations:
+        if loc.name.lower() != target:
+            continue
+        if not is_enabled_for_app(loc.name):
+            return f"Lâmpada '{light_name}' desabilitada no app."
+        return _registry_location_lines(loc, heading=True)
+    return f"Lâmpada '{light_name}' não encontrada no registry."
+
+
+def _json_max_brightness_line(light: dict[str, object], *, heading: bool) -> str:
+    if "max_brightness_percent" not in light:
+        return ""
+    prefix = "• " if heading else "  "
+    return (
+        f"\n{prefix}⚠️ Intensidade máxima recomendada: "
+        f"{light['max_brightness_percent']}%"
+    )
+
+
+def _json_light_all_line(light: object) -> str | None:
+    if not isinstance(light, dict) or "name" not in light or "location" not in light:
+        return None
+    if not is_enabled_for_app(str(light["name"])):
+        return None
+    info = f"\n• {light['name']}: {light['location']}"
+    info += _json_max_brightness_line(light, heading=False)
+    if light.get("notes"):
+        info += f"\n  📝 {light['notes']}"
+    recs = light.get("recommendations")
+    if isinstance(recs, list):
+        info += "\n  💡 Recomendações:" + "".join(f"\n     - {r}" for r in recs)
+    return info
+
+
+def _json_light_one(light: object, light_name: str) -> str | None:
+    if not isinstance(light, dict):
+        return None
+    if str(light.get("name", "")).lower() != light_name.lower():
+        return None
+    if not is_enabled_for_app(str(light.get("name", ""))):
+        return f"Lâmpada '{light_name}' desabilitada no app."
+    info = f"Lâmpada '{light['name']}':\n• Localização: {light.get('location', '?')}"
+    info += _json_max_brightness_line(light, heading=True)
+    if light.get("notes"):
+        info += f"\n• Observação: {light['notes']}"
+    recs = light.get("recommendations")
+    if isinstance(recs, list):
+        info += "\n• Recomendações:" + "".join(f"\n  - {r}" for r in recs)
+    return info
+
+
+def _format_json_locations(locations_path: str, light_name: str) -> str:
+    path = Path(locations_path)
+    if not path.exists():
+        return "Arquivo de localizações físicas não encontrado."
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        lights = data.get("lights", []) if isinstance(data, dict) else []
+        if light_name.lower() == "all":
+            parts = ["Localizações físicas das lâmpadas:"]
+            parts.extend(
+                line
+                for light in lights
+                if (line := _json_light_all_line(light)) is not None
+            )
+            env = data.get("environment_info", {}) if isinstance(data, dict) else {}
+            if isinstance(env, dict) and "considerations" in env:
+                parts.append("\n⚙️ Considerações importantes:")
+                parts.extend(f"  • {c}" for c in env["considerations"])
+            return "\n".join(parts)
+        for light in lights:
+            one = _json_light_one(light, light_name)
+            if one is not None:
+                return one
+    except Exception as e:  # noqa: BLE001
+        return f"Erro ao ler arquivo de localizações: {e}"
+    return f"Lâmpada '{light_name}' não encontrada no arquivo de localizações."
 
 
 def build_light_tools(
@@ -156,18 +322,26 @@ def build_light_tools(
         brightness: int = Field(default=200, ge=0, le=254, description="Brilho 0-254")
 
     class _ApplyConfigArgs(BaseModel):
-        config_name: str = Field(description="Nome da configuração/preset de iluminação")
+        config_name: str = Field(
+            description="Nome da configuração/preset de iluminação"
+        )
         transition_time: float = Field(default=0.0, ge=0, description="Transição (s)")
 
     class _ListConfigsArgs(BaseModel):
-        search: str = Field(default="", description="Termo opcional para filtrar pelo nome")
+        search: str = Field(
+            default="", description="Termo opcional para filtrar pelo nome"
+        )
 
     class _LightNameAllArgs(BaseModel):
-        light_name: str = Field(default="all", description="Nome da lâmpada ou 'all' para todas")
+        light_name: str = Field(
+            default="all", description="Nome da lâmpada ou 'all' para todas"
+        )
 
     class _SetBrightnessArgs(BaseModel):
         light_name: str = Field(description="Nome da lâmpada ou 'all' para todas")
-        brightness: int = Field(ge=0, le=100, description="Brilho em porcentagem (0-100)")
+        brightness: int = Field(
+            ge=0, le=100, description="Brilho em porcentagem (0-100)"
+        )
 
     class _SaveConfigArgs(BaseModel):
         # pattern ^\w+$ : letras (incl. acentuadas)/dígitos/underscore — rejeita
@@ -176,7 +350,7 @@ def build_light_tools(
         config_name: str = Field(
             pattern=r"^\w+$",
             description="Nome único, sem espaços (use underscores). Crie um nome "
-            "criativo baseado nas cores atuais (ex: 'sunset_warm', 'natal_festivo')."
+            "criativo baseado nas cores atuais (ex: 'sunset_warm', 'natal_festivo').",
         )
         description: str = Field(
             description="Descrição de uma linha capturando o mood/ambiente das cores."
@@ -194,7 +368,9 @@ def build_light_tools(
 
     class _SetRoomBrightnessArgs(BaseModel):
         room: str = Field(description="Nome da sala")
-        brightness: int = Field(ge=0, le=100, description="Brilho em porcentagem (0-100)")
+        brightness: int = Field(
+            ge=0, le=100, description="Brilho em porcentagem (0-100)"
+        )
 
     # ----- implementações (closures) -----
     def _list_lights() -> str:
@@ -225,8 +401,9 @@ def build_light_tools(
             return "Nenhuma lâmpada habilitada com status disponível."
         return "\n".join(result_parts)
 
-    def _set_light_color(light_name: str, red: int, green: int, blue: int,
-                         brightness: int = 200) -> str:
+    def _set_light_color(
+        light_name: str, red: int, green: int, blue: int, brightness: int = 200
+    ) -> str:
         # Clamp defensivo (alguns valores podem ser derivados/computados).
         # Disabled lights: controller raises ValueError (skip / block).
         red, green, blue = (max(0, min(255, v)) for v in (red, green, blue))
@@ -247,8 +424,23 @@ def build_light_tools(
             )
         try:
             # Controller skips disabled lights inside apply_light_config.
-            controller.apply_light_config(config, transition_time)
-            return f"Configuração '{config_name}' aplicada! Descrição: {config.description}"
+            result = controller.apply_light_config(config, transition_time)
+            if result.ok:
+                return (
+                    f"Configuração '{config_name}' aplicada! "
+                    f"Descrição: {config.description}"
+                )
+            failed_txt = ", ".join(f"{name} ({err})" for name, err in result.failed)
+            if result.partial:
+                applied_txt = ", ".join(result.applied)
+                return (
+                    f"Configuração '{config_name}' aplicada parcialmente. "
+                    f"Aplicadas: {applied_txt}. Falhas: {failed_txt}."
+                )
+            return (
+                f"Falha ao aplicar configuração '{config_name}'. "
+                f"Nenhuma lâmpada aplicada. Falhas: {failed_txt}."
+            )
         except Exception as e:  # noqa: BLE001
             return f"Erro ao aplicar '{config_name}': {e}"
 
@@ -262,10 +454,16 @@ def build_light_tools(
         shown = sorted(configs, key=lambda c: c.name)[:15]
         result_parts = ["Configurações disponíveis:"]
         for config in shown:
-            desc = (config.description[:60] + "...") if len(config.description) > 60 else config.description
+            desc = (
+                (config.description[:60] + "...")
+                if len(config.description) > 60
+                else config.description
+            )
             result_parts.append(f"- {config.name}: {desc}")
         if len(manager.configs) > 15:
-            result_parts.append(f"\n(Mostrando 15 de {len(manager.configs)} configurações)")
+            result_parts.append(
+                f"\n(Mostrando 15 de {len(manager.configs)} configurações)"
+            )
         return "\n".join(result_parts)
 
     def _turn_off_lights(light_name: str = "all") -> str:
@@ -311,12 +509,16 @@ def build_light_tools(
             if light["on"] and light["reachable"]:
                 c = light["color"]
                 settings.append(
-                    LightSetting(light["name"], Color(c["r"], c["g"], c["b"], light["brightness"]))
+                    LightSetting(
+                        light["name"],
+                        Color(c["r"], c["g"], c["b"], light["brightness"]),
+                    )
                 )
         if not settings:
             return "Nenhuma lâmpada ligada encontrada. Ligue algumas lâmpadas primeiro."
         new_config = LightConfig(
-            name=config_name, settings=settings,
+            name=config_name,
+            settings=settings,
             description=description or "Configuração salva pelo chat",
         )
         manager.configs.append(new_config)
@@ -328,49 +530,11 @@ def build_light_tools(
         )
 
     def _get_light_locations(light_name: str = "all") -> str:
-        path = Path(locations_path)
-        if not path.exists():
-            return "Arquivo de localizações físicas não encontrado."
-        # Try/except cobre TODA a leitura/parse/acesso (espelha _locations_block):
-        # um JSON malformado/forma inesperada vira erro de tool, não exceção.
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            lights = data.get("lights", []) if isinstance(data, dict) else []
-            if light_name.lower() == "all":
-                parts = ["Localizações físicas das lâmpadas:"]
-                for light in lights:
-                    if "name" not in light or "location" not in light:
-                        continue
-                    if not is_enabled_for_app(str(light["name"])):
-                        continue
-                    info = f"\n• {light['name']}: {light['location']}"
-                    if "max_brightness_percent" in light:
-                        info += f"\n  ⚠️ Intensidade máxima recomendada: {light['max_brightness_percent']}%"
-                    if light.get("notes"):
-                        info += f"\n  📝 {light['notes']}"
-                    if "recommendations" in light:
-                        info += "\n  💡 Recomendações:" + "".join(f"\n     - {r}" for r in light["recommendations"])
-                    parts.append(info)
-                env = data.get("environment_info", {})
-                if "considerations" in env:
-                    parts.append("\n⚙️ Considerações importantes:")
-                    parts.extend(f"  • {c}" for c in env["considerations"])
-                return "\n".join(parts)
-            for light in lights:
-                if light.get("name", "").lower() == light_name.lower():
-                    if not is_enabled_for_app(str(light.get("name", ""))):
-                        return f"Lâmpada '{light_name}' desabilitada no app."
-                    info = f"Lâmpada '{light['name']}':\n• Localização: {light.get('location', '?')}"
-                    if "max_brightness_percent" in light:
-                        info += f"\n• ⚠️ Intensidade máxima recomendada: {light['max_brightness_percent']}%"
-                    if light.get("notes"):
-                        info += f"\n• Observação: {light['notes']}"
-                    if "recommendations" in light:
-                        info += "\n• Recomendações:" + "".join(f"\n  - {r}" for r in light["recommendations"])
-                    return info
-        except Exception as e:  # noqa: BLE001
-            return f"Erro ao ler arquivo de localizações: {e}"
-        return f"Lâmpada '{light_name}' não encontrada no arquivo de localizações."
+        # Prefer registry snapshot carried on room_index; JSON only if None.
+        registry_locations = getattr(rooms_map, "locations", None)
+        if registry_locations is not None:
+            return _format_registry_locations(registry_locations, light_name)
+        return _format_json_locations(locations_path, light_name)
 
     def _get_rooms() -> str:
         if not rooms_map:
@@ -399,7 +563,9 @@ def build_light_tools(
             return "\n".join(parts)
         key = _match_room(rooms_map, room)
         if key is None:
-            available = ", ".join(sorted(rooms_map.keys(), key=str.lower)) or "(nenhuma)"
+            available = (
+                ", ".join(sorted(rooms_map.keys(), key=str.lower)) or "(nenhuma)"
+            )
             return f"Sala '{room}' não encontrada. Salas: {available}"
         names = _enabled_names(rooms_map[key])
         if not names:
@@ -409,7 +575,9 @@ def build_light_tools(
     def _set_room_power(room: str, on: bool) -> str:
         key = _match_room(rooms_map, (room or "").strip())
         if key is None:
-            available = ", ".join(sorted(rooms_map.keys(), key=str.lower)) or "(nenhuma)"
+            available = (
+                ", ".join(sorted(rooms_map.keys(), key=str.lower)) or "(nenhuma)"
+            )
             return f"Sala '{room}' não encontrada. Salas: {available}"
         names = _enabled_names(rooms_map[key])
         if not names:
@@ -429,7 +597,9 @@ def build_light_tools(
     def _set_room_brightness(room: str, brightness: int) -> str:
         key = _match_room(rooms_map, (room or "").strip())
         if key is None:
-            available = ", ".join(sorted(rooms_map.keys(), key=str.lower)) or "(nenhuma)"
+            available = (
+                ", ".join(sorted(rooms_map.keys(), key=str.lower)) or "(nenhuma)"
+            )
             return f"Sala '{room}' não encontrada. Salas: {available}"
         names = _enabled_names(rooms_map[key])
         if not names:
@@ -452,18 +622,21 @@ def build_light_tools(
     # ----- montagem das StructuredTools -----
     return [
         StructuredTool.from_function(
-            func=_list_lights, name="list_lights",
+            func=_list_lights,
+            name="list_lights",
             description=(
                 "Lista lâmpadas habilitadas no app (exclui enabled_for_app=false). "
                 "Controles no controller também ignoram desabilitadas."
             ),
         ),
         StructuredTool.from_function(
-            func=_get_light_status, name="get_light_status",
+            func=_get_light_status,
+            name="get_light_status",
             description="Status atual das lâmpadas habilitadas (estado, cor, brilho).",
         ),
         StructuredTool.from_function(
-            func=_set_light_color, name="set_light_color",
+            func=_set_light_color,
+            name="set_light_color",
             description=(
                 "Define cor RGB e brilho de UMA lâmpada. "
                 "Lâmpadas desabilitadas no app são rejeitadas pelo controller."
@@ -471,7 +644,8 @@ def build_light_tools(
             args_schema=_SetColorArgs,
         ),
         StructuredTool.from_function(
-            func=_apply_config, name="apply_config",
+            func=_apply_config,
+            name="apply_config",
             description=(
                 "Aplica uma configuração/preset de iluminação predefinida. "
                 "Lâmpadas desabilitadas no preset são ignoradas pelo controller."
@@ -479,12 +653,14 @@ def build_light_tools(
             args_schema=_ApplyConfigArgs,
         ),
         StructuredTool.from_function(
-            func=_list_configs, name="list_configs",
+            func=_list_configs,
+            name="list_configs",
             description="Lista os presets de iluminação disponíveis (filtro opcional).",
             args_schema=_ListConfigsArgs,
         ),
         StructuredTool.from_function(
-            func=_turn_off_lights, name="turn_off_lights",
+            func=_turn_off_lights,
+            name="turn_off_lights",
             description=(
                 "Desliga uma lâmpada específica ou todas ('all'). "
                 "Desabilitadas são ignoradas pelo controller."
@@ -492,7 +668,8 @@ def build_light_tools(
             args_schema=_LightNameAllArgs,
         ),
         StructuredTool.from_function(
-            func=_turn_on_lights, name="turn_on_lights",
+            func=_turn_on_lights,
+            name="turn_on_lights",
             description=(
                 "Liga uma lâmpada específica ou todas ('all'). "
                 "Desabilitadas são ignoradas pelo controller."
@@ -500,7 +677,8 @@ def build_light_tools(
             args_schema=_LightNameAllArgs,
         ),
         StructuredTool.from_function(
-            func=_set_brightness, name="set_brightness",
+            func=_set_brightness,
+            name="set_brightness",
             description=(
                 "Ajusta o brilho (0-100%) de uma lâmpada ou de todas ('all'). "
                 "Desabilitadas são ignoradas; eye-safety clampa no controller."
@@ -508,21 +686,25 @@ def build_light_tools(
             args_schema=_SetBrightnessArgs,
         ),
         StructuredTool.from_function(
-            func=_save_current_config, name="save_current_config",
+            func=_save_current_config,
+            name="save_current_config",
             description="Salva o estado atual das lâmpadas habilitadas como um novo preset.",
             args_schema=_SaveConfigArgs,
         ),
         StructuredTool.from_function(
-            func=_get_light_locations, name="get_light_locations",
+            func=_get_light_locations,
+            name="get_light_locations",
             description="Localização física das lâmpadas e restrições de intensidade.",
             args_schema=_LightNameAllArgs,
         ),
         StructuredTool.from_function(
-            func=_get_rooms, name="get_rooms",
+            func=_get_rooms,
+            name="get_rooms",
             description="Lista salas distintas do registry (room_index) com contagem de lâmpadas.",
         ),
         StructuredTool.from_function(
-            func=_list_lights_by_room, name="list_lights_by_room",
+            func=_list_lights_by_room,
+            name="list_lights_by_room",
             description=(
                 "Lista lâmpadas por sala. room vazio → salas e contagens; "
                 "room preenchido → nomes habilitados na sala."
@@ -530,7 +712,8 @@ def build_light_tools(
             args_schema=_RoomArgs,
         ),
         StructuredTool.from_function(
-            func=_set_room_power, name="set_room_power",
+            func=_set_room_power,
+            name="set_room_power",
             description=(
                 "Liga ou desliga todas as lâmpadas habilitadas de uma sala. "
                 "Desabilitadas são ignoradas pelo controller."
@@ -538,7 +721,8 @@ def build_light_tools(
             args_schema=_SetRoomPowerArgs,
         ),
         StructuredTool.from_function(
-            func=_set_room_brightness, name="set_room_brightness",
+            func=_set_room_brightness,
+            name="set_room_brightness",
             description=(
                 "Ajusta brilho (0-100%) de todas as lâmpadas habilitadas de uma sala. "
                 "Eye-safety e skip de desabilitadas via controller."
