@@ -2,96 +2,144 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Project overview
 
-Marvin Hue is a Python application for controlling Philips Hue smart lights. It provides predefined lighting configurations (setups) for different moods and activities, with both CLI and web interfaces. Now includes real-time screen mirroring (ambient lighting).
+Marvin Hue is a Python 3.11+ Philips Hue lighting console. You apply JSON scene setups, manage a SQLite catalog (lights, groups, schedules, history), mirror screen or audio onto lights, and talk to a LangGraph chat agent.
+
+Package version is **0.1.0**. The FastAPI app still reports **2.0.0** — do not invent a version bump.
+
+Tooling is **uv**, not Poetry.
 
 ## Commands
 
 ```bash
-# Install dependencies
+# Install
 uv sync
+uv sync --extra dev
 
-# Run CLI to apply lighting configuration
+# CLI (JSON setups via LightSetupsManager)
 uv run python main.py
 
-# Run FastAPI web server
+# FastAPI (port 5081)
 uv run python app.py
-# or with auto-reload
 uv run uvicorn app:app --reload --port 5081
+
+# Tests (writes htmlcov/)
+uv run pytest
 ```
+
+Do not quote a coverage percentage. After `uv run pytest`, open `htmlcov/index.html`.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set `bridge_ip` to your Philips Hue Bridge IP address.
+Copy `.env.example` to `.env` and set `BRIDGE_IP`.
+
+Chat providers: `openai` | `anthropic` | `xai` | `groq`. There is **no Ollama** provider.
+
+`API_KEY` (optional) protects only `/api/*`. HTML pages, `/static/*`, `/apply`, `/configurations`, `/mirror/*`, `/positions*`, and WebSockets stay open for LAN UI.
 
 ## Architecture
 
-### Core Package (`marvin_hue/`)
+Modular monolith in `marvin_hue/`. Composition root is the FastAPI lifespan in `app.py` (port **5081**). `marvin_hue/api/dependencies.py` is a process-wide service locator.
 
-- **colors.py**: `Color` class representing RGBA colors (red, green, blue, brightness 0-254)
-- **utils.py**: `RGBtoXYAdapter` converts RGB colors to XY coordinates used by Philips Hue API
-- **basics.py**:
-  - `LightSetting`: Associates a light name with a color
-  - `LightConfig`: Groups multiple `LightSetting` objects into a named configuration
-  - `LightSetupsManager`: Loads/saves configurations from JSON files
-- **controllers.py**: `HueController` wraps the `phue` library to apply configurations to the bridge
-- **setups.py**: Predefined `LightConfig` subclasses (50+ themes like `SetupConcentration`, `CyberpunkNight`, etc.)
-- **factories.py**: `LightConfigEnum` maps setup classes to descriptions for easy access
-- **screen_mirror.py**: `ScreenMirror` class for real-time screen color capture and application to lights
+### Core package (`marvin_hue/`)
 
-### Entry Points
+- **colors.py**: `Color` (RGBA; brightness 0–254)
+- **utils.py**: `RGBtoXYAdapter` converts RGB to Hue XY
+- **basics.py**: `LightSetting`, `LightConfig`, `LightSetupsManager` (loads `.res/setups.json`)
+- **setup_builder.py**: Builds `LightConfig` from JSON dicts
+- **controllers.py**: `HueController` (phue REST)
+- **apply_result.py**: Per-light `ApplyResult` (`applied` / `failed`)
+- **screen_mirror.py** / **audio_mirror.py**: Capture loops
+- **services/mirror_control.py**: `MirrorControlService` (start/stop screen or audio)
+- **services/schedule_runner.py**: `ScheduleRunner` (`GET /api/health` reports `schedules.runner_alive`)
+- **domain/**, **persistence/**, **services/**: Catalog (lights, groups, schedules, scene history)
+- **output/**: `LightOutputPort` (REST or Entertainment DTLS)
+- **entertainment/**: Hue Entertainment client and credentials
+- **chat/**: LangGraph agent, providers, tools, middleware
+- **api/**: Routes, models, websockets, API-key middleware
 
-- **main.py**: CLI script that applies a lighting configuration directly
-- **app.py**: FastAPI web server (async) with REST API and WebSocket:
-  - `GET /` - Web UI for light configurations
-  - `GET /configurations` - List available configurations
-  - `POST /apply` - Apply a configuration
-  - `GET /positions-config` - Light positioning configuration page
-  - `GET /positions` - Get light positions
-  - `POST /positions` - Save light positions
-  - `GET /mirror` - Screen mirroring control page
-  - `POST /mirror/start` - Start screen mirroring
-  - `POST /mirror/stop` - Stop screen mirroring
-  - `GET /mirror/status` - Get mirroring status
-  - `WS /ws/mirror` - WebSocket for real-time color updates
+Canonical setups: **`.res/setups.json`** (~69 themes) via `LightSetupsManager`. Do **not** add a class in `setups.py`.
 
-### Screen Mirroring
+### Entry points
 
-The screen mirroring feature captures screen regions and applies dominant colors to configured lights:
+- **main.py**: CLI applies JSON setups via `LightSetupsManager`
+- **app.py**: FastAPI app (version string `2.0.0`) on port 5081
 
-1. Configure light positions in `/positions-config` (which region each light should mirror)
-2. Start mirroring in `/mirror` page
-3. Colors update in real-time via WebSocket (10 FPS to browser, 25 FPS to lights)
+Web screens: Controle, Lâmpadas, Grupos, Agendamentos, Posicionamento, Espelhamento, Saúde, Chat.
 
-Position mappings in `.res/light_positions.json`:
-- `left`, `right`, `top`, `bottom` - Edge regions
-- `top-left`, `top-right`, `bottom-left`, `bottom-right` - Corner regions
-- `center` - Center of screen
-- `ambient` - Average color of entire screen
-- `none` - Light doesn't participate in mirroring
+### Routes
 
-### Data Flow
+**Pages**
 
-1. User selects a configuration (via CLI enum or web API)
-2. `LightConfigEnum.get_instance()` creates a `LightConfig` object with `LightSetting` list
-3. `HueController.apply_light_config()` iterates through settings
-4. For each setting, RGB is converted to XY via `RGBtoXYAdapter` and sent to the bridge
+| Path | Screen |
+|------|--------|
+| `GET /` | Controle |
+| `GET /lights` | Lâmpadas |
+| `GET /groups` | Grupos |
+| `GET /schedules` | Agendamentos |
+| `GET /positions-config` | Posicionamento |
+| `GET /mirror` | Espelhamento |
+| `GET /health` | Saúde |
+| `GET /chat` | Chat |
 
-### Light Names
+**Scenes and positions (no API key)**
 
-The code expects specific light names matching your Hue setup: `Lâmpada 1-4`, `Hue Iris`, `Hue Play 1-2`, `Fita Led`, `Led cima`.
+- `GET /configurations`
+- `POST /apply` — `ApplyResult` → HTTP **200** (all ok), **207** (partial), **500** (all failed). `duration_minutes` is accepted and **ignored** (not a restore timer)
+- `GET /positions`, `POST /positions`, `POST /positions/reset`
 
-## Adding New Lighting Configurations
+**Mirror (no API key)** — `MirrorControlService`
 
-1. Create a new class in `marvin_hue/setups.py` extending `LightConfig`
-2. Add an entry to `LightConfigEnum` in `marvin_hue/factories.py`
-3. Alternatively, add to `.res/setups.json` for dynamic configurations loaded by `LightSetupsManager`
+- `POST /mirror/start`, `POST /mirror/stop`, `GET /mirror/status`, `POST /mirror/settings`
+- `GET /mirror/profiles`, `POST /mirror/profile`
+- `GET /mirror/entertainment/status`, `POST /mirror/entertainment/pair`, `GET /mirror/entertainment/areas`
+
+**`/api/*` (requires `API_KEY` when that env var is set)**
+
+- `GET /api/bridge/status`, `GET /api/lights/status`
+- `GET /api/health` — includes `schedules.runner_alive`
+- Lights registry, groups, schedules, history, backup
+- Chat: `GET /api/chat/status`, `POST /api/chat/message`, `POST /api/chat/clear`, `POST /api/chat/configure`
+
+**WebSockets (no API key)**
+
+- `WS /ws/mirror`
+- `WS /ws/chat`
+
+### Screen mirroring
+
+1. Map each light to a screen region on **Posicionamento** (`/positions-config`).
+2. Start mirroring on **Espelhamento** (`/mirror`).
+3. Lights update at the configured FPS (default **25** on start; named profiles `cinema` / `fps` / `ambient` change this).
+4. `/ws/mirror` pushes unified status (~12 FPS for screen, ~25 FPS for audio).
+
+Positions in `.res/light_positions.json`: `left`, `right`, `top`, `bottom`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, `center`, `ambient`, `none`.
+
+### Data flow (scenes)
+
+1. You pick a setup name (web, CLI, or `POST /apply`).
+2. `LightSetupsManager.get_config()` loads it from `.res/setups.json`.
+3. `HueController.apply_light_config()` converts RGB → XY and writes the bridge.
+4. The HTTP response is an `ApplyResult` mapped to 200 / 207 / 500.
+
+### Light names
+
+Nine lights: `Lâmpada 1`, `Lâmpada 2`, `Lâmpada 3`, `Lâmpada 4`, `Hue Iris`, `Hue Play 1`, `Hue Play 2`, `Fita Led`, `Led cima`. Names must match the Hue bridge exactly.
+
+## Adding lighting configurations
+
+1. Add an object to `.res/setups.json` (`name`, `description`, `settings` with `light_name` + RGBA, brightness 0–254).
+2. Restart the app, or use `--reload` in development.
+3. Apply it from Controle, the CLI, or `POST /apply`.
+
+Do not add a Python class in `setups.py` or an enum in `factories.py`.
 
 ## Dependencies
 
-- **FastAPI** + **uvicorn**: Async web framework
-- **phue**: Philips Hue bridge communication
-- **mss** + **Pillow**: Screen capture for mirroring
-- **aiofiles**: Async file operations
-- **Jinja2**: HTML templating
+- **FastAPI** + **uvicorn**: Web
+- **phue**: Hue REST
+- **mss** + **Pillow**: Screen capture
+- **aiosqlite** + **loguru**: Catalog DB and logging
+- **LangChain** / **LangGraph**: Chat
+- **hue-entertainment**: Optional DTLS stream

@@ -478,30 +478,45 @@ for config in configs:
 
 ### POST /apply
 
-Aplica uma configuração de iluminação específica.
+Aplica uma configuração de iluminação específica. O corpo reflete o `ApplyResult`
+por lâmpada (`applied` / `failed`). `duration_minutes` é aceito no request por
+compatibilidade e **é ignorado** — não há timer nem restauração automática.
 
 **Request Body:**
 ```json
 {
   "config_name": "concentration",
-  "transition_time_secs": 2.0,
-  "duration_minutes": null
+  "transition_time_secs": 2.0
 }
 ```
 
 **Parâmetros:**
 - `config_name` (string, required): Nome da configuração (1-100 caracteres)
 - `transition_time_secs` (float, optional): Tempo de transição em segundos (0-60, padrão: 0)
-- `duration_minutes` (float, optional): Duração da configuração em minutos (0-1440, padrão: null = indefinido)
+- `duration_minutes` (float, optional): Campo legado; ignorado. Não agenda duração.
 
-**Response 200:**
+**Response 200 (todas as lâmpadas aplicadas):**
 ```json
 {
   "message": "Applying configuration concentration",
+  "applied": ["Lâmpada 1", "Lâmpada 2"],
+  "failed": [],
   "details": {
     "config_name": "concentration",
-    "transition_time_secs": 2.0,
-    "duration_minutes": null
+    "transition_time_secs": 2.0
+  }
+}
+```
+
+**Response 207 (aplicação parcial):**
+```json
+{
+  "message": "Configuração 'concentration' aplicada parcialmente; algumas lâmpadas falharam",
+  "applied": ["Lâmpada 1"],
+  "failed": [{"name": "Lâmpada 2", "error": "boom"}],
+  "details": {
+    "config_name": "concentration",
+    "transition_time_secs": 0.0
   }
 }
 ```
@@ -520,12 +535,21 @@ Aplica uma configuração de iluminação específica.
 }
 ```
 
-**Response 500 (Erro ao aplicar):**
+**Response 500 (todas as tentativas falharam):**
 ```json
 {
-  "detail": "Erro ao aplicar configuração: Connection timeout"
+  "message": "Falha ao aplicar configuração 'concentration'; nenhuma lâmpada aplicada",
+  "applied": [],
+  "failed": [{"name": "Lâmpada 1", "error": "boom"}],
+  "details": {
+    "config_name": "concentration",
+    "transition_time_secs": 0.0
+  }
 }
 ```
+
+Erros inesperados (exceção ao aplicar, fora do `ApplyResult`) ainda usam
+`{"detail": "Erro ao aplicar configuração: ..."}`.
 
 **Exemplo com curl:**
 ```bash
@@ -1214,7 +1238,7 @@ Reconfigura o agente de chat com novos parâmetros.
 ```
 
 **Parâmetros:**
-- `provider` (string, required): Provedor (openai|anthropic|ollama)
+- `provider` (string, required): Provedor (`openai` | `anthropic` | `xai` | `groq`). Não há Ollama.
 - `model` (string, required): Nome do modelo (1-100 caracteres)
 - `temperature` (float, optional): Temperatura (0-2, padrão: 0.7)
 

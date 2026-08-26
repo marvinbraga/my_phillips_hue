@@ -63,13 +63,16 @@ curl http://192.168.1.100/api/
 Provedor de LLM para o agente de chat.
 
 ```bash
-CHAT_PROVIDER="openai"  # Opções: openai, anthropic, ollama
+CHAT_PROVIDER="openai"  # openai | anthropic | xai | groq
 ```
 
 **Opções:**
-- `openai`: OpenAI (GPT-4, GPT-3.5, etc)
+- `openai`: OpenAI (GPT-4o, etc)
 - `anthropic`: Anthropic (Claude)
-- `ollama`: Ollama (modelos locais)
+- `xai`: xAI (Grok)
+- `groq`: Groq (API compatível com OpenAI)
+
+Não há provider **Ollama**.
 
 **Padrão:** `openai`
 
@@ -86,12 +89,13 @@ CHAT_MODEL="gpt-4o"          # Mais capaz, mais caro
 CHAT_MODEL="gpt-3.5-turbo"   # Legado
 
 # Anthropic
-CHAT_MODEL="claude-3-sonnet-20240229"
-CHAT_MODEL="claude-3-haiku-20240307"
+CHAT_MODEL="claude-3-5-sonnet-20241022"
 
-# Ollama (local)
-CHAT_MODEL="llama2"
-CHAT_MODEL="mistral"
+# xAI
+CHAT_MODEL="grok-beta"
+
+# Groq
+CHAT_MODEL="llama-3.3-70b-versatile"
 ```
 
 **Padrão:** `gpt-4o-mini`
@@ -132,6 +136,24 @@ ANTHROPIC_API_KEY="sk-ant-..."
 1. Criar conta em https://console.anthropic.com/
 2. Acessar API Keys
 3. Criar nova chave
+
+---
+
+#### `XAI_API_KEY`
+
+Necessária se `CHAT_PROVIDER=xai`.
+
+```bash
+XAI_API_KEY="xai-..."
+```
+
+#### `GROQ_API_KEY`
+
+Necessária se `CHAT_PROVIDER=groq`.
+
+```bash
+GROQ_API_KEY="gsk-..."
+```
 
 ---
 
@@ -358,6 +380,8 @@ CHAT_MODEL="gpt-4o-mini"
 # Chaves de API (escolher de acordo com o provider)
 OPENAI_API_KEY="sk-proj-..."
 # ANTHROPIC_API_KEY="sk-ant-..."
+# XAI_API_KEY="xai-..."
+# GROQ_API_KEY="gsk-..."
 
 
 # ===== PERSISTÊNCIA DO CATÁLOGO (OPCIONAL) =====
@@ -455,7 +479,7 @@ API_HOST=0.0.0.0
             "red": 255,
             "green": 244,
             "blue": 229,
-            "brightness": 255
+            "brightness": 254
           }
         },
         {
@@ -464,7 +488,7 @@ API_HOST=0.0.0.0
             "red": 255,
             "green": 244,
             "blue": 229,
-            "brightness": 255
+            "brightness": 254
           }
         },
         {

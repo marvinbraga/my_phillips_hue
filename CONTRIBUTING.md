@@ -1,70 +1,56 @@
 # Contribuindo para o Marvin Hue
 
-Agradecemos seu interesse em contribuir para o `Marvin Hue`! Sua contribuição é valiosa e ajudará a melhorar o projeto
-para todos. Aqui estão algumas diretrizes para ajudá-lo a contribuir de forma eficiente e eficaz.
-
-## Código de conduta
-
-Antes de começar, certifique-se de ler e seguir nosso Código de Conduta. Queremos garantir um ambiente saudável e
-acolhedor para todos os contribuidores.
+Obrigado por ajudar a melhorar o Marvin Hue. Este guia basta para deixar uma mudança pronta para revisão.
 
 ## Como contribuir
 
-1. `Fork` o repositório e crie sua própria cópia do projeto.
-
-2. `Clone` o repositório em sua máquina local:
+1. Faça fork do repositório e clone o seu fork:
 
     ```bash
     git clone https://github.com/marvinbraga/my_phillips_hue.git
+    cd my_phillips_hue
     ```
 
-3. Navegue até o diretório do projeto e instale as dependências com o `Poetry`:
+2. Instale com **uv** (não Poetry):
 
     ```bash
-    cd my_phillips_hue
-    poetry install
+    uv sync --extra dev
     ```
 
-4. Crie uma `branch` para suas alterações:
+3. Copie `.env.example` para `.env` e defina `BRIDGE_IP`. Os testes definem isso sozinhos; o app em execução precisa do IP real da bridge.
+
+4. Crie uma branch para a sua alteração:
 
     ```bash
     git checkout -b minha-nova-funcionalidade
     ```
 
-5. Faça as alterações necessárias no código ou na documentação. Lembre-se de seguir as boas práticas de programação e de
-   manter o código limpo e organizado.
+5. Faça a mudança. Siga o estilo do código ao redor. Temas de iluminação entram em `.res/setups.json`, não como classes Python.
 
-6. **Teste** suas alterações para garantir que tudo funcione conforme o esperado e que não haja problemas de
-   compatibilidade ou erros.
-
-7. **Documente** suas alterações no arquivo `CHANGELOG.md` e, se necessário, atualize a documentação nos
-   arquivos `README.md` e outros arquivos relevantes.
-
-8. Faça um **commit** de suas alterações:
+6. Rode os testes:
 
     ```bash
-    git add .
-    git commit -m "Adicionando minha nova funcionalidade"
+    uv run pytest
     ```
 
-9. Faça um push de suas alterações para sua `branch` no GitHub:
+    Abra `htmlcov/index.html` se quiser o relatório de cobertura **dessa** execução. Não use um percentual de um README antigo como gate.
 
-    ```shell
-    git push origin minha-nova-funcionalidade
+    Lint (o mesmo check do CI):
+
+    ```bash
+    uv run --with ruff ruff check marvin_hue tests
     ```
 
-10. Crie um `Pull Request` no repositório original, descrevendo suas alterações e o motivo pelo qual elas devem ser
-    incluídas no projeto.
+7. Faça commit, push da branch e abra um pull request. O GitHub Actions roda pytest e ruff no PR.
 
-## Processo de revisão
+    Atualizar o [CHANGELOG.md](CHANGELOG.md) é **opcional**. Use-o quando a mudança for visível (comportamento da API, formato dos setups, variáveis de ambiente). Pule para typos, testes ou refactors sem efeito externo.
 
-Os mantenedores do projeto irão revisar sua contribuição e fornecer feedback, se necessário. Se tudo estiver correto,
-sua contribuição será aceita e mesclada ao projeto.
+## Revisão
 
-Lembre-se de que as revisões são uma parte normal do processo de contribuição e são uma oportunidade para aprender e
-melhorar. Seja paciente e respeitoso com os comentários e sugestões dos revisores.
+Os mantenedores revisam o PR e podem pedir alterações. Isso é normal. Mantenha a discussão no diff.
 
-## Agradecimentos
+## Próximos passos
 
-Agradecemos novamente por sua contribuição ao `Marvin Hue`! Sua ajuda é valiosa para nós e para a comunidade. Esperamos
-que você continue contribuindo e ajudando a melhorar o projeto.
+- Setup do app: [readme.md](readme.md)
+- Variáveis e JSON: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
+- Camadas do sistema: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)

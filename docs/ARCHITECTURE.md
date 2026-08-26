@@ -20,7 +20,7 @@ Este documento descreve o design e a arquitetura do Marvin Hue Controller, um si
 Marvin Hue é uma aplicação Python que controla luzes Philips Hue através de:
 - **Configurações pré-definidas**: Ambientes temáticos (concentração, relax, cyberpunk, etc)
 - **Espelhamento de tela**: Luzes que refletem cores da tela em tempo real (ambient lighting)
-- **Chat com IA**: Controle por linguagem natural usando LLMs (OpenAI, Anthropic, etc)
+- **Chat com IA**: Controle por linguagem natural (OpenAI, Anthropic, xAI, Groq)
 - **API REST + WebSocket**: Interface programática e web para controle
 
 ### Arquitetura de Alto Nível
@@ -57,7 +57,7 @@ Marvin Hue é uma aplicação Python que controla luzes Philips Hue através de:
 ┌──────────┐ ┌──────────┐ ┌──────────┐
 │Philips   │ │  Screen  │ │ OpenAI/  │
 │Hue Bridge│ │  Capture │ │Anthropic │
-│(Hardware)│ │  (mss)   │ │   API    │
+│(Hardware)│ │  (mss)   │ │xAI /Groq │
 └──────────┘ └──────────┘ └──────────┘
 
 ┌─────────────────────────────────────────┐
@@ -256,7 +256,7 @@ class SetupConcentration(LightConfig):
     def __init__(self):
         settings = [
             LightSetting('Lâmpada 1', Color(255, 244, 229, 255)),
-            # ... repetir para 8 luzes
+            # ... repetir para 9 luzes
         ]
         super().__init__('concentration', settings, '...')
 
@@ -393,15 +393,17 @@ app = FastAPI(
 )
 ```
 
-**Grupos de Endpoints**:
+**Grupos de endpoints**:
 
-1. **Status**: `/api/bridge/status`, `/api/lights/status` (estado ao vivo na bridge)
-2. **Lights Registry**: `/api/lights` CRUD + `POST /api/lights/sync` (catálogo SQLite app-side)
-3. **Configurations**: `/configurations`, `/apply`
-4. **Positions**: `/positions`, `/positions/reset`
-5. **Mirror**: `/mirror/start`, `/mirror/stop`, `/mirror/status`
-6. **Chat**: `/api/chat/message`, `/api/chat/status`
-7. **WebSockets**: `/ws/mirror`, `/ws/chat`
+1. **Páginas**: `/`, `/lights`, `/groups`, `/schedules`, `/positions-config`, `/mirror`, `/health`, `/chat`
+2. **Status**: `/api/bridge/status`, `/api/lights/status`, `/api/health` (`schedules.runner_alive`)
+3. **Lights registry**: `/api/lights` CRUD + `POST /api/lights/sync`
+4. **Groups / schedules / history / backup**: `/api/groups`, `/api/schedules`, `/api/history`, `/api/backup`
+5. **Configurations**: `/configurations`, `/apply` (`ApplyResult` → 200 / 207 / 500; `duration_minutes` ignorado)
+6. **Positions**: `/positions`, `/positions/reset`
+7. **Mirror**: `/mirror/*` via `MirrorControlService`
+8. **Chat**: `/api/chat/*`
+9. **WebSockets**: `/ws/mirror`, `/ws/chat`
 
 **Validação com Pydantic**:
 
@@ -467,10 +469,13 @@ HueController / ScreenMirror
 Philips Hue Bridge
 ```
 
-**Providers Suportados**:
+**Providers suportados**:
 - **OpenAI**: gpt-4o, gpt-4o-mini
-- **Anthropic**: claude-3-sonnet, claude-3-haiku
-- **Ollama**: llama2, mistral (local)
+- **Anthropic**: Claude
+- **xAI**: Grok
+- **Groq**: modelos via API compatível com OpenAI
+
+Não há provider **Ollama**.
 
 **Decisões de Design**:
 - Tools específicas para domínio Hue
@@ -596,7 +601,8 @@ verde E smoke manual dos fluxos de prompt (delegação + recomendação de prese
    a. Color → RGBtoXYAdapter.convert(r, g, b)
    b. XY → Validação de gamut
    c. Bridge → set_light(xy, brightness)
-7. Response → {"message": "Applied..."}
+7. Response → ApplyResult (`applied` / `failed`) com HTTP 200 / 207 / 500
+   (`duration_minutes` no request é ignorado)
 ```
 
 ### Fluxo 2: Espelhamento de Tela
@@ -612,7 +618,8 @@ verde E smoke manual dos fluxos de prompt (delegação + recomendação de prese
       iii. Smoothing temporal
       iv. HueController.set_light_color()
    c. Sleep(1/fps)
-4. WebSocket → Broadcast status (10 FPS)
+4. WebSocket `/ws/mirror` → status unificado (~12 FPS tela, ~25 FPS áudio)
+   Luzes: FPS configurado (padrão 25 no start; perfis cinema/fps/ambient)
 ```
 
 ### Fluxo 3: Chat com IA
@@ -656,7 +663,7 @@ verde E smoke manual dos fluxos de prompt (delegação + recomendação de prese
 **Solução**: Dict `_light_cache` para lookup O(1).
 
 **Benefícios**:
-- Performance: 8 luzes → não importa muito, mas escala melhor
+- Performance: 9 luzes (incluindo `Lâmpada 3`) → lookup O(1) mesmo assim escala melhor
 - Preparado para setups maiores (50+ luzes)
 
 **Trade-off**: Memória adicional (mínima), precisa refresh manual se topologia mudar.
@@ -811,7 +818,7 @@ lights = bridge.get_light_objects()
 
 - `pytest` + `pytest-asyncio`: Testes
 - `pytest-cov`: Cobertura de testes
-- `mypy`: Type checking (planejado Fase 3.2)
+- `mypy`: presente no extra `dev`; **não** roda no CI (stubs numpy). Ruff + pytest no CI.
 
 ---
 
@@ -819,61 +826,43 @@ lights = bridge.get_light_objects()
 
 ```
 my_phillips_hue/
+├── marvin_hue/                 # Pacote da aplicação
+│   ├── colors.py               # Color (RGBA, brightness 0–254)
+│   ├── utils.py                # RGB ↔ XY
+│   ├── basics.py               # LightSetting, LightConfig, LightSetupsManager
+│   ├── apply_result.py         # ApplyResult por lâmpada (200 / 207 / 500)
+│   ├── controllers.py          # HueController (phue REST)
+│   ├── setup_builder.py        # LightConfig a partir de JSON
+│   ├── screen_mirror.py        # Captura de tela
+│   ├── audio_mirror.py         # Espelhamento de áudio
+│   ├── config.py / eye_safety.py / logging_config.py
+│   ├── domain/                 # lights, groups, schedules, scene_history
+│   ├── persistence/            # repositórios SQLite + schema
+│   ├── services/               # registry, groups, schedules, schedule_runner,
+│   │                           # health, mirror_control, backup, scene_history
+│   ├── output/                 # LightOutputPort (REST / Entertainment / fallback)
+│   ├── entertainment/          # cliente DTLS e credenciais
+│   ├── chat/                   # agente LangGraph, providers, tools, middleware
+│   └── api/                    # rotas, models, websockets, API-key middleware
 │
-├── marvin_hue/              # Core package
-│   ├── __init__.py
-│   ├── colors.py            # Classe Color
-│   ├── utils.py             # Conversão RGB ↔ XY
-│   ├── basics.py            # LightSetting, LightConfig, Manager
-│   ├── controllers.py       # HueController
-│   ├── setup_builder.py     # Builder pattern para configs
-│   ├── screen_mirror.py     # Espelhamento de tela
-│   ├── logging_config.py    # Configuração de logging
-│   ├── factories.py         # (Deprecated, manter por compatibilidade)
-│   └── setups.py            # (Deprecated, usar setups.json)
+├── web/
+│   ├── templates/              # Controle, Lâmpadas, Grupos, Agendamentos,
+│   │                           # Posicionamento, Espelhamento, Saúde, Chat
+│   └── static/                 # index.js, lights.js, groups.js, schedules.js,
+│                               # positions.js, mirror.js, health.js
 │
-├── web/                     # Frontend assets
-│   ├── templates/           # Jinja2 templates
-│   │   ├── index.html       # Página principal
-│   │   ├── positions.html   # Config de posicionamento
-│   │   ├── mirror.html      # Controle de espelhamento
-│   │   └── chat.html        # Chat com agente
-│   └── static/              # CSS, JS, imagens
-│       ├── css/
-│       ├── js/
-│       └── img/
+├── .res/
+│   ├── setups.json             # ~69 temas (fonte canônica)
+│   ├── light_positions.json
+│   ├── marvin_hue.sqlite       # catálogo (APP_DB_PATH)
+│   └── chat_memory.sqlite      # checkpointer do chat (opcional)
 │
-├── .res/                    # Recursos de dados
-│   ├── setups.json          # Configurações de iluminação
-│   ├── light_positions.json # Mapeamento de posições
-│   ├── marvin_hue.sqlite    # Catálogo de lâmpadas (APP_DB_PATH)
-│   └── chat_memory.sqlite   # Checkpointer do chat (se CHAT_CHECKPOINT=sqlite)
-│
-├── tests/                   # Testes
-│   ├── __init__.py
-│   ├── conftest.py          # Fixtures compartilhadas
-│   ├── test_colors.py
-│   ├── test_utils.py
-│   ├── test_basics.py
-│   ├── test_controllers.py
-│   └── test_api.py
-│
-├── docs/                    # Documentação
-│   ├── API.md               # Documentação da API
-│   ├── ARCHITECTURE.md      # Este arquivo
-│   ├── CONFIGURATION.md     # Configuração e variáveis
-│   └── IMPROVEMENT_PLAN.md  # Plano de melhorias
-│
-├── logs/                    # Arquivos de log (gitignored)
-│   └── marvin_hue.log
-│
-├── app.py                   # Aplicação FastAPI
-├── main.py                  # CLI para testes
-├── pyproject.toml           # Dependências e configuração
-├── .env                     # Variáveis de ambiente (gitignored)
-├── .env.example             # Template de .env
-├── readme.md                # Documentação principal
-└── LICENSE                  # GNU AGPL v3.0
+├── tests/                      # pytest (conftest, test_*.py, chat/, eval/)
+├── docs/                       # API.md, ARCHITECTURE.md, CONFIGURATION.md
+├── .github/workflows/ci.yml    # pytest + ruff
+├── app.py                      # FastAPI (version string 2.0.0, porta 5081)
+├── main.py                     # CLI — JSON via LightSetupsManager
+└── pyproject.toml              # pacote 0.1.0, Python ≥3.11, uv
 ```
 
 ---
@@ -949,13 +938,15 @@ def apply_config(config: LightConfig) -> "HueController":
 - Sem interface web
 
 ### Versão 2.0 (Atual)
-- ✅ Configurações em JSON (data-driven)
+- ✅ Configurações em JSON (data-driven, ~69 temas em `.res/setups.json`)
 - ✅ API REST + WebSocket
-- ✅ Interface web
-- ✅ Espelhamento de tela
-- ✅ Chat com IA
+- ✅ Interface web (Controle, Lâmpadas, Grupos, Agendamentos, Posicionamento, Espelhamento, Saúde, Chat)
+- ✅ Espelhamento de tela e áudio (`MirrorControlService`)
+- ✅ `ScheduleRunner` (health: `schedules.runner_alive`)
+- ✅ `POST /apply` com `ApplyResult` (HTTP 200 / 207 / 500)
+- ✅ Chat com IA (openai / anthropic / xai / groq)
 - ✅ Logging estruturado
-- ✅ Testes automatizados (70%+ coverage)
+- ✅ Testes automatizados (`uv run pytest`; cobertura em `htmlcov/`)
 - ✅ Validação de inputs
 - ✅ Type hints completos
 
@@ -964,7 +955,6 @@ def apply_config(config: LightConfig) -> "HueController":
 - Rate limiting
 - Métricas e monitoring
 - Suporte para múltiplas bridges
-- Scheduler para automações temporais
 - Integração com home automation (Home Assistant, etc)
 
 ---
@@ -1005,10 +995,11 @@ def apply_config(config: LightConfig) -> "HueController":
 - ✅ Range checks (RGB, brightness, FPS, etc)
 - ✅ Gamut validation (coordenadas XY)
 - ✅ .env no .gitignore
+- ✅ `API_KEY` opcional somente em `/api/*`
 
 ### Faltando (Produção)
 
-- ⚠️ Autenticação (API keys, OAuth)
+- ⚠️ Autenticação completa (OAuth / sessões) — `API_KEY` não cobre HTML, `/apply` nem WebSockets
 - ⚠️ CORS restrito (atualmente aceita todas origens)
 - ⚠️ Rate limiting
 - ⚠️ HTTPS/WSS

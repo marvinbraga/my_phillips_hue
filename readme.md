@@ -1,26 +1,28 @@
-# Marvin Hue - Controle Inteligente de Iluminação Philips Hue
+# Marvin Hue — controle de iluminação Philips Hue
 
 [![Author](https://img.shields.io/badge/author-Marcus%20Vinicius%20Braga-green.svg)](https://www.linkedin.com/in/marvinbraga/)
-![Language](https://img.shields.io/badge/language-python%20%7C%20%5E3.10-blue.svg)
+![Language](https://img.shields.io/badge/language-python%20%7C%20%3E%3D3.11-blue.svg)
 ![Framework](https://img.shields.io/badge/framework-FastAPI-009688.svg)
 ![License](https://img.shields.io/badge/license-GNU%20AGPL%20v3-blue.svg)
 
-Marvin Hue é uma aplicação Python avançada para controlar luzes Philips Hue com recursos únicos:
+Marvin Hue é um console Python para a sua bridge Philips Hue: cenas JSON, catálogo local, espelhamento de tela e áudio, e chat em linguagem natural.
 
-- **50+ Configurações Temáticas**: Ambientes pré-definidos (concentração, relax, cyberpunk, etc)
-- **Espelhamento de Tela em Tempo Real**: Luzes que refletem as cores da tela (ambient lighting)
-- **Chat com IA**: Controle por linguagem natural usando OpenAI, Anthropic ou Ollama
-- **API REST + WebSocket**: Interface programática completa
-- **Interface Web Moderna**: Controle visual intuitivo
+- **~69 temas em JSON** — `.res/setups.json` via `LightSetupsManager` (sem classes Python)
+- **Nove lâmpadas** — incluindo `Lâmpada 3`
+- **Espelhamento** — tela e música, com Entertainment DTLS opcional
+- **Chat** — OpenAI, Anthropic, xAI ou Groq (não há Ollama)
+- **Web + API** — FastAPI na porta **5081** (o app ainda declara versão **2.0.0**; o pacote é **0.1.0**)
+
+Ferramenta de instalação: **uv**, não Poetry.
 
 ---
 
 ## Índice
 
-- [Funcionalidades](#funcionalidades)
-- [Demo Visual](#demo-visual)
+- [O que você consegue fazer](#o-que-você-consegue-fazer)
+- [Pré-requisitos](#pré-requisitos)
 - [Instalação](#instalação)
-- [Quick Start](#quick-start)
+- [Quick start](#quick-start)
 - [Uso](#uso)
 - [Configuração](#configuração)
 - [API](#api)
@@ -31,313 +33,162 @@ Marvin Hue é uma aplicação Python avançada para controlar luzes Philips Hue 
 
 ---
 
-## Funcionalidades
+## O que você consegue fazer
 
-### 1. Configurações de Iluminação
+### Cenas
 
-Mais de 50 ambientes temáticos pré-configurados:
+Temas em `.res/setups.json` (concentração, relax, cyberpunk, cinema, …). Edite o JSON e aplique de novo — sem recompilar.
 
-- **Produtividade**: `concentration`, `focus`, `energize`
-- **Relaxamento**: `relax`, `meditation`, `warm_sunset`
-- **Entretenimento**: `movie_night`, `party_mode`, `gaming`
-- **Estética**: `cyberpunk_night`, `northern_lights`, `ocean_breeze`
-- **Especiais**: `romantic`, `reading`, `natural_light`
+### Espelhamento
 
-Todas as configurações são editáveis via JSON - sem necessidade de código Python!
+Mapeie cada lâmpada a uma região da tela em **Posicionamento** e inicie em **Espelhamento**. O padrão nas luzes é **25 FPS** (perfis `cinema` / `fps` / `ambient` mudam isso). Há modo áudio e transporte Entertainment opcional.
 
-### 2. Espelhamento de Tela (Screen Mirroring)
+### Chat
 
-Transforme suas luzes em extensão da tela:
-
-- **Mapeamento Flexível**: Configure qual luz espelha qual região da tela
-- **Alta Performance**: 25-30 FPS com otimizações inteligentes
-- **Ajustes em Tempo Real**: FPS, brilho, saturação, suavização
-- **Posições Predefinidas**: Esquerda, direita, topo, base, cantos, centro, ambiente
-
-Ideal para:
-- Gaming imersivo
-- Assistir filmes/séries
-- Edição de vídeo/foto
-- Ambient lighting geral
-
-### 3. Chat com IA
-
-Controle suas luzes conversando em linguagem natural:
+Fale com o agente em português:
 
 ```
 Você: "Ative um ambiente relaxante"
-Marvin: "Configuração 'relax' aplicada com sucesso!"
-
-Você: "Quais configurações estão disponíveis?"
-Marvin: "Tenho 50+ configurações, incluindo: concentration, relax, cyberpunk_night..."
-
-Você: "Inicie o espelhamento de tela com 30 FPS"
-Marvin: "Espelhamento iniciado com 30 FPS e brilho 200."
+Marvin: aplica o setup `relax` nas lâmpadas
 ```
 
-Suporta:
-- **OpenAI**: GPT-4, GPT-4o, GPT-3.5
-- **Anthropic**: Claude 3 Sonnet, Haiku
-- **xAI** (Grok) e **Groq**
+Providers: `openai` | `anthropic` | `xai` | `groq`. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#harness-de-chat-middleware--subagents--tools).
 
-O chat roda sobre um harness `langchain.agents.create_agent` + LangGraph
-(middleware de contexto/segurança, memória por sessão via checkpointer, e
-delegação a subagents). Detalhes em
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#harness-de-chat-middleware--subagents--tools).
+### Interface
 
-### 4. API REST + WebSocket
-
-Interface programática completa com:
-
-- **16 endpoints REST**: Configurações, espelhamento, chat, status
-- **2 WebSockets**: Updates em tempo real (mirror, chat)
-- **Validação automática**: Pydantic models
-- **Documentação interativa**: OpenAPI/Swagger em `/docs`
-
-### 5. Interface Web
-
-Páginas web modernas para:
-
-- **Controle de Configurações**: Aplicar temas com um clique
-- **Config de Posicionamento**: Arrastar e soltar lâmpadas em posições
-- **Controle de Espelhamento**: Iniciar/parar, ajustar em tempo real
-- **Chat**: Interface de conversação com o agente IA
+Oito telas: **Controle**, **Lâmpadas**, **Grupos**, **Agendamentos**, **Posicionamento**, **Espelhamento**, **Saúde**, **Chat**.
 
 ---
 
-## Demo Visual
+## Pré-requisitos
 
-### Interface Principal
-```
-┌─────────────────────────────────────────┐
-│  Marvin Hue Controller                  │
-├─────────────────────────────────────────┤
-│                                         │
-│  [Concentration] [Relax] [Gaming]       │
-│  [Cyberpunk] [Movie] [Romantic]         │
-│                                         │
-│  Estado das Lâmpadas:                   │
-│  ● Lâmpada 1    [████████] 254         │
-│  ● Hue Play 1   [██████░░] 180         │
-│  ○ Lâmpada 2    [░░░░░░░░]   0         │
-│                                         │
-└─────────────────────────────────────────┘
-```
+- Python **3.11+**
+- Philips Hue Bridge na LAN
+- Lâmpadas Hue com os nomes abaixo (exatos, case-sensitive)
+- (Opcional) chave de API do provider de chat
 
-### Espelhamento de Tela
-```
-Monitor:
-┌─────────────────────────────┐
-│ [Fita Led - TOP]            │
-│                             │
-│ [Play 1]      [Play 2]      │
-│  LEFT         RIGHT         │
-│                             │
-└─────────────────────────────┘
-
-As luzes refletem as cores das respectivas regiões em tempo real!
-```
+Nove lâmpadas esperadas: `Lâmpada 1`, `Lâmpada 2`, `Lâmpada 3`, `Lâmpada 4`, `Hue Iris`, `Hue Play 1`, `Hue Play 2`, `Fita Led`, `Led cima`.
 
 ---
 
 ## Instalação
 
-### Pré-requisitos
-
-- **Python 3.10+**
-- **Philips Hue Bridge** na mesma rede local
-- **Lâmpadas Philips Hue** conectadas à bridge
-- (Opcional) Chave de API OpenAI/Anthropic para chat
-
-### Passo 1: Clonar Repositório
+### Passo 1: Clonar
 
 ```bash
 git clone https://github.com/marvinbraga/my_phillips_hue.git
 cd my_phillips_hue
 ```
 
-### Passo 2: Instalar Dependências
-
-#### Com uv (Recomendado)
+### Passo 2: Instalar com uv
 
 ```bash
-# Instalar uv (se não tiver)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Instalar dependências
 uv sync
 ```
 
-#### Com pip
+### Passo 3: `.env`
 
 ```bash
-# Criar virtual environment
-python -m venv .venv
-source .venv/bin/activate  # No Windows: .venv\Scripts\activate
-
-# Instalar dependências
-pip install -r requirements.txt
-```
-
-### Passo 3: Configurar Variáveis de Ambiente
-
-```bash
-# Copiar template
 cp .env.example .env
-
-# Editar com seu IP da bridge
-nano .env
 ```
 
-Configuração mínima necessária:
+Mínimo:
 
 ```bash
-BRIDGE_IP="192.168.1.100"  # ← Substituir pelo IP da sua bridge
+BRIDGE_IP="192.168.1.100"
 ```
 
-**Como encontrar o IP da bridge:**
+IP da bridge: app Hue → informações da bridge, ou https://discovery.meethue.com/
 
-1. App Philips Hue → Configurações → Informações da bridge
-2. Ou acessar: https://discovery.meethue.com/
+### Passo 4: Primeira conexão
 
-### Passo 4: Primeira Conexão
-
-Na primeira execução, você precisará pressionar o botão físico da bridge Hue:
+Pressione o botão da bridge e, em até 30 segundos:
 
 ```bash
-# Pressione o botão da bridge
-# Dentro de 30 segundos, execute:
 uv run python main.py
 ```
+
+O CLI aplica setups JSON via `LightSetupsManager`.
 
 ---
 
-## Quick Start
+## Quick start
 
-### Iniciar Web Server
+### Servidor web
 
 ```bash
-# Modo desenvolvimento (com auto-reload)
 uv run uvicorn app:app --reload --port 5081
-
-# Ou com script direto
+# ou
 uv run python app.py
 ```
 
-Acesse: http://localhost:5081
+Abra http://localhost:5081
 
-### Aplicar Configuração (CLI)
-
-```bash
-uv run python main.py
-# Selecione uma configuração pelo número
-```
-
-### Aplicar Configuração (API)
+### Cena pela API
 
 ```bash
-# Listar configurações disponíveis
 curl http://localhost:5081/configurations
 
-# Aplicar configuração
 curl -X POST http://localhost:5081/apply \
   -H "Content-Type: application/json" \
   -d '{"config_name": "concentration", "transition_time_secs": 2.0}'
 ```
 
-### Iniciar Espelhamento de Tela
+`POST /apply` responde **200** (todas as lâmpadas), **207** (parcial) ou **500** (nenhuma aplicada). `duration_minutes` é aceito e **ignorado** — não é um timer de restauração.
+
+### Espelhamento
 
 ```bash
-# Via API
 curl -X POST http://localhost:5081/mirror/start \
   -H "Content-Type: application/json" \
   -d '{"fps": 25, "brightness": 200}'
-
-# Ou acesse a interface web
-# http://localhost:5081/mirror
 ```
 
-### Chat com IA
+Ou http://localhost:5081/mirror
+
+### Chat
 
 ```bash
-# Configurar chave de API (se ainda não fez)
 echo 'OPENAI_API_KEY="sk-proj-..."' >> .env
+```
 
-# Enviar mensagem
+```bash
 curl -X POST http://localhost:5081/api/chat/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Ative a configuração de concentração"}'
-
-# Ou acesse a interface web
-# http://localhost:5081/chat
 ```
+
+Se `API_KEY` estiver definido, rotas `/api/*` exigem `X-API-Key` ou `Authorization: Bearer`. `/apply`, `/mirror/*` e os WebSockets continuam abertos na LAN.
 
 ---
 
 ## Uso
 
-### Aplicar Configurações de Iluminação
+### Aplicar uma cena
 
-#### Via Interface Web
+**Web:** http://localhost:5081 → clique no tema.
 
-1. Acesse http://localhost:5081
-2. Clique em uma configuração
-3. Pronto! Luzes aplicadas com transição suave
-
-#### Via CLI
+**CLI:**
 
 ```bash
 uv run python main.py
-# Menu interativo aparecerá
 ```
 
-#### Via API REST
+**HTTP:**
 
 ```bash
-# Aplicar com transição de 3 segundos
 curl -X POST http://localhost:5081/apply \
   -H "Content-Type: application/json" \
-  -d '{
-    "config_name": "relax",
-    "transition_time_secs": 3.0
-  }'
+  -d '{"config_name": "relax", "transition_time_secs": 3.0}'
 ```
 
-#### Via Python
+### Espelhamento de tela
 
-```python
-import requests
+1. Em http://localhost:5081/positions-config, arraste cada lâmpada para a região (`left` / `right` / `top` / cantos / `center` / `ambient` / `none`).
+2. Em http://localhost:5081/mirror, inicie o espelhamento.
 
-response = requests.post(
-    "http://localhost:5081/apply",
-    json={
-        "config_name": "cyberpunk_night",
-        "transition_time_secs": 2.0
-    }
-)
-
-print(response.json())
-```
-
----
-
-### Espelhamento de Tela
-
-#### 1. Configurar Posicionamento
-
-**Via Interface Web:**
-
-1. Acesse http://localhost:5081/positions-config
-2. Arraste lâmpadas para as posições desejadas:
-   - **Esquerda/Direita**: Ideal para Hue Play
-   - **Topo/Base**: Ideal para fitas LED
-   - **Centro**: Para lâmpada principal
-   - **Ambiente**: Cor média de toda a tela
-3. Clique em "Salvar"
-
-**Via JSON (manual):**
-
-Edite `.res/light_positions.json`:
+JSON manual em `.res/light_positions.json`:
 
 ```json
 {
@@ -349,152 +200,45 @@ Edite `.res/light_positions.json`:
 }
 ```
 
-#### 2. Iniciar Espelhamento
-
-**Via Interface Web:**
-
-1. Acesse http://localhost:5081/mirror
-2. Ajuste FPS e brilho (opcional)
-3. Clique em "Iniciar Espelhamento"
-
-**Via API:**
+Ajustes em tempo real:
 
 ```bash
-curl -X POST http://localhost:5081/mirror/start \
-  -H "Content-Type: application/json" \
-  -d '{"fps": 25, "brightness": 200}'
-```
-
-**Via Python:**
-
-```python
-import requests
-
-# Iniciar
-response = requests.post(
-    "http://localhost:5081/mirror/start",
-    json={"fps": 25, "brightness": 200}
-)
-
-# Parar (após usar)
-requests.post("http://localhost:5081/mirror/stop")
-```
-
-#### 3. Ajustar em Tempo Real
-
-```bash
-# Aumentar saturação para cores mais vibrantes
 curl -X POST http://localhost:5081/mirror/settings \
   -H "Content-Type: application/json" \
   -d '{"saturation_boost": 1.5}'
-
-# Ajustar FPS
-curl -X POST http://localhost:5081/mirror/settings \
-  -H "Content-Type: application/json" \
-  -d '{"fps": 30}'
-
-# Ajustar suavização (menor = mais suave)
-curl -X POST http://localhost:5081/mirror/settings \
-  -H "Content-Type: application/json" \
-  -d '{"smoothing_factor": 0.3}'
 ```
 
----
-
-### Chat com Agente IA
-
-#### Configuração Inicial
+### Chat
 
 ```bash
-# Editar .env
-nano .env
-
-# Adicionar:
 CHAT_PROVIDER="openai"
 CHAT_MODEL="gpt-4o-mini"
 OPENAI_API_KEY="sk-proj-..."
-
-# Reiniciar aplicação
 ```
 
-#### Usar Chat
-
-**Via Interface Web:**
-
-1. Acesse http://localhost:5081/chat
-2. Digite sua mensagem
-3. Aguarde resposta do agente
-
-**Via API REST:**
-
-```bash
-curl -X POST http://localhost:5081/api/chat/message \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Ative um ambiente relaxante"}'
-```
-
-**Via WebSocket (JavaScript):**
-
-```javascript
-const ws = new WebSocket('ws://localhost:5081/ws/chat');
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  if (data.type === 'response') {
-    console.log('Agente:', data.content);
-  }
-};
-
-ws.send(JSON.stringify({
-  action: 'message',
-  message: 'Quais configurações estão disponíveis?'
-}));
-```
-
-**Exemplos de Comandos:**
-
-```
-"Ative a configuração de concentração"
-"Inicie o espelhamento de tela"
-"Quais configurações estão disponíveis?"
-"Mostre o status das lâmpadas"
-"Desligue todas as luzes"
-"Ative modo gaming com transição de 2 segundos"
-```
+Outros providers: `ANTHROPIC_API_KEY`, `XAI_API_KEY`, `GROQ_API_KEY`. Interface: http://localhost:5081/chat — WebSocket em `/ws/chat`.
 
 ---
 
 ## Configuração
 
-### Variáveis de Ambiente
-
-Todas as configurações são gerenciadas via arquivo `.env`:
-
 ```bash
-# ===== OBRIGATÓRIO =====
 BRIDGE_IP="192.168.1.100"
 
-# ===== CHAT (OPCIONAL) =====
-CHAT_PROVIDER="openai"              # openai | anthropic | ollama
+CHAT_PROVIDER="openai"   # openai | anthropic | xai | groq
 CHAT_MODEL="gpt-4o-mini"
 OPENAI_API_KEY="sk-proj-..."
-# ANTHROPIC_API_KEY="sk-ant-..."
 
-# ===== LOGGING (OPCIONAL) =====
-LOG_LEVEL="INFO"                    # DEBUG | INFO | WARNING | ERROR
-LOG_FILE="logs/marvin_hue.log"
-
-# ===== SEGURANÇA (OPCIONAL) =====
-CORS_ORIGINS="*"                    # Em produção: "https://seudominio.com"
+LOG_LEVEL="INFO"
+CORS_ORIGINS="*"
+# API_KEY="troque-por-um-segredo-longo"   # só /api/*
 ```
 
-Ver documentação completa em: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
+Guia completo: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 
----
+### Nova cena
 
-### Adicionar Nova Configuração de Iluminação
-
-1. Editar `.res/setups.json`
+Edite `.res/setups.json`:
 
 ```json
 {
@@ -518,381 +262,125 @@ Ver documentação completa em: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 }
 ```
 
-2. Reiniciar aplicação
-
-```bash
-# Ctrl+C para parar
-uv run uvicorn app:app --reload --port 5081
-```
-
-3. Aplicar nova configuração
-
-```bash
-curl -X POST http://localhost:5081/apply \
-  -H "Content-Type: application/json" \
-  -d '{"config_name": "minha_config"}'
-```
-
-Sem necessidade de código Python! Apenas edite o JSON.
+Reinicie (ou use `--reload`) e aplique `minha_config`. Não crie classes em `setups.py`.
 
 ---
 
 ## API
 
-### Documentação Completa
+Documentação interativa: http://localhost:5081/docs
 
-Acesse a documentação interativa: http://localhost:5081/docs (Swagger UI)
+Referência: [docs/API.md](docs/API.md)
 
-Ou leia: [docs/API.md](docs/API.md)
+| Área | Exemplos |
+|------|----------|
+| Saúde / bridge | `GET /api/health`, `GET /api/bridge/status`, `GET /api/lights/status` |
+| Cenas | `GET /configurations`, `POST /apply` |
+| Catálogo | `/api/lights`, `/api/groups`, `/api/schedules`, `/api/history` |
+| Espelhamento | `POST /mirror/start`, `POST /mirror/stop`, `GET /mirror/status` |
+| Chat | `POST /api/chat/message`, `GET /api/chat/status` |
+| WebSockets | `WS /ws/mirror`, `WS /ws/chat` |
 
-### Principais Endpoints
-
-#### Status e Informações
-
-```bash
-# Status da bridge
-GET /api/bridge/status
-
-# Status de todas as lâmpadas
-GET /api/lights/status
-```
-
-#### Configurações
-
-```bash
-# Listar configurações
-GET /configurations
-
-# Aplicar configuração
-POST /apply
-{
-  "config_name": "concentration",
-  "transition_time_secs": 2.0
-}
-```
-
-#### Espelhamento
-
-```bash
-# Iniciar
-POST /mirror/start
-{"fps": 25, "brightness": 200}
-
-# Parar
-POST /mirror/stop
-
-# Status
-GET /mirror/status
-
-# Ajustar configurações
-POST /mirror/settings
-{"saturation_boost": 1.5}
-```
-
-#### Chat
-
-```bash
-# Enviar mensagem
-POST /api/chat/message
-{"message": "Ative concentração"}
-
-# Status do agente
-GET /api/chat/status
-
-# Limpar histórico
-POST /api/chat/clear
-```
-
-#### WebSockets
-
-```bash
-# Espelhamento em tempo real
-WS /ws/mirror
-
-# Chat em tempo real
-WS /ws/chat
-```
+`API_KEY` vale só em `/api/*`.
 
 ---
 
 ## Arquitetura
 
-### Visão Geral
+FastAPI em `app.py` monta o locator em `marvin_hue/api/dependencies.py`. Cenas passam por `LightSetupsManager` → `HueController`. Espelhamento de tela/áudio passa por `MirrorControlService` e, se habilitado, `LightOutputPort` (REST ou Entertainment).
 
-```
-┌──────────────┐
-│ Web Browser  │ ← Interface visual
-└──────┬───────┘
-       │ HTTP/WebSocket
-       ▼
-┌──────────────────────┐
-│   FastAPI Server     │ ← API REST + WebSocket
-│     (app.py)         │
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│  Core Modules        │
-│  - HueController     │ ← Controle da bridge
-│  - ScreenMirror      │ ← Captura de tela
-│  - ChatAgent         │ ← IA conversacional
-│  - LightSetupsManager│ ← Gerenciador de configs
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│ External Services    │
-│ - Philips Hue Bridge │ ← Hardware
-│ - OpenAI/Anthropic   │ ← LLMs
-│ - Screen Capture     │ ← Sistema operacional
-└──────────────────────┘
-```
-
-### Principais Componentes
-
-- **`marvin_hue/colors.py`**: Representação de cores RGBA
-- **`marvin_hue/utils.py`**: Conversão RGB ↔ XY (espaço de cor Hue)
-- **`marvin_hue/basics.py`**: Estruturas de dados (LightConfig, etc)
-- **`marvin_hue/controllers.py`**: Comunicação com bridge Hue
-- **`marvin_hue/screen_mirror.py`**: Captura e processamento de tela
-- **`marvin_hue/setup_builder.py`**: Builder pattern para configurações
-- **`app.py`**: Aplicação FastAPI (API + WebSocket)
-
-Ver documentação completa em: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+Detalhe: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 
 ## Contribuindo
 
-Contribuições são bem-vindas! Veja [CONTRIBUTING.md](CONTRIBUTING.md) para diretrizes.
-
-### Áreas para Contribuição
-
-- **Novas configurações de iluminação** (edite `.res/setups.json`)
-- **Melhorias no algoritmo de captura de tela**
-- **Novos prompts para o agente de chat**
-- **Testes automatizados**
-- **Documentação**
-- **Traduções**
-
-### Como Contribuir
-
-1. Fork o repositório
-2. Crie uma branch (`git checkout -b feature/nova-funcionalidade`)
-3. Commit suas mudanças (`git commit -m 'Adiciona nova funcionalidade'`)
-4. Push para a branch (`git push origin feature/nova-funcionalidade`)
-5. Abra um Pull Request
-
-### Executar Testes
+Veja [CONTRIBUTING.md](CONTRIBUTING.md). Resumo:
 
 ```bash
-# Todos os testes
+uv sync --extra dev
 uv run pytest
-
-# Com cobertura
-uv run pytest --cov=marvin_hue --cov-report=html
-
-# Abrir relatório de cobertura
-open htmlcov/index.html
 ```
 
-Cobertura atual: **70%+**
+Depois do pytest, abra `htmlcov/index.html` para a cobertura **desta** execução. CI (GitHub Actions) roda pytest e ruff em pull requests e em push para `master`/`main`.
+
+Áreas úteis: novos temas em `.res/setups.json`, testes, docs, captura de tela.
 
 ---
 
 ## Troubleshooting
 
-### Problema: "Bridge not found"
+### Bridge not found
 
-**Solução:**
+1. Confira `BRIDGE_IP` no `.env`.
+2. `ping` o IP.
+3. Pressione o botão da bridge e suba o app de novo.
 
-1. Verificar IP da bridge no `.env`
-2. Testar conectividade: `ping 192.168.1.100`
-3. Pressionar botão da bridge e reiniciar app
+### Light not found
 
-### Problema: "Light not found"
+```bash
+curl http://localhost:5081/api/lights/status
+```
 
-**Solução:**
+Use o nome **exato** no JSON (`Lâmpada 3` ≠ `Lampada 3`).
 
-1. Listar lâmpadas disponíveis:
-   ```bash
-   curl http://localhost:5081/api/lights/status
-   ```
-2. Copiar nome EXATO para o JSON (case-sensitive)
-3. Verificar se lâmpada está online no app Hue
+### Espelhamento não inicia
 
-### Problema: Espelhamento não inicia
+- **macOS:** permissão de Screen Recording
+- **Linux:** `uv run python -c "import mss; print('OK')"`
+- Confira lâmpadas `enabled` em `light_positions.json`
 
-**Solução:**
+### Chat indisponível
 
-1. **macOS**: Conceder permissão de captura de tela
-   - System Preferences → Security & Privacy → Screen Recording
-2. **Linux**: Verificar biblioteca mss
-   ```bash
-   python -c "import mss; print('OK')"
-   ```
-3. Verificar que há lâmpadas ativas em `light_positions.json`
+Confira `CHAT_PROVIDER` e a chave correspondente. O chat degrada na subida se a chave faltar; a bridge e o `setups.json` não.
 
-### Problema: Chat não funciona
+### Alta latência no espelhamento
 
-**Solução:**
+Baixe o FPS (por exemplo 15) ou use o perfil `cinema`.
 
-1. Verificar chave de API no `.env`
-2. Testar chave:
-   ```bash
-   curl https://api.openai.com/v1/models \
-     -H "Authorization: Bearer $OPENAI_API_KEY"
-   ```
-3. Verificar créditos em https://platform.openai.com/usage
-
-### Problema: Alta latência
-
-**Solução:**
-
-1. Reduzir FPS do espelhamento (padrão 25 → 15)
-2. Aumentar smoothing_factor (0.5 → 0.7)
-3. Usar menos lâmpadas ativas simultaneamente
-
-Ver guia completo em: [docs/CONFIGURATION.md#troubleshooting](docs/CONFIGURATION.md#troubleshooting)
+Mais: [docs/CONFIGURATION.md](docs/CONFIGURATION.md#troubleshooting)
 
 ---
 
-## Documentação Adicional
+## Documentação adicional
 
-- **[API.md](docs/API.md)**: Documentação completa da API REST e WebSocket
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Design do sistema e fluxo de dados
-- **[CONFIGURATION.md](docs/CONFIGURATION.md)**: Variáveis de ambiente e schemas JSON
-- **[IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md)**: Plano de melhorias e roadmap
-
----
-
-## Roadmap
-
-### Versão 2.0 (Atual) ✅
-
-- ✅ Configurações baseadas em JSON
-- ✅ API REST + WebSocket
-- ✅ Espelhamento de tela
-- ✅ Chat com IA
-- ✅ Interface web
-- ✅ Testes automatizados (70%+ coverage)
-- ✅ Logging estruturado
-- ✅ Validação de inputs
-
-### Versão 3.0 (Planejado)
-
-- ⏳ Autenticação e autorização
-- ⏳ Rate limiting
-- ⏳ Suporte para múltiplas bridges
-- ⏳ Scheduler (automações temporais)
-- ⏳ Integração com Home Assistant
-- ⏳ Mobile app (React Native)
-- ⏳ Presets de espelhamento por aplicação
+- [docs/API.md](docs/API.md) — REST e WebSocket
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — camadas e fluxo
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env e JSON
+- [CHANGELOG.md](CHANGELOG.md) — ondas recentes (0–3)
 
 ---
 
 ## Tecnologias
 
-- **Python 3.10+**: Linguagem principal
-- **FastAPI**: Framework web async
-- **phue**: Biblioteca para Philips Hue
-- **mss**: Captura de tela eficiente
-- **LangChain**: Orquestração de LLMs
-- **Pydantic**: Validação de dados
-- **pytest**: Framework de testes
-
----
-
-## Performance
-
-| Operação | Tempo Médio |
-|----------|-------------|
-| Aplicar configuração | ~200ms |
-| Screen capture | ~10-40ms/frame |
-| API response | <100ms |
-| Light lookup | O(1) - cached |
+- Python ≥3.11, FastAPI, uvicorn
+- phue, mss, Pillow, hue-entertainment
+- aiosqlite, loguru, Pydantic
+- LangChain / LangGraph
+- pytest (dev extra)
 
 ---
 
 ## Segurança
 
-**Implementado:**
-- ✅ Validação de inputs com Pydantic
-- ✅ Sanitização de strings
-- ✅ Range checks (RGB, brightness, etc)
-- ✅ `.env` no `.gitignore`
-
-**Recomendado para Produção:**
-- ⚠️ Autenticação (API keys)
-- ⚠️ CORS restrito
-- ⚠️ Rate limiting
-- ⚠️ HTTPS/WSS
+- Validação Pydantic e faixas RGB/brilho
+- `.env` no `.gitignore`
+- `API_KEY` opcional **somente** em `/api/*`
+- CORS padrão `*` — restrinja em rede que não seja LAN confiável
+- `API_HOST=0.0.0.0` expõe a LAN; use `127.0.0.1` se só o host precisa acessar
 
 ---
 
 ## Créditos
 
-- **Autor**: Marcus Vinicius Braga
-- **LinkedIn**: [marvinbraga](https://www.linkedin.com/in/marvinbraga/)
-- **Email**: mvbraga@gmail.com
-
-### Agradecimentos
-
-- [Philips Hue](https://www.philips-hue.com/) - API e hardware
-- [phue](https://github.com/studioimaginaire/phue) - Biblioteca Python
-- [FastAPI](https://fastapi.tiangolo.com/) - Framework web
-- [LangChain](https://python.langchain.com/) - Framework para LLMs
-
----
+- **Autor:** Marcus Vinicius Braga — [LinkedIn](https://www.linkedin.com/in/marvinbraga/)
+- Philips Hue, [phue](https://github.com/studioimaginaire/phue), [FastAPI](https://fastapi.tiangolo.com/), [LangChain](https://python.langchain.com/)
 
 ## Licença
 
-Este projeto está licenciado sob a **GNU Affero General Public License v3.0**.
-
-Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
-
-**Em resumo:**
-- ✅ Uso comercial permitido
-- ✅ Modificação permitida
-- ✅ Distribuição permitida
-- ⚠️ Código-fonte modificado deve ser compartilhado
-- ⚠️ Mudanças devem ser documentadas
-- ⚠️ Mesma licença deve ser mantida
-
----
+GNU Affero General Public License v3.0 — ver [LICENSE](LICENSE).
 
 ## Suporte
 
-- **Issues**: https://github.com/marvinbraga/my_phillips_hue/issues
-- **Discussões**: https://github.com/marvinbraga/my_phillips_hue/discussions
-- **Email**: mvbraga@gmail.com
-
----
-
-## Changelog
-
-### v2.0.0 (2026-01-22)
-
-- ➕ Adicionado espelhamento de tela em tempo real
-- ➕ Adicionado chat com IA (OpenAI, Anthropic, Ollama)
-- ➕ API REST completa com FastAPI
-- ➕ WebSockets para updates em tempo real
-- ➕ Interface web moderna
-- ➕ Configurações baseadas em JSON (eliminou 87% de código duplicado)
-- ➕ Testes automatizados com 70%+ coverage
-- ➕ Logging estruturado
-- ➕ Validação de inputs com Pydantic
-- ➕ Documentação completa (API, Arquitetura, Configuração)
-
-### v1.0.0 (2023-XX-XX)
-
-- Versão inicial
-- Controle básico de lâmpadas
-- Configurações hardcoded
-- CLI simples
-
----
-
-**Desenvolvido com ❤️ por Marcus Vinicius Braga**
-
-Se este projeto foi útil, considere dar uma ⭐ no GitHub!
+- Issues: https://github.com/marvinbraga/my_phillips_hue/issues
+- Email: mvbraga@gmail.com
