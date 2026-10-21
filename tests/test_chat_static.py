@@ -88,4 +88,4 @@ def test_chat_js_approval_card_details(fastapi_test_client: TestClient) -> None:
 
 
 def test_chat_page_busts_cache_for_hitl_js(fastapi_test_client: TestClient) -> None:
-    assert 'src="/static/chat.js?v=hitl-2"' in fastapi_test_client.get("/chat").text
+    assert 'src="/static/chat.js?v=hitl-3"' in fastapi_test_client.get("/chat").text
