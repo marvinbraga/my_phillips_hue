@@ -157,6 +157,48 @@ for light in lights:
 
 ---
 
+### GET /api/health
+
+Agrega a saúde do sistema numa resposta só: bridge, lâmpadas, espelhamento, chat, catálogo e agendamentos. Sempre responde 200. Se uma sonda falhar, o bloco dela vem degradado (por exemplo `connected: false` ou contagens zeradas) em vez de erro. A página **Saúde** (`/health`) e a tool de chat `get_system_health` leem este payload.
+
+**Response 200:**
+```json
+{
+  "bridge": {"connected": true, "bridge_ip": "192.168.1.100", "light_count": 9},
+  "lights": {"total": 9, "unreachable": 0, "disabled_in_app": 0},
+  "mirror": {
+    "running": true,
+    "mode": "audio",
+    "fps": 30,
+    "profile": "party",
+    "audio": {"bass": 0.5, "mid": 0.25, "treble": 0.12, "beat": 1.0, "config_name": "relax"}
+  },
+  "chat": {"available": false, "reason": "Provider 'openai' sem OPENAI_API_KEY configurada."},
+  "registry": {"count": 9, "db_path": ".res/marvin_hue.sqlite", "last_sync_at": null},
+  "schedules": {"enabled_count": 2, "runner_alive": true},
+  "timestamp": "2026-10-21T12:00:00+00:00"
+}
+```
+
+**Bloco `mirror`** (reflete o espelhamento ativo, de tela ou de música; se os dois estiverem rodando, o de música prevalece, como em `GET /mirror/status`):
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `running` | bool | Algum espelhamento está ativo |
+| `mode` | `"screen"` \| `"audio"` \| null | Espelhamento ativo; null quando parado |
+| `fps` | int \| null | FPS do espelhamento ativo; null quando parado |
+| `profile` | string \| null | Perfil ativo (`active_profile`); null quando parado ou sem perfil |
+| `audio` | object \| null | Só com `mode: "audio"`: níveis `bass`/`mid`/`treble`/`beat` (0–1) e `config_name` |
+
+Uma falha ao consultar o áudio cai para o status da tela: um erro de áudio não esconde um espelhamento de tela rodando.
+
+**Exemplo com curl:**
+```bash
+curl http://localhost:5081/api/health
+```
+
+---
+
 ## Catálogo de Lâmpadas (Registry)
 
 Catálogo app-side em SQLite (padrão: `.res/marvin_hue.sqlite`, configurável via `APP_DB_PATH`). Armazena metadados das lâmpadas (nickname, room, notes, limite de segurança ocular, vínculo com id da bridge). **Não altera o estado físico** das lâmpadas na Philips Hue Bridge.

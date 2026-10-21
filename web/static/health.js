@@ -67,7 +67,14 @@
         setText('lights-disabled', lights.disabled_in_app);
 
         const mirror = data.mirror || {};
-        setPill('mirror-pill', !!mirror.running, 'Ativo', 'Parado');
+        const mirrorModes = { screen: 'Tela', audio: 'Música' };
+        const mirrorMode = mirrorModes[mirror.mode];
+        setPill(
+            'mirror-pill',
+            !!mirror.running,
+            mirrorMode ? 'Ativo · ' + mirrorMode : 'Ativo',
+            'Parado'
+        );
         setText('mirror-fps', mirror.fps);
         setText('mirror-profile', mirror.profile == null ? 'nenhum' : mirror.profile);
 

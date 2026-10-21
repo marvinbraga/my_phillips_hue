@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
@@ -16,38 +17,25 @@ from marvin_hue.api.dependencies import (
     get_schedule_runner,
     get_screen_mirror,
 )
-from marvin_hue.audio_mirror import AudioMirror
 from marvin_hue.chat import HueLightAgent
 from marvin_hue.controllers import HueController
 from marvin_hue.logging_config import get_logger
 from marvin_hue.screen_mirror import ScreenMirror
 from marvin_hue.services.health import collect_health
-from marvin_hue.services.light_registry import LightRegistryService
 from marvin_hue.services.schedule_runner import ScheduleRunner
-from marvin_hue.services.schedule_service import ScheduleService
 
 router = APIRouter(tags=["Health"])
 logger = get_logger("api.health")
 templates = Jinja2Templates(directory="web/templates")
 
 
-def _optional_registry() -> LightRegistryService | None:
+T = TypeVar("T")
+
+
+def _optional(getter: Callable[[], T]) -> T | None:
+    """Optional lifespan service: None instead of RuntimeError when not wired."""
     try:
-        return deps.get_light_registry_service()
-    except RuntimeError:
-        return None
-
-
-def _optional_schedule_service() -> ScheduleService | None:
-    try:
-        return deps.get_schedule_service()
-    except RuntimeError:
-        return None
-
-
-def _optional_audio_mirror() -> AudioMirror | None:
-    try:
-        return deps.get_audio_mirror()
+        return getter()
     except RuntimeError:
         return None
 
@@ -65,10 +53,10 @@ async def api_health(
         screen_mirror=screen_mirror,
         chat_agent=chat_agent,
         chat_reason=get_chat_unavailable_reason(),
-        registry=_optional_registry(),
+        registry=_optional(deps.get_light_registry_service),
         schedule_runner=schedule_runner,
-        schedule_service=_optional_schedule_service(),
-        audio_mirror=_optional_audio_mirror(),
+        schedule_service=_optional(deps.get_schedule_service),
+        audio_mirror=_optional(deps.get_audio_mirror),
     )
     return payload
 
