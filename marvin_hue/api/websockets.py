@@ -8,12 +8,15 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 
 from marvin_hue.api.dependencies import (
     get_chat_agent,
     get_chat_unavailable_reason,
     get_mirror_control_service,
 )
+from marvin_hue.api.models import ChatResumeRequest
+from marvin_hue.chat.hitl import ApprovalError, ApprovalRequired
 from marvin_hue.logging_config import get_logger
 from marvin_hue.services.mirror_control import (
     MirrorAlreadyActiveError,
@@ -121,6 +124,19 @@ async def dispatch_ws_mirror_action(
         return None
 
     return None
+
+
+def chat_turn_frame(result: Any) -> dict[str, Any]:
+    """Frame WS de um turno: resposta final ou pedidos de aprovação."""
+    if isinstance(result, ApprovalRequired):
+        return result.to_dict()
+    return {"type": "response", "content": result}
+
+
+def parse_ws_resume(data: dict[str, Any], session_id: str) -> list[dict[str, Any]]:
+    """Valida ``{"action": "resume", "decisions": [...]}`` com o modelo REST."""
+    req = ChatResumeRequest(session_id=session_id, decisions=data.get("decisions") or [])
+    return [d.model_dump(exclude_none=True) for d in req.decisions]
 
 
 class ConnectionManager:
@@ -244,18 +260,48 @@ def setup_websockets(app: FastAPI) -> None:
                     await websocket.send_json({"type": "typing", "content": True})
 
                     try:
-                        response = await chat_agent.ainvoke(
+                        result = await chat_agent.ainvoke(
                             message, session_id=session_id
                         )
-                        await websocket.send_json(
-                            {"type": "response", "content": response}
-                        )
+                        await websocket.send_json(chat_turn_frame(result))
                     except Exception as e:
                         await websocket.send_json(
                             {"type": "error", "content": f"Erro: {str(e)}"}
                         )
                     finally:
                         await websocket.send_json({"type": "typing", "content": False})
+
+                elif action == "resume":
+                    try:
+                        decisions = parse_ws_resume(data, session_id)
+                    except ValidationError:
+                        await websocket.send_json(
+                            {"type": "error", "content": "Decisões de aprovação inválidas."}
+                        )
+                        continue
+
+                    await websocket.send_json({"type": "typing", "content": True})
+                    try:
+                        result = await chat_agent.aresume(session_id, decisions)
+                        await websocket.send_json(chat_turn_frame(result))
+                    except ApprovalError as e:
+                        await websocket.send_json({"type": "error", "content": str(e)})
+                    except Exception as e:
+                        await websocket.send_json(
+                            {"type": "error", "content": f"Erro: {str(e)}"}
+                        )
+                    finally:
+                        await websocket.send_json({"type": "typing", "content": False})
+
+                elif action == "pending":
+                    # Página recarregada: reapresenta o cartão de aprovação.
+                    try:
+                        pending = await chat_agent.apending(session_id)
+                    except Exception as e:
+                        logger.warning(f"/ws/chat pending falhou: {e}")
+                        pending = None
+                    if pending is not None:
+                        await websocket.send_json(pending.to_dict())
 
                 elif action == "clear":
                     await chat_agent.aclear_history(session_id=session_id)

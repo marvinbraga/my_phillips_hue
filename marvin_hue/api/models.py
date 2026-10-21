@@ -4,6 +4,7 @@ Todos os modelos de validação de dados da API.
 """
 
 import re
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -298,6 +299,36 @@ class ChatClearRequest(BaseModel):
         default="default",
         max_length=128,
         description="Id da sessão cujo histórico deve ser limpo (thread_id).",
+    )
+
+
+class ChatDecision(BaseModel):
+    """Decisão humana sobre UM pedido de aprovação (HITL)."""
+
+    type: Literal["approve", "reject"]
+    id: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Id do pedido (approval_required[].id); recomendado.",
+    )
+    message: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Motivo da rejeição (opcional); repassado ao agente.",
+    )
+
+
+class ChatResumeRequest(BaseModel):
+    session_id: str = Field(
+        default="default",
+        max_length=128,
+        description="Sessão (thread_id) que está aguardando aprovação.",
+    )
+    decisions: list[ChatDecision] = Field(
+        ...,
+        min_length=1,
+        max_length=20,
+        description="Uma decisão por pedido pendente, na mesma ordem.",
     )
 
 
