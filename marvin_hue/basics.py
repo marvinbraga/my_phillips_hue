@@ -1,15 +1,22 @@
+import asyncio
 import json
 import os
+import threading
 import time
 from json import JSONDecodeError
 from typing import Any
 
 import aiofiles
 
+from marvin_hue.atomic_io import write_json_atomic
 from marvin_hue.colors import Color
 from marvin_hue.logging_config import get_logger
 
 logger = get_logger("basics")
+
+
+class DuplicateConfigError(ValueError):
+    """Já existe uma cena com esse nome (comparação sem maiúsculas)."""
 
 
 class LightSetting:
@@ -71,6 +78,8 @@ class LightSetupsManager:
         self._filename = filename
         self._data: dict[str, Any] = {"setups": []}
         self._configs: list[LightConfig] = []
+        # Serializa check-append-save (tools do chat rodam em threads do executor).
+        self._lock = threading.RLock()
         self.load().update()
 
     @property
@@ -145,32 +154,43 @@ class LightSetupsManager:
         return self
 
     def save(self) -> "LightSetupsManager":
-        """
-        Salva configurações no arquivo JSON (versão síncrona).
+        """Salva as configurações no JSON de forma atômica (temp + ``os.replace``).
 
-        Para código assíncrono, use save_async() que oferece melhor performance.
-        Mantido para compatibilidade retroativa.
+        Raises:
+            OSError: a escrita falhou; o arquivo anterior fica intacto.
         """
-        try:
-            with open(self._filename, "w", encoding="utf-8") as f:
-                json.dump(
-                    {"setups": [config.to_dict() for config in self._configs]},
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                )
-
+        with self._lock:
+            payload = {"setups": [config.to_dict() for config in self._configs]}
+            try:
+                write_json_atomic(self._filename, payload)
+            except OSError as e:
+                logger.exception(f"Error writing to file {self._filename}: {e}")
+                raise
             # Invalida cache após salvar
-            if self._filename in self._cache:
-                del self._cache[self._filename]
-
+            self._cache.pop(self._filename, None)
             logger.info(
                 f"Successfully saved {len(self._configs)} configurations to {self._filename}"
             )
-        except IOError as e:
-            logger.exception(
-                f"Error writing to file {self._filename}: {str(e)}"
-            )
+        return self
+
+    def add_config(self, config: LightConfig) -> "LightSetupsManager":
+        """Acrescenta uma cena e persiste, sob lock (check-append-save atômico).
+
+        Raises:
+            DuplicateConfigError: já existe cena com o mesmo nome (sem
+                diferenciar maiúsculas).
+            OSError: a gravação falhou; a cena é removida da memória.
+        """
+        with self._lock:
+            key = config.name.casefold()
+            if any(c.name.casefold() == key for c in self._configs):
+                raise DuplicateConfigError(config.name)
+            self._configs.append(config)
+            try:
+                self.save()
+            except Exception:
+                self._configs.remove(config)
+                raise
         return self
 
     async def load_async(self) -> "LightSetupsManager":
@@ -223,30 +243,10 @@ class LightSetupsManager:
         return self
 
     async def save_async(self) -> "LightSetupsManager":
+        """Versão assíncrona de :meth:`save` (atômica; roda em thread).
+
+        Raises:
+            OSError: a escrita falhou; o arquivo anterior fica intacto.
         """
-        Salva configurações no arquivo JSON de forma assíncrona.
-
-        Otimizações:
-        - I/O não bloqueante com aiofiles
-        - Ideal para uso em aplicações async (FastAPI, etc.)
-        - Invalida cache automaticamente
-        """
-        try:
-            data = {"setups": [config.to_dict() for config in self._configs]}
-            content = json.dumps(data, indent=2, ensure_ascii=False)
-
-            async with aiofiles.open(self._filename, "w", encoding="utf-8") as f:
-                await f.write(content)
-
-            # Invalida cache após salvar
-            if self._filename in self._cache:
-                del self._cache[self._filename]
-
-            logger.info(
-                f"Successfully saved (async) {len(self._configs)} configurations to {self._filename}"
-            )
-        except IOError as e:
-            logger.exception(
-                f"Error writing to file {self._filename}: {str(e)}"
-            )
+        await asyncio.to_thread(self.save)
         return self

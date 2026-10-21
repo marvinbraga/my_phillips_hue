@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal, Optional
 from uuid import uuid4
 
+from marvin_hue.atomic_io import write_json_atomic
 from marvin_hue.domain.groups import GroupNotFoundError, LightGroup
 from marvin_hue.domain.lights import LightNotFoundError, RegisteredLight
 from marvin_hue.domain.schedules import Schedule, ScheduleNotFoundError
@@ -107,9 +108,7 @@ def _write_json_file_with_bak(path: Path, data: Any) -> None:
     if path.exists() and path.is_file():
         bak = path.with_suffix(path.suffix + ".bak")
         shutil.copy2(path, bak)
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=2)
-        fh.write("\n")
+    write_json_atomic(path, data, trailing_newline=True)
 
 
 def _light_to_dict(light: RegisteredLight) -> dict[str, Any]:
