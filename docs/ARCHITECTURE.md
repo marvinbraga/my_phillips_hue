@@ -503,7 +503,7 @@ Cliente (WebSocket /ws/chat | REST /api/chat/*)
 HueLightAgent.ainvoke(message, session_id)
         │  config = {"configurable": {"thread_id": session_id}}
         ▼
-create_agent(model, tools=[*light_tools, task], middleware=[...], checkpointer)
+create_agent(model, tools=[*build_all_tools(...), task], middleware=[...], checkpointer)
         │
         ├─ middleware (ordem):
         │   1. HueContextMiddleware    → injeta status vivo + localizações +
@@ -513,26 +513,66 @@ create_agent(model, tools=[*light_tools, task], middleware=[...], checkpointer)
         │   3. TodoListMiddleware      → planejamento de tarefas.
         │   4. SummarizationMiddleware → resume contexto ao exceder ~3000 tokens.
         │   5. AnthropicPromptCaching  → só quando provider == "anthropic".
-        │   (+ HumanInTheLoopMiddleware se require_approval — opcional, off)
+        │   (+ HumanInTheLoopMiddleware se require_approval — opcional, off;
+        │    interrupt_on = chat/hitl.HITL_INTERRUPT_ON: apply_config,
+        │    save_current_config, create_config, apply_config_to_group,
+        │    create_schedule, set_schedule_enabled, start_mirror, stop_mirror,
+        │    undo_last_scene; os subagents recebem o mesmo filtro p/ suas tools)
+        │   recursion_limit do orquestrador = 25 por turno (AGENT_RECURSION_LIMIT)
         │
-        ├─ light tools (closures sobre controller/manager, sem estado global):
-        │   list_lights, get_light_status, set_light_color, apply_config,
-        │   list_configs, turn_off_lights, turn_on_lights, set_brightness,
-        │   save_current_config, get_light_locations, get_rooms,
-        │   list_lights_by_room, set_room_power, set_room_brightness
+        ├─ ChatServices (chat/services.py): providers preguiçosos resolvidos a
+        │   cada chamada de tool (padrão: api.dependencies, import tardio).
+        │   favorites, history, groups, schedules, mirror, health,
+        │   last_applied; lights_off(controller) compõe LightsOffService como
+        │   POST /lights/off (lights_off_provider é só gancho de teste).
+        │   Serviço indisponível → a tool devolve mensagem (fail-open, logado).
+        │   Erro inesperado → mensagem genérica ao modelo; detalhe só no log.
         │
-        ├─ favorite tools (async; SceneFavoritesService resolvido a cada
-        │   chamada via favorites_provider, fail-open se indisponível):
-        │   list_favorites, add_favorite, remove_favorite
-        │   (só o caminho async — ainvoke/astream — mexe no SQLite; o invoke
-        │    síncrono devolve mensagem, sem rodar o serviço fora do loop do app)
+        ├─ build_all_tools (chat/tools/__init__.py) junta, sem duplicatas:
+        │   ├─ light_tools.py (closures sobre controller/manager):
+        │   │   list_lights, get_light_status, set_light_color, apply_config,
+        │   │   list_configs, turn_off_lights, turn_on_lights, set_brightness,
+        │   │   save_current_config, get_light_locations, get_rooms,
+        │   │   list_lights_by_room, set_room_power, set_room_brightness
+        │   │   (apply_config async → ApplyConfigService source "chat":
+        │   │    snapshot "before apply" + registro da última cena (#14);
+        │   │    turn_off_lights("all") async → LightsOffService (para mirror,
+        │   │    snapshot, limpa última cena); sync → controller direto)
+        │   ├─ rooms.py: índice sala → lâmpadas (registry ou JSON), normalizado
+        │   │   uma vez; "teto" casa "Teto, à direita" e "Teto, à esquerda"
+        │   │   (prefixo de palavra, sem acento) e as tools agem na união
+        │   ├─ scene_tools.py: search_configs, describe_config (build_scene_preview),
+        │   │   create_config (grava pela especificação, sem aplicar; brilho
+        │   │   limitado por effective_hue_brightness), undo_last_scene
+        │   │   (SceneHistoryService.restore_last + clear_after_undo da última
+        │   │   cena), list/add/remove_favorite. Cenas novas passam por
+        │   │   LightSetupsManager.add_config (lock + escrita atômica)
+        │   ├─ automation_tools.py: list_groups, apply_config_to_group
+        │   │   (sem interseção cena∩grupo nada é feito; senão snapshot
+        │   │   "group_apply" antes, fail-open), list_schedules,
+        │   │   create_schedule (apply_config | power_on | power_off; nasce
+        │   │   desativado salvo pedido explícito),
+        │   │   set_schedule_enabled — grupo/agendamento pelo nome ou id
+        │   └─ system_tools.py: get_mirror_status, start_mirror, stop_mirror
+        │       (MirrorControlService), get_system_health (collect_health),
+        │       set_color_temperature (Kelvin→RGB Tanner Helland, 2000–6500 K,
+        │       via HueController.set_light_color)
+        │   Tools de serviço async têm coroutine=; o invoke síncrono (CLI) não
+        │   roda serviços aiosqlite fora do loop do app: devolve
+        │   "disponível apenas no app".
         │
         └─ task tool → delega a subagents isolados:
             scene-designer | config-librarian | general-purpose
-            (config-librarian inclui list/add/remove_favorite)
+            (allow-lists em subagents/definitions.py: scene-designer ganha
+             set_color_temperature/describe_config/create_config;
+             config-librarian ganha search/describe/create_config + favoritos;
+             general-purpose ganha get_system_health/get_mirror_status/
+             list_groups/list_schedules — só consulta)
             (cada um é um create_agent aninhado, com subconjunto restrito de
              tools + os mesmos middleware de segurança; SEM a tool task → sem
-             recursão de delegação; recursion_limit explícito)
+             recursão de delegação; recursion_limit explícito; texto final
+             extraído por chat/messages.message_text, que ignora blocos
+             "thinking")
         ▼
 HueController (chokepoint) → bridge Philips Hue
 ```
@@ -577,11 +617,23 @@ reconcilia `EYE_SAFETY_LIMITS` (código, canônico) com
 
 ### Eval-gate
 
-`tests/eval/` é um golden-set versionado e determinístico (sem LLM, sem
-leakage). Casos `level="code"` (clamp ocular incl. `"all"`, all-off,
-reconciliação) são executados; `level="prompt"` são SKIP explícito.
-**Política:** nenhuma mudança de prompt/modelo é mergeada sem `pytest tests/eval`
-verde E smoke manual dos fluxos de prompt (delegação + recomendação de preset).
+`tests/eval/invariants.json` é o golden set versionado (`hue.chat@2`, com dono).
+Casos `level="code"` (clamp ocular, desligar tudo, superfície de tools,
+privilégio mínimo dos subagents, Kelvin, desfazer sem histórico, payload de
+agendamento) rodam no CI. Os 17 casos `level="prompt"` medem seleção de tool
+ao vivo (`tests/eval/run_tool_selection.py`, N=3, bridge e serviços mockados,
+baseline = `origin/master`); relatório em `docs/evals/`. O CI confere o hash da
+superfície de prompt contra `tests/eval/prompt_version.json`: qualquer mudança
+de prompt, descrição ou schema de tool exige bump de `PROMPT_VERSION` e nova
+rodada do eval ao vivo. **Gate:** Δ ≥ 0 nos intents pré-existentes e ≥ 90% nas
+tools novas.
+
+### Canal de chat = privilégio total
+
+O chat comanda luzes, cenas, agendamentos e espelhamento. Fica aberto na LAN
+(sem `API_KEY` no `/ws/chat`), mas o WebSocket recusa conexões de navegador
+cross-origin (`Origin` ≠ `Host` → close 1008) para evitar Cross-Site WebSocket
+Hijacking. Clientes sem `Origin` (scripts/CLI) continuam aceitos.
 
 ### Follow-ups conhecidos (não-bloqueantes)
 
