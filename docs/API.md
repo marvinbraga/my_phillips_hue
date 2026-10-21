@@ -516,6 +516,71 @@ curl "http://localhost:5081/configurations?include_settings=true"
 
 ---
 
+### GET /configurations/favorites
+
+Lista os nomes das cenas marcadas como favoritas na tela Controle (`/`). Os favoritos ficam no SQLite do app (tabela `scene_favorites`).
+
+A resposta traz só as cenas que existem em `.res/setups.json` naquele momento. Se uma cena favorita for renomeada ou removida, o favorito continua no banco, mas não aparece aqui; quando a cena volta, o favorito volta junto. `GET /configurations` não muda: os favoritos têm rota própria.
+
+`/configurations/favorites` não exige `API_KEY`. O alias `/api/configurations/favorites` fica sujeito a `API_KEY` quando configurada. O mesmo vale para `PUT` e `DELETE` abaixo.
+
+**Response 200:**
+```json
+{
+  "favorites": ["concentration", "relax"]
+}
+```
+
+**Exemplo com curl:**
+```bash
+curl http://localhost:5081/configurations/favorites
+```
+
+---
+
+### PUT /configurations/favorites/{name}
+
+Marca a cena `name` como favorita. É idempotente: repetir a chamada devolve o mesmo resultado. Nomes com espaço ou acento vão codificados na URL (`Pôr do sol` → `P%C3%B4r%20do%20sol`).
+
+**Response 200:**
+```json
+{
+  "name": "relax",
+  "favorite": true
+}
+```
+
+**Response 404:** a cena não existe em `.res/setups.json`.
+```json
+{
+  "detail": "Configuração 'nao_existe' não encontrada"
+}
+```
+
+**Exemplo com curl:**
+```bash
+curl -X PUT http://localhost:5081/configurations/favorites/relax
+```
+
+---
+
+### DELETE /configurations/favorites/{name}
+
+Desmarca a cena `name`. É idempotente: um nome que não estava marcado, ou que nem existe, também devolve 204.
+
+**Response 204:** sem corpo.
+
+**Exemplo com curl:**
+```bash
+curl -X DELETE http://localhost:5081/configurations/favorites/relax
+```
+
+O backup (`GET /api/backup/export`) inclui o membro `favorites.json` com todos os nomes guardados, inclusive os de cenas que não existem mais. Na importação, `merge` faz a união com os favoritos locais e `replace` substitui o conjunto. Bundles antigos, sem esse membro, não alteram os favoritos. Um `favorites.json` presente com `null` ou qualquer valor que não seja lista de strings faz a importação falhar (400) antes de qualquer escrita; o limite é 1000 nomes de até 200 caracteres. A resposta da importação traz `favorites: {"added", "removed", "total"}` (diferença entre os conjuntos antes e depois), com `"skipped": true` quando o membro está ausente. O backup só inclui `favorites.json` quando o repositório de favoritos está ativo.
+
+Nomes de cena com `/` funcionam em `PUT`/`DELETE` (a rota usa `{name:path}`).
+
+---
+
 ### POST /apply
 
 Aplica uma configuração de iluminação específica. O corpo reflete o `ApplyResult`
