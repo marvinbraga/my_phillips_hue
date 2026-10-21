@@ -242,6 +242,11 @@ def setup_websockets(app: FastAPI) -> None:
 
                 chat_agent = get_chat_agent()
                 if chat_agent is None:
+                    # "pending" é enviado a cada conexão da tela Chat: sem
+                    # agente não há o que reapresentar, e o aviso já vem do
+                    # /api/chat/status (evita um erro por (re)conexão).
+                    if data.get("action") == "pending":
+                        continue
                     reason = (
                         get_chat_unavailable_reason()
                         or "Agente de chat não disponível."

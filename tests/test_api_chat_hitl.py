@@ -162,6 +162,18 @@ def test_ws_resume_errors(hitl_client):
         assert ws.receive_json()["type"] == "cleared"
 
 
+def test_ws_pending_is_silent_without_agent(fastapi_test_client, monkeypatch):
+    """A tela Chat manda "pending" ao conectar; sem agente não vira erro na tela."""
+    from marvin_hue.api import dependencies
+
+    monkeypatch.setattr(dependencies, "_chat_agent", None)
+    monkeypatch.setattr(dependencies, "_chat_unavailable_reason", "sem agente")
+    with fastapi_test_client.websocket_connect("/ws/chat") as ws:
+        ws.send_json({"action": "pending", "session_id": "x"})
+        ws.send_json({"action": "message", "message": "oi", "session_id": "x"})
+        assert ws.receive_json() == {"type": "error", "content": "sem agente"}
+
+
 def test_resume_route_requires_api_key():
     from marvin_hue.api.middleware.api_key import ApiKeyMiddleware
     from marvin_hue.api.routes import chat
