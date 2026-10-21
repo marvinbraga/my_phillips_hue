@@ -26,3 +26,25 @@ def test_chat_js_is_served_with_session_and_ws(fastapi_test_client: TestClient) 
     assert "function getSessionId" in body
     assert "function connectWebSocket" in body
     assert "localStorage" in body
+
+
+def test_chat_page_loads_dompurify_with_sri_before_chat_js(
+    fastapi_test_client: TestClient,
+) -> None:
+    html = fastapi_test_client.get("/chat").text
+    purify = html.find("cdn.jsdelivr.net/npm/dompurify@3.")
+    marked = html.find("cdn.jsdelivr.net/npm/marked@")
+    chat_js = html.find('src="/static/chat.js')
+    assert purify != -1, "DOMPurify must be loaded from a pinned jsDelivr URL"
+    assert marked != -1
+    assert purify < chat_js and marked < chat_js
+
+
+def test_chat_js_sanitizes_markdown_and_never_injects_raw_html(
+    fastapi_test_client: TestClient,
+) -> None:
+    body = fastapi_test_client.get("/static/chat.js").text
+    assert "DOMPurify.sanitize(window.marked.parse(" in body
+    assert "innerHTML = marked.parse(" not in body
+    assert "textContent = text" in body
+    assert "${light.name}" not in body
