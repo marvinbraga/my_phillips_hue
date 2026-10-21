@@ -85,7 +85,8 @@ Web screens: Controle, Lâmpadas, Grupos, Agendamentos, Posicionamento, Espelham
 
 **Scenes and positions (no API key)**
 
-- `GET /configurations`
+- `GET /configurations` (`?include_settings=true` adds per-light `color` + eye-safety-clamped `preview`)
+- `GET /configurations/favorites`, `PUT /configurations/favorites/{name}`, `DELETE /configurations/favorites/{name}` — favorites stored in SQLite (`scene_favorites`, schema v5); orphans hidden, kept
 - `POST /apply` — `ApplyResult` → HTTP **200** (all ok), **207** (partial), **500** (all failed). `duration_minutes` is accepted and **ignored** (not a restore timer)
 - `GET /positions`, `POST /positions`, `POST /positions/reset`
 
