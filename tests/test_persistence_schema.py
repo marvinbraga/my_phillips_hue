@@ -74,15 +74,15 @@ async def test_init_db_enables_wal(db_path):
 
 
 @pytest.mark.asyncio
-async def test_schema_version_is_5(db_path):
+async def test_schema_version_is_6(db_path):
     await init_db(db_path)
-    assert CURRENT_SCHEMA_VERSION == 5
+    assert CURRENT_SCHEMA_VERSION == 6
     async with aiosqlite.connect(db_path) as conn:
         async with conn.execute(
             "SELECT version FROM schema_version ORDER BY version"
         ) as cur:
             versions = [int(r[0]) for r in await cur.fetchall()]
-    assert versions == [1, 2, 3, 4, 5]
+    assert versions == [1, 2, 3, 4, 5, 6]
 
 
 @pytest.mark.asyncio
@@ -170,6 +170,36 @@ async def test_v5_scene_favorites_table(db_path):
 
 
 @pytest.mark.asyncio
+async def test_v6_last_applied_scene_table(db_path):
+    await init_db(db_path)
+    async with aiosqlite.connect(db_path) as conn:
+        async with conn.execute("PRAGMA table_info(last_applied_scene)") as cur:
+            rows = await cur.fetchall()
+    cols = {row[1]: row for row in rows}
+    assert set(cols) == {"id", "config_name", "source", "applied_at"}
+    # PRAGMA table_info: (cid, name, type, notnull, dflt_value, pk)
+    assert cols["id"][5] == 1
+    assert cols["config_name"][3] == 0  # NULL = cleared (lights off / undo)
+    assert cols["source"][3] == 1
+    assert cols["applied_at"][3] == 1
+
+
+@pytest.mark.asyncio
+async def test_v6_last_applied_scene_is_single_row(db_path):
+    await init_db(db_path)
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute(
+            "INSERT INTO last_applied_scene (id, config_name, source, applied_at) "
+            "VALUES (1, 'relax', 'apply', '2026-01-01T00:00:00+00:00')"
+        )
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                "INSERT INTO last_applied_scene (id, config_name, source, applied_at) "
+                "VALUES (2, 'relax', 'apply', '2026-01-01T00:00:00+00:00')"
+            )
+
+
+@pytest.mark.asyncio
 async def test_migration_chain_from_v1_only(tmp_path):
     """Simulate a v1 DB then upgrade by re-running init_db with full migrations."""
     db_path = str(tmp_path / "upgrade.sqlite")
@@ -210,11 +240,17 @@ async def test_migration_chain_from_v1_only(tmp_path):
     async with aiosqlite.connect(db_path) as conn:
         async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [int(r[0]) for r in await cur.fetchall()]
-        assert versions == [1, 2, 3, 4, 5]
+        assert versions == [1, 2, 3, 4, 5, 6]
         async with conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' "
             "AND name IN ('light_groups', 'scene_snapshots', 'schedules', "
-            "'scene_favorites')"
+            "'scene_favorites', 'last_applied_scene')"
         ) as cur:
             tables = {r[0] for r in await cur.fetchall()}
-    assert tables == {"light_groups", "scene_snapshots", "schedules", "scene_favorites"}
+    assert tables == {
+        "light_groups",
+        "scene_snapshots",
+        "schedules",
+        "scene_favorites",
+        "last_applied_scene",
+    }

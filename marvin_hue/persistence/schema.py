@@ -10,7 +10,7 @@ from pathlib import Path
 
 import aiosqlite
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 # Ordered migrations: version -> list of SQL statements
 _MIGRATIONS: dict[int, list[str]] = {
@@ -115,6 +115,18 @@ _MIGRATIONS: dict[int, list[str]] = {
         CREATE TABLE IF NOT EXISTS scene_favorites (
             config_name TEXT PRIMARY KEY NOT NULL,
             created_at TEXT NOT NULL
+        )
+        """,
+    ],
+    6: [
+        # Última cena aplicada (linha única, id = 1). config_name NULL = limpo
+        # por "Desligar todas" ou undo; source diz quem gravou/limpou.
+        """
+        CREATE TABLE IF NOT EXISTS last_applied_scene (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            config_name TEXT,
+            source TEXT NOT NULL,
+            applied_at TEXT NOT NULL
         )
         """,
     ],
