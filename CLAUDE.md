@@ -36,6 +36,8 @@ Copy `.env.example` to `.env` and set `BRIDGE_IP`.
 
 Chat providers: `openai` | `anthropic` | `xai` | `groq`. There is **no Ollama** provider.
 
+`CHAT_REQUIRE_APPROVAL` (default `false`) makes the agent stop for human approval before broad mutations (scenes, groups, schedules, mirror, undo). The Chat screen shows an Aprovar/Rejeitar card; API clients get `approval_required` and answer with `POST /api/chat/resume`. Interrupts raised inside subagents (`task` tool) propagate to the orchestrator and resume from there.
+
 `API_KEY` (optional) protects only `/api/*`. HTML pages, `/static/*`, `/apply`, `/configurations`, `/mirror/*`, `/positions*`, and WebSockets stay open for LAN UI.
 
 The chat is a full-privilege channel (lights, scenes, schedules, mirror). `WS /ws/chat` rejects cross-origin browser connections (`Origin` must match `Host`; close code 1008); clients without `Origin` are accepted.
@@ -105,12 +107,12 @@ Web screens: Controle, Lâmpadas, Grupos, Agendamentos, Posicionamento, Espelham
 - `GET /api/bridge/status`, `GET /api/lights/status`
 - `GET /api/health` — includes `schedules.runner_alive`
 - Lights registry, groups, schedules, history, backup
-- Chat: `GET /api/chat/status`, `POST /api/chat/message`, `POST /api/chat/clear`, `POST /api/chat/configure`
+- Chat: `GET /api/chat/status`, `POST /api/chat/message`, `POST /api/chat/resume`, `GET /api/chat/pending`, `POST /api/chat/clear`, `POST /api/chat/configure`
 
 **WebSockets (no API key)**
 
 - `WS /ws/mirror`
-- `WS /ws/chat`
+- `WS /ws/chat` — actions `message`, `resume`, `pending`, `clear`; frames `typing`, `response`, `approval_required`, `error`, `cleared`
 
 ### Screen mirroring
 

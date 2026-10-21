@@ -513,11 +513,13 @@ create_agent(model, tools=[*build_all_tools(...), task], middleware=[...], check
         │   3. TodoListMiddleware      → planejamento de tarefas.
         │   4. SummarizationMiddleware → resume contexto ao exceder ~3000 tokens.
         │   5. AnthropicPromptCaching  → só quando provider == "anthropic".
-        │   (+ HumanInTheLoopMiddleware se require_approval — opcional, off;
+        │   (+ HumanInTheLoopMiddleware se require_approval / env
+        │    CHAT_REQUIRE_APPROVAL — off por padrão;
         │    interrupt_on = chat/hitl.HITL_INTERRUPT_ON: apply_config,
         │    save_current_config, create_config, apply_config_to_group,
         │    create_schedule, set_schedule_enabled, start_mirror, stop_mirror,
-        │    undo_last_scene; os subagents recebem o mesmo filtro p/ suas tools)
+        │    undo_last_scene; os subagents recebem o mesmo filtro p/ suas tools.
+        │    Fluxo interrupt/resume: ver "Aprovação humana (HITL)" abaixo)
         │   recursion_limit do orquestrador = 25 por turno (AGENT_RECURSION_LIMIT)
         │
         ├─ ChatServices (chat/services.py): providers preguiçosos resolvidos a
@@ -642,8 +644,55 @@ Hijacking. Clientes sem `Origin` (scripts/CLI) continuam aceitos.
   `AnthropicPromptCachingMiddleware`. É otimização de custo (Anthropic), não
   correção de comportamento; mitigar injetando o contexto vivo como mensagem
   separada, fora do prefixo cacheado.
-- **HITL end-to-end:** `require_approval=True` insere o `HumanInTheLoopMiddleware`,
-  mas a rota HTTP ainda não trata `interrupt`/`resume` via `Command`. Padrão off.
+
+### Aprovação humana (HITL)
+
+Com `CHAT_REQUIRE_APPROVAL=true` (lido em `app.py` e em
+`POST /api/chat/configure`), o `HumanInTheLoopMiddleware` interrompe o grafo
+antes das tools de `HITL_INTERRUPT_ON`. Conferido na prática com langchain
+1.3.8 / langgraph 1.2.4 (`tests/chat/test_hitl_flow.py`):
+
+```
+POST /api/chat/message | WS action "message"
+  → HueLightAgent.ainvoke: result["__interrupt__"] = [Interrupt(value=
+      {"action_requests": [...], "review_configs": [...]}, id)]
+  → ApprovalRequired (chat/hitl.py): requests [{id "<interrupt>:<i>", tool,
+      args, description, allowed_decisions ⊆ {approve, reject}}]
+  → 200 {approval_required, session_id} | WS {"type": "approval_required"}
+POST /api/chat/resume | WS action "resume"
+  → HueLightAgent.aresume: relê state.interrupts, valida as decisões
+      (contagem, tipo, ids) ANTES de retomar
+  → Command(resume={interrupt_id: {"decisions": [...]}}) no mesmo thread_id
+  → texto final ou outro ApprovalRequired
+```
+
+- **Subagents:** a interrupção dentro de um subagent (tool `task`) sobe até
+  o orquestrador. O subagent não tem checkpointer próprio e herda o do pai
+  pelo config; na retomada ele continua do próprio nó HITL, sem chamar o
+  modelo de novo, e tools irmãs já concluídas não reexecutam. Por isso o
+  HITL fica nos subagents (o `task` em si não pede aprovação). Não dê
+  checkpointer próprio ao subagent nem um config desligado do pai em
+  `subagents/task.py`.
+- **Várias interrupções** (ex.: duas `task` em paralelo) exigem resume por
+  id; a forma por id é usada sempre. A ordem de `__interrupt__` e de
+  `state.interrupts` pode divergir: `chat/hitl.py` ordena por id nos dois
+  caminhos, e o cliente pode mandar o `id` de cada decisão.
+- **Pendência:** mensagem nova com aprovação pendente não roda turno (uma
+  tool call sem `ToolMessage` quebraria a thread nos provedores reais) e
+  devolve o pedido pendente. Um `asyncio.Lock` por sessão impede que dois
+  resumes simultâneos executem a ação duas vezes.
+- **Decisões:** só `approve` e `reject` (motivo opcional, até 500
+  caracteres). `edit` fica fora: o middleware montaria o novo tool call com o
+  nome vindo do cliente.
+- **Revalidação:** a tool aprovada roda pelo ToolNode normal (schema
+  Pydantic + `EyeSafetyMiddleware`); aprovar não contorna nada.
+- **Persistência:** o pedido pendente vive no checkpointer (`thread_id =
+  session_id`). Com `CHAT_CHECKPOINT=sqlite` ele sobrevive a restart e a
+  `configure`; com `memory`, some no restart.
+- **UI:** a tela Chat mostra um cartão por pedido (rótulo pt-BR, args em
+  lista chave/valor via `textContent`, Aprovar/Rejeitar), bloqueia o input
+  até decidir e envia `action: "pending"` ao conectar para reapresentar o
+  cartão após recarregar a página.
 
 ---
 

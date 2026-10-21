@@ -1464,6 +1464,7 @@ Envia uma mensagem para o agente e retorna a resposta.
 
 **Parâmetros:**
 - `message` (string, required): Mensagem do usuário (1-1000 caracteres)
+- `session_id` (string, opcional, até 128): id estável do cliente (thread do histórico)
 
 **Response 200:**
 ```json
@@ -1472,6 +1473,33 @@ Envia uma mensagem para o agente e retorna a resposta.
   "success": true
 }
 ```
+
+**Response 200 — aprovação necessária** (só com `CHAT_REQUIRE_APPROVAL=true`):
+
+O agente parou antes de uma ação de mutação ampla (aplicar/criar/salvar
+cena, aplicar a grupo, criar ou ativar agendamento, iniciar/parar
+espelhamento, desfazer cena). Nada foi executado ainda. Retome com
+`POST /api/chat/resume`.
+
+```json
+{
+  "success": true,
+  "session_id": "minha-sessao",
+  "approval_required": [
+    {
+      "id": "7f3c…:0",
+      "tool": "start_mirror",
+      "args": {"mode": "screen"},
+      "description": "Esta ação precisa da sua aprovação\n\nTool: start_mirror\nArgs: {'mode': 'screen'}",
+      "allowed_decisions": ["approve", "reject"]
+    }
+  ]
+}
+```
+
+Enquanto houver aprovação pendente, uma nova mensagem **não** é processada:
+a resposta devolve os mesmos `approval_required`. A sessão volta ao normal
+depois do resume (ou de `POST /api/chat/clear`).
 
 **Response 400:**
 ```json
@@ -1511,6 +1539,61 @@ result = response.json()
 
 if result["success"]:
     print(f"Agente: {result['response']}")
+```
+
+---
+
+### POST /api/chat/resume
+
+Retoma um turno que parou pedindo aprovação (HITL). Exige `API_KEY` quando
+configurada, como as demais rotas `/api/*`.
+
+**Request Body:**
+```json
+{
+  "session_id": "minha-sessao",
+  "decisions": [
+    {"id": "7f3c…:0", "type": "approve"}
+  ]
+}
+```
+
+- `decisions` (1-20): uma por pedido pendente. Com `id` em todas, o casamento
+  é por id; sem `id`, pela ordem de `approval_required`.
+- `type`: `approve` ou `reject`. `edit` não é aceito (422).
+- `message` (opcional, até 500): motivo da rejeição, repassado ao agente.
+
+A ação aprovada roda pelo caminho normal das tools: o schema e o
+`EyeSafetyMiddleware` revalidam os argumentos.
+
+**Response 200:** o mesmo formato de `POST /api/chat/message` — `response`
+com o texto final, ou outro `approval_required` (ex.: um subagent pediu uma
+segunda aprovação).
+
+| Status | Quando |
+|--------|--------|
+| 400 | Número de decisões ou ids não batem com os pedidos pendentes, ou decisão não permitida para a tool |
+| 409 | Nada pendente na sessão (já retomada, limpa ou despejada) |
+| 422 | Corpo inválido (`type` fora de approve/reject, lista vazia) |
+| 503 | Agente de chat indisponível |
+
+```bash
+curl -X POST http://localhost:5081/api/chat/resume \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "minha-sessao", "decisions": [{"type": "reject", "message": "agora não"}]}'
+```
+
+---
+
+### GET /api/chat/pending
+
+Pedidos de aprovação pendentes de uma sessão (ex.: a página recarregou).
+
+**Query:** `session_id` (padrão `default`).
+
+**Response 200:**
+```json
+{"session_id": "minha-sessao", "approval_required": []}
 ```
 
 ---
@@ -1721,6 +1804,16 @@ WebSocket para comunicação em tempo real com o agente de chat.
   "type": "cleared",
   "content": "Histórico limpo"
 }
+
+// Aprovação necessária (CHAT_REQUIRE_APPROVAL=true); mesmo formato dos
+// itens de approval_required em POST /api/chat/message
+{
+  "type": "approval_required",
+  "requests": [
+    {"id": "7f3c…:0", "tool": "start_mirror", "args": {"mode": "screen"},
+     "description": "…", "allowed_decisions": ["approve", "reject"]}
+  ]
+}
 ```
 
 **Mensagens enviadas pelo cliente:**
@@ -1736,7 +1829,24 @@ WebSocket para comunicação em tempo real com o agente de chat.
 {
   "action": "clear"
 }
+
+// Responder a um approval_required (resposta: typing, response ou outro
+// approval_required, typing; erro de validação ou nada pendente → error)
+{
+  "action": "resume",
+  "session_id": "minha-sessao",
+  "decisions": [{"id": "7f3c…:0", "type": "approve"}]
+}
+
+// Reapresentar aprovações pendentes (a tela Chat envia ao conectar);
+// responde approval_required só se houver algo pendente
+{
+  "action": "pending",
+  "session_id": "minha-sessao"
+}
 ```
+
+Todo frame deve levar `session_id`; sem ele a sessão é `default`.
 
 **Exemplo com JavaScript:**
 ```javascript
