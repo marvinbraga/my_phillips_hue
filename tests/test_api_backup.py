@@ -20,6 +20,16 @@ class TestBackupAPI:
         assert "lights.json" in names
         assert "groups.json" in names
         assert "schedules.json" in names
+        assert "favorites.json" in names
+
+    def test_export_includes_favorites(self, fastapi_test_client):
+        put = fastapi_test_client.put("/configurations/favorites/relax")
+        assert put.status_code == 200, put.text
+        r = fastapi_test_client.get("/api/backup/export")
+        assert r.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+            favorites = json.loads(zf.read("favorites.json"))
+        assert favorites == ["relax"]
 
     def test_export_includes_created_light(self, fastapi_test_client):
         created = fastapi_test_client.post(
@@ -46,6 +56,8 @@ class TestBackupAPI:
             "marvin_hue.api.routes.backup.settings.positions_file", str(positions)
         )
 
+        fav = fastapi_test_client.put("/configurations/favorites/relax")
+        assert fav.status_code == 200, fav.text
         fastapi_test_client.post(
             "/api/lights",
             json={
@@ -63,6 +75,8 @@ class TestBackupAPI:
         lid = next(x["id"] for x in listed if x["name"] == "Roundtrip")
         fastapi_test_client.delete(f"/api/lights/{lid}")
         assert fastapi_test_client.get("/api/lights").json() == []
+        unfav = fastapi_test_client.delete("/configurations/favorites/relax")
+        assert unfav.status_code == 204
 
         files = {
             "file": ("backup.zip", exported.content, "application/zip"),
@@ -73,6 +87,7 @@ class TestBackupAPI:
         body = imp.json()
         assert body["strategy"] == "merge"
         assert "lights" in body
+        assert body["favorites"] == {"added": 1, "removed": 0, "total": 1}
         active = fastapi_test_client.get("/api/lights").json()
         names = {x["name"] for x in active}
         assert "Roundtrip" in names
@@ -94,6 +109,9 @@ class TestBackupAPI:
     def test_export_does_not_open_extra_sqlite_repos(
         self, fastapi_test_client, monkeypatch
     ):
+        from marvin_hue.persistence.favorites_repository import (
+            SqliteSceneFavoritesRepository,
+        )
         from marvin_hue.persistence.group_repository import SqliteGroupRepository
         from marvin_hue.persistence.schedule_repository import SqliteScheduleRepository
 
@@ -104,6 +122,7 @@ class TestBackupAPI:
             )
 
         monkeypatch.setattr(SqliteGroupRepository, "open", _forbid_open)
+        monkeypatch.setattr(SqliteSceneFavoritesRepository, "open", _forbid_open)
         monkeypatch.setattr(SqliteScheduleRepository, "open", _forbid_open)
         r = fastapi_test_client.get("/api/backup/export")
         assert r.status_code == 200, r.text
