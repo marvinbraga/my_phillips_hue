@@ -5,6 +5,7 @@ Gerenciamento de conexões WebSocket para espelhamento e chat.
 
 import asyncio
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
@@ -23,6 +24,24 @@ from marvin_hue.services.mirror_control import (
 )
 
 logger = get_logger("websockets")
+
+# Código de fechamento WebSocket "policy violation" (RFC 6455).
+_WS_POLICY_VIOLATION = 1008
+
+
+def origin_allowed(origin: str | None, host: str | None) -> bool:
+    """Same-origin check para WebSockets do navegador (anti-CSWSH).
+
+    Sem ``Origin`` (CLI/scripts, fora do navegador) → permitido: o chat fica
+    aberto na LAN por design. Com ``Origin``, o host:porta tem de bater com o
+    ``Host`` da requisição; ``null`` (iframes sandbox, file://) é recusado.
+    """
+    if origin is None:
+        return True
+    if not host:
+        return False
+    netloc = urlsplit(origin).netloc
+    return bool(netloc) and netloc.casefold() == host.strip().casefold()
 
 
 async def dispatch_ws_mirror_action(
@@ -188,7 +207,17 @@ def setup_websockets(app: FastAPI) -> None:
 
     @app.websocket("/ws/chat")
     async def websocket_chat(websocket: WebSocket):
-        """WebSocket para comunicação em tempo real com o chat."""
+        """WebSocket para comunicação em tempo real com o chat.
+
+        O chat é um canal com privilégio total (luzes, cenas, agendamentos,
+        espelhamento): conexões de navegador cross-origin são recusadas antes
+        do accept.
+        """
+        origin = websocket.headers.get("origin")
+        if not origin_allowed(origin, websocket.headers.get("host")):
+            logger.warning(f"/ws/chat recusado: origin cross-site {origin!r}")
+            await websocket.close(code=_WS_POLICY_VIOLATION)
+            return
         await chat_ws_manager.connect(websocket)
 
         try:

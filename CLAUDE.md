@@ -38,6 +38,8 @@ Chat providers: `openai` | `anthropic` | `xai` | `groq`. There is **no Ollama** 
 
 `API_KEY` (optional) protects only `/api/*`. HTML pages, `/static/*`, `/apply`, `/configurations`, `/mirror/*`, `/positions*`, and WebSockets stay open for LAN UI.
 
+The chat is a full-privilege channel (lights, scenes, schedules, mirror). `WS /ws/chat` rejects cross-origin browser connections (`Origin` must match `Host`; close code 1008); clients without `Origin` are accepted.
+
 ## Architecture
 
 Modular monolith in `marvin_hue/`. Composition root is the FastAPI lifespan in `app.py` (port **5081**). `marvin_hue/api/dependencies.py` is a process-wide service locator.
