@@ -66,6 +66,8 @@ function connectWebSocket() {
         statusDot.classList.remove('offline');
         statusText.textContent = 'Conectado';
         reconnectAttempts = 0;
+        // Página recarregada com aprovação pendente: o servidor reenvia o cartão.
+        ws.send(JSON.stringify({ action: 'pending', session_id: getSessionId() }));
     };
 
     ws.onclose = () => {
@@ -92,6 +94,9 @@ function connectWebSocket() {
 
 // Processar mensagem recebida
 function handleMessage(data) {
+    if (data.type === 'response' || data.type === 'approval_required') {
+        awaitingResume = false;
+    }
     switch (data.type) {
         case 'typing':
             if (data.content) {
@@ -102,13 +107,28 @@ function handleMessage(data) {
             break;
         case 'response':
             hideTypingIndicator();
+            setApprovalPending(false);
             addMessage(data.content, 'bot');
+            break;
+        case 'approval_required':
+            hideTypingIndicator();
+            renderApprovalCard(data.requests || []);
             break;
         case 'error':
             hideTypingIndicator();
             addMessage(data.content, 'error');
+            if (awaitingResume) {
+                // Retomada falhou: libera o input e pergunta se ainda há pendência.
+                awaitingResume = false;
+                setApprovalPending(false);
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ action: 'pending', session_id: getSessionId() }));
+                }
+            }
             break;
         case 'cleared':
+            removeActiveApprovalCards();
+            setApprovalPending(false);
             clearMessages();
             addMessage('Histórico limpo. Como posso ajudar?', 'bot');
             break;
@@ -201,10 +221,177 @@ function scrollToBottom() {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
+// ==================== APROVAÇÃO (HITL) ====================
+// Rótulos amigáveis; o nome técnico da tool aparece só como fallback.
+const TOOL_LABELS = {
+    apply_config: 'Aplicar cena',
+    save_current_config: 'Salvar o estado atual como cena',
+    create_config: 'Criar cena',
+    apply_config_to_group: 'Aplicar cena a um grupo',
+    create_schedule: 'Criar agendamento',
+    set_schedule_enabled: 'Ativar ou desativar agendamento',
+    start_mirror: 'Iniciar espelhamento',
+    stop_mirror: 'Parar espelhamento',
+    undo_last_scene: 'Desfazer a última cena',
+    task: 'Delegar a um assistente especializado',
+};
+
+const ARG_LABELS = {
+    config_name: 'Cena',
+    name: 'Nome',
+    description: 'Descrição',
+    group: 'Grupo',
+    mode: 'Modo',
+    profile: 'Perfil',
+    time_hhmm: 'Horário',
+    days_of_week: 'Dias',
+    enabled: 'Ativo',
+    schedule: 'Agendamento',
+    schedule_id: 'Agendamento',
+    transition_time: 'Transição (s)',
+    subagent_type: 'Assistente',
+    settings: 'Lâmpadas',
+};
+
+const MAX_ARG_CHARS = 160;
+let approvalPending = false;
+let awaitingResume = false;
+
+function summarizeArg(value) {
+    let text;
+    if (typeof value === 'boolean') {
+        text = value ? 'Sim' : 'Não';
+    } else if (Array.isArray(value)) {
+        text = value.every(v => typeof v !== 'object' || v === null)
+            ? value.join(', ')
+            : `${value.length} itens`;
+    } else if (value !== null && typeof value === 'object') {
+        text = JSON.stringify(value);
+    } else {
+        text = String(value == null ? '' : value);
+    }
+    return text.length > MAX_ARG_CHARS ? `${text.slice(0, MAX_ARG_CHARS)}…` : text;
+}
+
+function setApprovalPending(pending) {
+    approvalPending = pending;
+    messageInput.disabled = pending;
+    sendBtn.disabled = pending;
+    messageInput.placeholder = pending
+        ? 'Aprove ou rejeite a ação acima para continuar…'
+        : (messageInput.dataset.placeholder || messageInput.placeholder);
+}
+
+function removeActiveApprovalCards() {
+    messagesContainer.querySelectorAll('.approval-card.active').forEach(el => el.remove());
+}
+
+// Monta o cartão só com createElement/textContent: args vêm do modelo (não confiáveis).
+function renderApprovalCard(requests) {
+    if (!requests.length) return;
+    removeActiveApprovalCards();
+    if (suggestions) {
+        suggestions.style.display = 'none';
+    }
+
+    const card = document.createElement('div');
+    card.className = 'message bot approval-card active';
+    card.setAttribute('role', 'group');
+    card.setAttribute('aria-label', 'Aprovação necessária');
+
+    const title = document.createElement('div');
+    title.className = 'approval-title';
+    title.textContent = requests.length > 1
+        ? `Aprovação necessária (${requests.length} ações)`
+        : 'Aprovação necessária';
+    card.appendChild(title);
+
+    const decisions = new Array(requests.length).fill(null);
+
+    requests.forEach((req, index) => {
+        const item = document.createElement('div');
+        item.className = 'approval-item';
+
+        const tool = document.createElement('div');
+        tool.className = 'approval-tool';
+        tool.textContent = TOOL_LABELS[req.tool] || req.tool;
+        item.appendChild(tool);
+
+        const args = req.args || {};
+        const keys = Object.keys(args);
+        if (keys.length) {
+            const list = document.createElement('dl');
+            list.className = 'approval-args';
+            keys.forEach(key => {
+                const dt = document.createElement('dt');
+                dt.textContent = ARG_LABELS[key] || key;
+                const dd = document.createElement('dd');
+                dd.textContent = summarizeArg(args[key]);
+                list.appendChild(dt);
+                list.appendChild(dd);
+            });
+            item.appendChild(list);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'approval-actions';
+        const outcome = document.createElement('span');
+        outcome.className = 'approval-outcome';
+        outcome.setAttribute('aria-live', 'polite');
+        const allowed = req.allowed_decisions || ['approve', 'reject'];
+
+        const makeButton = (type, label, css) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `btn btn-sm ${css}`;
+            btn.textContent = label;
+            btn.dataset.decision = type;
+            btn.disabled = !allowed.includes(type);
+            btn.addEventListener('click', () => {
+                decisions[index] = { id: req.id, type };
+                actions.querySelectorAll('button').forEach(b => { b.disabled = true; });
+                outcome.textContent = type === 'approve' ? 'Aprovado' : 'Rejeitado';
+                outcome.classList.add(type === 'approve' ? 'approved' : 'rejected');
+                if (decisions.every(d => d !== null)) {
+                    sendResume(card, decisions);
+                }
+            });
+            return btn;
+        };
+
+        actions.appendChild(makeButton('approve', 'Aprovar', 'btn-success'));
+        actions.appendChild(makeButton('reject', 'Rejeitar', 'btn-outline-danger'));
+        actions.appendChild(outcome);
+        item.appendChild(actions);
+        card.appendChild(item);
+    });
+
+    messagesContainer.appendChild(card);
+    setApprovalPending(true);
+    scrollToBottom();
+}
+
+function sendResume(card, decisions) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        addMessage('Não conectado ao servidor. Tentando reconectar...', 'error');
+        card.remove();
+        setApprovalPending(false);
+        connectWebSocket();
+        return;
+    }
+    card.classList.remove('active');
+    awaitingResume = true;
+    ws.send(JSON.stringify({
+        action: 'resume',
+        session_id: getSessionId(),
+        decisions: decisions
+    }));
+}
+
 // Enviar mensagem
 function sendMessage() {
     const message = messageInput.value.trim();
-    if (!message) return;
+    if (!message || approvalPending) return;
 
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         addMessage('Não conectado ao servidor. Tentando reconectar...', 'error');
@@ -419,6 +606,7 @@ configDescriptionInput.addEventListener('keypress', (e) => {
 });
 
 // Inicialização
+messageInput.dataset.placeholder = messageInput.placeholder;
 connectWebSocket();
 checkChatStatus();
 loadLightsStatus();
