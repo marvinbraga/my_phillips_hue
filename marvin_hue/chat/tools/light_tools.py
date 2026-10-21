@@ -28,6 +28,15 @@ second event loop (that would be a cross-loop use of the lock/connection); it
 returns a clear message instead. The service is resolved lazily on each call
 through ``favorites_provider`` and the tools fail open: no service → message,
 never an exception.
+
+Last applied scene (``apply_config``)
+-------------------------------------
+The ``coroutine`` delegates to ``ApplyConfigService`` (source ``"chat"``): it
+takes the "before apply" snapshot (so undo works) and records the last applied
+scene when at least one light applied. History and the last-applied service are
+resolved lazily per call (``history_provider`` / ``last_applied_provider``) and
+fail open. The sync ``func`` talks to the controller only, for the same
+cross-loop reason as favorites.
 """
 
 from __future__ import annotations
@@ -41,10 +50,23 @@ from typing import TYPE_CHECKING, Protocol
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
+from marvin_hue.apply_result import ApplyResult
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.colors import Color
 from marvin_hue.controllers import HueController
 from marvin_hue.eye_safety import is_enabled_for_app
+from marvin_hue.logging_config import get_logger
+from marvin_hue.services.apply_config import (
+    ApplyConfigNotFoundError,
+    ApplyConfigService,
+    SceneSnapshotPort,
+)
+from marvin_hue.services.last_applied_scene import (
+    SOURCE_CHAT,
+    LastAppliedPort,
+    LastAppliedProvider,
+    resolve_last_applied,
+)
 from marvin_hue.services.scene_favorites import FavoriteConfigNotFoundError
 
 if TYPE_CHECKING:
@@ -53,6 +75,8 @@ if TYPE_CHECKING:
 
 _DEFAULT_LOCATIONS_PATH = ".res/light_physical_locations.json"
 _DEFAULT_ROOM = "sem_sala"
+
+logger = get_logger("chat.tools.light_tools")
 
 FavoritesProvider = Callable[[], "SceneFavoritesService | None"]
 
@@ -75,6 +99,45 @@ def default_favorites_provider() -> "SceneFavoritesService | None":
 
         return get_scene_favorites_service()
     except (RuntimeError, ImportError):
+        return None
+
+
+HistoryProvider = Callable[[], "SceneSnapshotPort | None"]
+
+
+def default_history_provider() -> "SceneSnapshotPort | None":
+    """Resolve o SceneHistoryService registrado no lifespan (ou None).
+
+    Import tardio: evita ciclo chat → api no import do pacote.
+    """
+    try:
+        from marvin_hue.api.dependencies import get_scene_history_service
+
+        return get_scene_history_service()
+    except (RuntimeError, ImportError):
+        return None
+
+
+def _resolve_history(provider: HistoryProvider) -> "SceneSnapshotPort | None":
+    try:
+        return provider()
+    except Exception as exc:  # noqa: BLE001 — fail-open: apply without snapshot
+        logger.warning(f"Chat apply_config: histórico indisponível: {exc}")
+        return None
+
+
+def default_last_applied_provider() -> "LastAppliedPort | None":
+    """Resolve o LastAppliedSceneService registrado no lifespan (ou None).
+
+    Import tardio: evita ciclo chat → api no import do pacote.
+    """
+    try:
+        from marvin_hue.api.dependencies import (
+            get_last_applied_scene_service_optional,
+        )
+
+        return get_last_applied_scene_service_optional()
+    except ImportError:
         return None
 
 
@@ -331,6 +394,8 @@ def build_light_tools(
     *,
     room_index: Mapping[str, Sequence[str]] | None = None,
     favorites_provider: FavoritesProvider | None = None,
+    last_applied_provider: LastAppliedProvider | None = None,
+    history_provider: HistoryProvider | None = None,
 ) -> list[BaseTool]:
     """Cria as tools de iluminação com closures (sem estado global).
 
@@ -345,6 +410,12 @@ def build_light_tools(
         favorites_provider: resolve o SceneFavoritesService a cada chamada
             (None → ``default_favorites_provider``). Retornar None ou levantar
             torna as tools de favoritos indisponíveis (fail-open, sem exceção).
+        last_applied_provider: resolve o LastAppliedSceneService a cada
+            ``apply_config`` assíncrono (None → ``default_last_applied_provider``).
+            Ausente/erro → aplica sem registrar a última cena.
+        history_provider: resolve o SceneHistoryService para o snapshot
+            "before apply" do ``apply_config`` assíncrono (None →
+            ``default_history_provider``). Ausente/erro → aplica sem snapshot.
 
     Returns:
         Lista de BaseTool prontas para create_agent (list/status/control + room tools).
@@ -355,6 +426,10 @@ def build_light_tools(
     """
     rooms_map = _normalize_room_index(room_index, locations_path)
     resolve_favorites = favorites_provider or default_favorites_provider
+    resolve_last_applied_provider = (
+        last_applied_provider or default_last_applied_provider
+    )
+    resolve_history = history_provider or default_history_provider
 
     # ----- schemas de argumentos (guiam o LLM) -----
     class _SetColorArgs(BaseModel):
@@ -462,35 +537,64 @@ def build_light_tools(
         except Exception as e:  # noqa: BLE001
             return f"Erro ao alterar '{light_name}': {e}"
 
+    def _apply_not_found(config_name: str) -> str:
+        available = [c.name for c in manager.configs[:10]]
+        return (
+            f"Configuração '{config_name}' não encontrada. "
+            f"Algumas disponíveis: {', '.join(available)}..."
+        )
+
+    def _apply_message(config_name: str, description: str, result: ApplyResult) -> str:
+        if result.ok:
+            return f"Configuração '{config_name}' aplicada! Descrição: {description}"
+        failed_txt = ", ".join(f"{name} ({err})" for name, err in result.failed)
+        if result.partial:
+            applied_txt = ", ".join(result.applied)
+            return (
+                f"Configuração '{config_name}' aplicada parcialmente. "
+                f"Aplicadas: {applied_txt}. Falhas: {failed_txt}."
+            )
+        return (
+            f"Falha ao aplicar configuração '{config_name}'. "
+            f"Nenhuma lâmpada aplicada. Falhas: {failed_txt}."
+        )
+
     def _apply_config(config_name: str, transition_time: float = 0.0) -> str:
+        # Sync path: never drives the event-loop-bound services (no snapshot,
+        # no last-applied record).
         config = manager.get_config(config_name)
         if not config:
-            available = [c.name for c in manager.configs[:10]]
-            return (
-                f"Configuração '{config_name}' não encontrada. "
-                f"Algumas disponíveis: {', '.join(available)}..."
-            )
+            return _apply_not_found(config_name)
         try:
             # Controller skips disabled lights inside apply_light_config.
             result = controller.apply_light_config(config, transition_time)
-            if result.ok:
-                return (
-                    f"Configuração '{config_name}' aplicada! "
-                    f"Descrição: {config.description}"
-                )
-            failed_txt = ", ".join(f"{name} ({err})" for name, err in result.failed)
-            if result.partial:
-                applied_txt = ", ".join(result.applied)
-                return (
-                    f"Configuração '{config_name}' aplicada parcialmente. "
-                    f"Aplicadas: {applied_txt}. Falhas: {failed_txt}."
-                )
-            return (
-                f"Falha ao aplicar configuração '{config_name}'. "
-                f"Nenhuma lâmpada aplicada. Falhas: {failed_txt}."
-            )
         except Exception as e:  # noqa: BLE001
             return f"Erro ao aplicar '{config_name}': {e}"
+        return _apply_message(config_name, config.description, result)
+
+    async def _apply_config_async(
+        config_name: str, transition_time: float = 0.0
+    ) -> str:
+        # Same use case as POST /apply: "before apply" snapshot (so undo works)
+        # and the last-applied record (≥1 light applied), both best-effort.
+        config = manager.get_config(config_name)
+        if not config:
+            return _apply_not_found(config_name)
+        service = ApplyConfigService(
+            manager,
+            controller,
+            _resolve_history(resolve_history),
+            last_applied=resolve_last_applied(resolve_last_applied_provider),
+        )
+        try:
+            result = await service.apply(
+                config_name, transition_time=transition_time, source=SOURCE_CHAT
+            )
+        except ApplyConfigNotFoundError:
+            return _apply_not_found(config_name)
+        except Exception as e:  # noqa: BLE001
+            return f"Erro ao aplicar '{config_name}': {e}"
+        return _apply_message(config_name, config.description, result)
 
     def _list_configs(search: str = "") -> str:
         configs = manager.configs
@@ -796,6 +900,7 @@ def build_light_tools(
         ),
         StructuredTool.from_function(
             func=_apply_config,
+            coroutine=_apply_config_async,
             name="apply_config",
             description=(
                 "Aplica uma configuração/preset de iluminação predefinida. "
