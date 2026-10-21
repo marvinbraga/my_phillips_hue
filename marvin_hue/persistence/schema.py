@@ -10,7 +10,7 @@ from pathlib import Path
 
 import aiosqlite
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 # Ordered migrations: version -> list of SQL statements
 _MIGRATIONS: dict[int, list[str]] = {
@@ -106,6 +106,16 @@ _MIGRATIONS: dict[int, list[str]] = {
         CREATE INDEX IF NOT EXISTS idx_schedules_enabled
         ON schedules(enabled)
         WHERE enabled = 1
+        """,
+    ],
+    5: [
+        # Favoritos por nome da cena (join key de .res/setups.json). Órfãos
+        # (cena renomeada/removida) ficam aqui e somem só da listagem.
+        """
+        CREATE TABLE IF NOT EXISTS scene_favorites (
+            config_name TEXT PRIMARY KEY NOT NULL,
+            created_at TEXT NOT NULL
+        )
         """,
     ],
 }
