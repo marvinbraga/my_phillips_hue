@@ -203,3 +203,33 @@ def test_json_restrictions_block_degrades_on_bad_json(
     mw.wrap_model_call(req, handler)
     assert "BASE" in captured["prompt"]
     assert "Restrições físicas" not in captured["prompt"]
+
+
+def test_live_status_block_is_last_for_prompt_caching(
+    fake_controller, fake_manager, tmp_path
+):
+    """Prefixo estático (base + restrições + presets) primeiro, status vivo por
+    último: o prefixo fica byte-estável entre turnos e o cache de prompt acerta."""
+    import json
+
+    from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
+
+    locations = tmp_path / "locations.json"
+    locations.write_text(
+        json.dumps({"lights": [{"name": "Fita Led", "max_brightness_percent": 25}]}),
+        encoding="utf-8",
+    )
+    mw = HueContextMiddleware(
+        fake_controller, fake_manager, locations_path=str(locations), status_ttl_s=0.0
+    )
+    first = mw._augment("BASE")
+    status = mw._status_block()
+    assert status and first.endswith(status)
+    assert first.startswith("BASE")
+    assert first.index("Restrições físicas") < first.index("Status ATUAL")
+
+    # Status muda entre turnos; o prefixo estático continua idêntico.
+    fake_controller.get_lights_status.return_value = []
+    second = mw._augment("BASE")
+    prefix = first[: first.index("Status ATUAL")]
+    assert second.startswith(prefix.rstrip())
