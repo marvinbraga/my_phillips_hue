@@ -7,8 +7,10 @@ from marvin_hue.colors import Color
 def _make_controller():
     from marvin_hue.controllers import HueController
     c = HueController.__new__(HueController)  # sem conectar à bridge
-    fita = MagicMock(); fita.name = "Fita Led"
-    teto = MagicMock(); teto.name = "Lâmpada 1"
+    fita = MagicMock()
+    fita.name = "Fita Led"
+    teto = MagicMock()
+    teto.name = "Lâmpada 1"
     c.lights = [fita, teto]
     c._light_cache = {fita.name: fita, teto.name: teto}
     return c, fita, teto
@@ -28,8 +30,10 @@ def test_set_light_color_clamps_fita_led():
 def test_set_light_color_clamps_led_cima_direct():
     """Led cima também é clampada pela entrada DIRETA set_light_color."""
     c, _, _ = _make_controller()
-    led = MagicMock(); led.name = "Led cima"
-    c.lights.append(led); c._light_cache["Led cima"] = led
+    led = MagicMock()
+    led.name = "Led cima"
+    c.lights.append(led)
+    c._light_cache["Led cima"] = led
     c.set_light_color("Led cima", Color(255, 255, 255, 254))
     assert led.brightness == _FITA_LED_HUE_LIMIT
 
@@ -37,8 +41,10 @@ def test_set_light_color_clamps_led_cima_direct():
 def test_apply_config_preset_is_clamped_through_chokepoint():
     """Preset que liga Led cima a 254 escapa do middleware, mas NÃO do controller."""
     c, _, _ = _make_controller()
-    led = MagicMock(); led.name = "Led cima"
-    c.lights.append(led); c._light_cache["Led cima"] = led
+    led = MagicMock()
+    led.name = "Led cima"
+    c.lights.append(led)
+    c._light_cache["Led cima"] = led
     cfg = LightConfig(
         name="cena_forte",
         settings=[LightSetting("Led cima", Color(255, 255, 255, 254))],
@@ -67,3 +73,31 @@ def test_set_all_brightness_clamps_per_lamp():
     c.set_all_brightness(254)
     assert fita.brightness == _FITA_LED_HUE_LIMIT   # 25% de 254 (floor)
     assert teto.brightness == 254                   # sem restrição
+
+
+def test_controller_and_preview_share_effective_brightness_helper(monkeypatch):
+    """set_light_color e set_brightness usam o MESMO helper que o preview."""
+    import marvin_hue.controllers as ctrl
+
+    calls = []
+
+    def fake(name, bri):
+        calls.append((name, bri))
+        return 11
+
+    monkeypatch.setattr(ctrl, "effective_hue_brightness", fake)
+    c, fita, teto = _make_controller()
+    c.set_light_color("Lâmpada 1", Color(255, 0, 0, 200))
+    c.set_brightness("Fita Led", 300)
+    assert calls == [("Lâmpada 1", 200), ("Fita Led", 300)]
+    assert teto.brightness == 11
+    assert fita.brightness == 11
+
+
+def test_set_light_color_xy_matches_color_converter():
+    """O XY enviado é o mesmo ColorConverter.rgb_to_xy usado pelo preview."""
+    from marvin_hue.utils import ColorConverter
+
+    c, _, teto = _make_controller()
+    c.set_light_color("Lâmpada 1", Color(255, 147, 41, 180))
+    assert tuple(teto.xy) == ColorConverter.rgb_to_xy(255, 147, 41)

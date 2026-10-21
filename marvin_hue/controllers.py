@@ -5,9 +5,9 @@ from phue import Bridge, Light
 from marvin_hue.apply_result import ApplyResult
 from marvin_hue.basics import LightConfig, LightSetting
 from marvin_hue.colors import Color
-from marvin_hue.eye_safety import clamp_eye_safety, is_enabled_for_app
+from marvin_hue.eye_safety import effective_hue_brightness, is_enabled_for_app
 from marvin_hue.logging_config import get_logger
-from marvin_hue.utils import ColorConverter, RGBtoXYAdapter
+from marvin_hue.utils import ColorConverter
 
 logger = get_logger("controllers")
 
@@ -66,8 +66,8 @@ class HueController:
         light = self._require_light(light_name)
 
         try:
-            # Converte RGB para XY (já validado em RGBtoXYAdapter)
-            xy = RGBtoXYAdapter.convert(color.red, color.green, color.blue)
+            # Converte RGB para XY (mesma conversão usada pelo preview de cena)
+            xy = ColorConverter.rgb_to_xy(color.red, color.green, color.blue)
 
             # Valida coordenadas XY
             if not self._validate_xy(xy):
@@ -79,7 +79,7 @@ class HueController:
             # ORIGEM, cobrindo presets (apply_light_config -> set_light_color),
             # screen-mirror e tools diretas. Escala "hue" (0-254).
             light.xy = xy
-            light.brightness = clamp_eye_safety(light_name, color.brightness, scale="hue")
+            light.brightness = effective_hue_brightness(light_name, color.brightness)
             logger.debug(f"Successfully applied color to '{light_name}'")
 
         except ValueError as e:
@@ -242,8 +242,7 @@ class HueController:
         light = self._get_light_by_name(light_name)
         if light is None:
             return False
-        safe = clamp_eye_safety(light_name, max(0, min(254, hue_brightness)), scale="hue")
-        light.brightness = safe
+        light.brightness = effective_hue_brightness(light_name, hue_brightness)
         return True
 
     def set_all(self, on: bool) -> None:
