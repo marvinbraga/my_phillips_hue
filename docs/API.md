@@ -440,7 +440,15 @@ print(r.json())
 
 Lista todas as configurações de iluminação disponíveis.
 
-**Response 200:**
+**Query parameters:**
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|-----------|------|--------|-----------|
+| `include_settings` | boolean | `false` | Quando `true`, cada configuração traz também `settings` (cor por lâmpada + prévia). Sem o parâmetro, a resposta é a lista simples abaixo, inalterada. |
+
+`/configurations` não exige `API_KEY`. O alias `/api/configurations` (sujeito a `API_KEY` quando configurada) aceita o mesmo parâmetro.
+
+**Response 200 (padrão):**
 ```json
 [
   {
@@ -472,6 +480,38 @@ configs = response.json()
 
 for config in configs:
     print(f"{config['name']}: {config['description']}")
+```
+
+**Response 200 (`include_settings=true`):**
+```json
+[
+  {
+    "name": "afternoon_delight",
+    "description": "...",
+    "settings": [
+      {
+        "light_name": "Lâmpada 1",
+        "color": {"red": 255, "green": 230, "blue": 200, "brightness": 150},
+        "preview": {"r": 255, "g": 221, "b": 180, "brightness": 150, "enabled": true}
+      }
+    ]
+  }
+]
+```
+
+| Campo | Descrição |
+|-------|-----------|
+| `settings[].light_name` | Nome exato da lâmpada na bridge Hue |
+| `settings[].color` | Cor RGBA como está em `.res/setups.json` (brilho 0–254) |
+| `settings[].preview.r/g/b` | Cor que a lâmpada deve mostrar após o apply. Calculada pelo mesmo pipeline RGB → XY → RGB usado em `GET /api/lights/status`, então é comparável ao estado real |
+| `settings[].preview.brightness` | Brilho efetivo (0–254) após o limite de eye safety (Fita Led, Led cima) |
+| `settings[].preview.enabled` | `false` quando a lâmpada está com `enabled_for_app` desligado no registro; o apply não altera essa lâmpada |
+
+Nada é enviado à bridge: o resultado serve apenas para a prévia na tela Controle (`/`).
+
+**Exemplo com curl:**
+```bash
+curl "http://localhost:5081/configurations?include_settings=true"
 ```
 
 ---
