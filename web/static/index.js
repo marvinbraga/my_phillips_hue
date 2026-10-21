@@ -48,11 +48,20 @@ let favoritesOnly = false;
 const favoriteSync = {};
 let favoriteFeedbackTimer = null;
 
+// Last applied scene (recorded by the server on any apply); null = none or cleared
+// by Desligar/Desfazer. Only its badge is shown: it is selected without preview.
+/** @type {{name: string, appliedAt: Date}|null} */
+let lastApplied = null;
+// Bumped by every apply/off/undo on this page: a GET /configurations/last-applied
+// started before the bump answers with older data and is ignored
+let lastAppliedLocalSeq = 0;
+
 const HOVER_PREVIEW_DELAY_MS = 80;
 const HOVER_RESUME_MOVE_PX = 2;
 const TOUCH_MOUSE_GUARD_MS = 800;
 const FAVORITES_ONLY_STORAGE_KEY = 'controle.favoritesOnly';
 const FAVORITE_FEEDBACK_MS = 4000;
+const LAST_APPLIED_REFRESH_MS = 30000;
 
 function loadLightsStatus() {
     // Evita requisições simultâneas
@@ -400,6 +409,56 @@ function buildFavoriteButton(item) {
     return $btn;
 }
 
+// "agora", "há 5 min", "há 2 h", "há 1 dia", "há 3 dias" (future clock skew → "agora")
+function formatRelativeTimePtBr(date, now) {
+    const diffMs = (now || new Date()).getTime() - date.getTime();
+    if (!isFinite(diffMs) || diffMs < 60000) {
+        return 'agora';
+    }
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 60) {
+        return 'há ' + minutes + ' min';
+    }
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+        return 'há ' + hours + ' h';
+    }
+    const days = Math.floor(hours / 24);
+    return 'há ' + days + (days === 1 ? ' dia' : ' dias');
+}
+
+function isLastApplied(item) {
+    return Boolean(item) && Boolean(lastApplied) && lastApplied.name === item.name;
+}
+
+function buildLastAppliedBadge() {
+    return $('<span>', {
+        class: 'item-last-applied',
+        text: 'Última aplicada · ' + formatRelativeTimePtBr(lastApplied.appliedAt),
+        title: 'Aplicada em ' + lastApplied.appliedAt.toLocaleString('pt-BR')
+    });
+}
+
+// Updates the badge in place (no list re-render: keeps scroll, hover and active item)
+function updateLastAppliedBadges() {
+    const $items = $('#configurations-list .config-picker-item');
+    $items.find('.item-last-applied').remove();
+    if (!lastApplied) {
+        return;
+    }
+    $items.each(function () {
+        if (isLastApplied($(this).data('config'))) {
+            $(this).find('.item-name').append(buildLastAppliedBadge());
+        }
+    });
+}
+
+function setLastAppliedLocally(name) {
+    lastAppliedLocalSeq++;
+    lastApplied = name ? { name: name, appliedAt: new Date() } : null;
+    updateLastAppliedBadges();
+}
+
 function buildConfigOption(item) {
     const $option = $('<div>', {
         id: configOptionId(item),
@@ -410,7 +469,11 @@ function buildConfigOption(item) {
     });
     $option.data('config', item);
     const $text = $('<span>', { class: 'item-text' });
-    $text.append($('<span>', { class: 'item-name', text: item.name }));
+    const $name = $('<span>', { class: 'item-name', text: item.name });
+    if (isLastApplied(item)) {
+        $name.append(buildLastAppliedBadge());
+    }
+    $text.append($name);
     $text.append($('<span>', {
         class: 'item-desc',
         text: truncateDescription(item.description, 90)
@@ -542,6 +605,28 @@ function selectConfiguration(item) {
     selectionPreviewDismissed = false;
     updatePickerStates();
     refreshLightsView();
+}
+
+// Scrolls only the list (never the page) so the row sits in its middle
+function scrollItemIntoList(item) {
+    const list = document.getElementById('configurations-list');
+    const row = document.getElementById(configOptionId(item));
+    if (!list || !row) {
+        return;
+    }
+    const listRect = list.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    list.scrollTop += rowRect.top - listRect.top - (list.clientHeight - row.offsetHeight) / 2;
+}
+
+// Selection without preview: the lights card keeps showing the real state
+function selectWithoutPreview(item) {
+    clearTimeout(hoverPreviewTimer);
+    selectedConfig = item;
+    selectionPreviewDismissed = true;
+    updatePickerStates(true);
+    refreshLightsView();
+    scrollItemIntoList(item);
 }
 
 function setHoverPreview(item, fromKeyboard) {
@@ -720,11 +805,70 @@ function fetchFavoriteNames() {
     });
 }
 
+// Never blocks the picker. Resolves null (no scene) or undefined (request failed)
+function fetchLastApplied() {
+    return $.getJSON('/configurations/last-applied').then(function (data) {
+        if (!data || typeof data.name !== 'string' || !data.name) {
+            return null;
+        }
+        const appliedAt = data.applied_at ? new Date(data.applied_at) : null;
+        return {
+            name: data.name,
+            appliedAt: appliedAt && !isNaN(appliedAt.getTime()) ? appliedAt : new Date()
+        };
+    }, function () {
+        return undefined;
+    });
+}
+
+// Resolves the server info, or undefined when the request failed or an
+// apply/off/undo on this page made the answer stale
+function requestLastApplied() {
+    const startSeq = lastAppliedLocalSeq;
+    return fetchLastApplied().then(function (info) {
+        return lastAppliedLocalSeq === startSeq ? info : undefined;
+    });
+}
+
+// Initial load, once the list is rendered: badge + pre-selection (without preview)
+function applyInitialLastApplied(info) {
+    if (info === undefined) {
+        return;
+    }
+    lastApplied = info;
+    updateLastAppliedBadges();
+    if (!info || selectedConfig) {
+        // Never override a scene the user picked while this request was in flight
+        return;
+    }
+    const item = configurationsCache.find(function (config) {
+        return config.name === info.name;
+    });
+    if (item) {
+        selectWithoutPreview(item);
+    }
+}
+
+// Back on a visible tab: another device/tab may have applied a scene meanwhile.
+// Only the badge follows; the user's selection is left alone.
+function refreshLastAppliedBadge() {
+    requestLastApplied().done(function (info) {
+        if (info === undefined) {
+            return;
+        }
+        lastApplied = info;
+        updateLastAppliedBadges();
+    });
+}
+
 function loadConfigurations() {
     const $filter = $('#configurations-filter');
     $filter.prop('disabled', true).attr('placeholder', 'Carregando configurações...');
     $('#configurations-count').text('');
     setPickerMessage('Carregando configurações...');
+
+    // In parallel, but outside $.when: the list never waits for it
+    const lastAppliedRequest = requestLastApplied();
 
     $.when(
         $.getJSON('/configurations?include_settings=true'),
@@ -740,6 +884,7 @@ function loadConfigurations() {
         });
         $filter.prop('disabled', false).attr('placeholder', 'Filtrar por nome ou descrição...');
         renderConfigList();
+        lastAppliedRequest.done(applyInitialLastApplied);
     }).fail(function () {
         configurationsCache = [];
         filteredConfigurations = [];
@@ -935,6 +1080,10 @@ function applyConfiguration(event) {
             setTimeout(() => {
                 btn.html(originalHtml).removeClass('btn-success').addClass('btn-primary').prop('disabled', false);
             }, 2000);
+            // 200/207 with at least one light applied: the server recorded it too
+            if (data && Array.isArray(data.applied) && data.applied.length) {
+                setLastAppliedLocally(configName);
+            }
             refreshAfterAction(true);
         },
         error: function (jqXHR, textStatus, errorThrown) {
@@ -966,6 +1115,10 @@ function turnOffAllLights() {
             setTimeout(() => {
                 btn.html(originalHtml).prop('disabled', false);
             }, 2000);
+            // The server forgets the last scene once at least one light went off
+            if (data && Array.isArray(data.applied) && data.applied.length) {
+                setLastAppliedLocally(null);
+            }
             refreshAfterAction(false);
         },
         error: function (jqXHR, textStatus, errorThrown) {
@@ -1007,6 +1160,8 @@ function undoLastScene() {
             setTimeout(function () {
                 btn.html(originalHtml).prop('disabled', false);
             }, 2000);
+            // The restored snapshot is not a named scene
+            setLastAppliedLocally(null);
             refreshAfterAction(false);
             const count = data && data.restored_count != null ? data.restored_count : '?';
             // soft feedback without blocking UI
@@ -1055,6 +1210,13 @@ $(document).ready(function () {
     loadConfigurations();
     loadLightsStatus();
     startLightsAutoRefresh();
+    // Keeps "há X" current without re-rendering the list
+    setInterval(updateLastAppliedBadges, LAST_APPLIED_REFRESH_MS);
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible' && configurationsCache.length) {
+            refreshLastAppliedBadge();
+        }
+    });
     $('#apply-btn').click(applyConfiguration);
     $('#off-btn').click(turnOffAllLights);
     $('#undo-btn').click(undoLastScene);
