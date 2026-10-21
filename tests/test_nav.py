@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import re
+
+import pytest
+
 KEY_HREFS = (
     'href="/"',
     'href="/lights"',
@@ -12,6 +16,30 @@ KEY_HREFS = (
     'href="/health"',
     'href="/chat"',
 )
+
+ALL_PAGES = (
+    "/",
+    "/lights",
+    "/groups",
+    "/schedules",
+    "/positions-config",
+    "/mirror",
+    "/health",
+    "/chat",
+)
+
+_NAV_BLOCK = re.compile(r"<nav\b.*?</nav>", re.S)
+
+
+def _assert_theme_toggle_in_navbar(body: str) -> None:
+    assert body.count('id="theme-btn"') == 1
+    assert body.count('id="theme-icon"') == 1
+    assert 'class="theme-toggle"' not in body
+    assert 'id="theme-toggle"' not in body
+    nav = _NAV_BLOCK.search(body)
+    assert nav is not None
+    assert 'id="theme-btn"' in nav.group(0)
+    assert 'aria-label="Alternar tema"' in nav.group(0)
 
 
 def _assert_full_navbar(body: str) -> None:
@@ -58,3 +86,9 @@ class TestNavbar:
             assert 'href="/health"' in body, path
             assert 'href="/chat"' in body, path
             assert 'href="/lights"' in body, path
+
+    @pytest.mark.parametrize("path", ALL_PAGES)
+    def test_theme_toggle_lives_inside_navbar(self, fastapi_test_client, path):
+        response = fastapi_test_client.get(path)
+        assert response.status_code == 200, path
+        _assert_theme_toggle_in_navbar(response.text)

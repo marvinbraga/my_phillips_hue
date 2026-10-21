@@ -223,14 +223,13 @@ document.querySelectorAll('.suggestion-chip').forEach(chip => {
 });
 
 // Toggle de tema
-const themeToggle = document.getElementById('theme-toggle');
+const themeToggle = document.getElementById('theme-btn');
+const themeIcon = document.getElementById('theme-icon');
 const html = document.documentElement;
 
 function updateThemeIcon() {
     const isDark = html.getAttribute('data-bs-theme') === 'dark';
-    themeToggle.innerHTML = isDark
-        ? '<i class="bi bi-moon-fill"></i>'
-        : '<i class="bi bi-sun-fill"></i>';
+    themeIcon.className = isDark ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
 }
 
 themeToggle.addEventListener('click', () => {

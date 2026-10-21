@@ -51,29 +51,6 @@
             margin-bottom: 0 !important;
         }
 
-        .theme-toggle {
-            position: fixed;
-            top: 0.65rem;
-            right: 1rem;
-            z-index: 1030;
-        }
-
-        .theme-toggle .btn {
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.1rem;
-            transition: transform 0.3s ease;
-            background: var(--bs-body-bg);
-        }
-
-        .theme-toggle .btn:hover {
-            transform: scale(1.1);
-        }
-
         /* Fills remaining viewport under the navbar */
         .chat-container {
             display: flex;
@@ -492,13 +469,6 @@
     </style>
 </head>
 <body>
-    <!-- Botão de tema -->
-    <div class="theme-toggle">
-        <button class="btn btn-outline-secondary" id="theme-toggle" title="Alternar tema">
-            <i class="bi bi-sun-fill"></i>
-        </button>
-    </div>
-
     <div class="chat-nav-wrap">
         {% include "partials/nav.html" %}
     </div>
@@ -619,6 +589,6 @@
     <!-- Marked.js para renderização de Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script type="application/json" id="chat-page-config">{"statusUrl":"/api/chat/status","wsPath":"/ws/chat","lightsStatusUrl":"/api/lights/status"}</script>
-    <script src="/static/chat.js"></script>
+    <script src="/static/chat.js?v=navtheme-1"></script>
 </body>
 </html>

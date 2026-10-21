@@ -246,15 +246,23 @@ function runNow(id) {
     });
 }
 
+function syncThemeIcon(theme) {
+    $('#theme-icon')
+        .toggleClass('bi-sun-fill', theme === 'dark')
+        .toggleClass('bi-moon-fill', theme !== 'dark');
+}
+
 $(document).ready(function () {
     const saved = localStorage.getItem('theme') || 'light';
     document.documentElement.setAttribute('data-bs-theme', saved);
+    syncThemeIcon(saved);
     scheduleModal = new bootstrap.Modal(document.getElementById('scheduleModal'));
     $('#theme-btn').on('click', function () {
         const cur = document.documentElement.getAttribute('data-bs-theme');
         const next = cur === 'dark' ? 'light' : 'dark';
         document.documentElement.setAttribute('data-bs-theme', next);
         localStorage.setItem('theme', next);
+        syncThemeIcon(next);
     });
     $('#new-btn').on('click', openCreate);
     $('#refresh-btn').on('click', loadSchedules);
