@@ -115,6 +115,34 @@ function handleMessage(data) {
     }
 }
 
+// Renderiza Markdown sanitizado; sem DOMPurify ou marked, cai para texto puro (nunca HTML cru)
+function renderMarkdownInto(element, content) {
+    const text = content == null ? '' : String(content);
+    const canSanitize = typeof window.DOMPurify !== 'undefined'
+        && typeof window.DOMPurify.sanitize === 'function'
+        && window.DOMPurify.isSupported !== false;
+    const canParse = typeof window.marked !== 'undefined' && typeof window.marked.parse === 'function';
+    if (canSanitize && canParse) {
+        element.innerHTML = window.DOMPurify.sanitize(window.marked.parse(text));
+    } else {
+        element.textContent = text;
+    }
+}
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function toColorChannel(value) {
+    const n = Math.round(Number(value));
+    return Number.isFinite(n) ? Math.min(255, Math.max(0, n)) : 0;
+}
+
 // Adicionar mensagem ao chat
 function addMessage(content, type) {
     // Esconder sugestões após primeira mensagem do usuário
@@ -127,7 +155,7 @@ function addMessage(content, type) {
 
     // Renderizar Markdown para mensagens do bot, texto simples para o usuário
     if (type === 'bot' || type === 'error') {
-        messageDiv.innerHTML = marked.parse(content);
+        renderMarkdownInto(messageDiv, content);
     } else {
         messageDiv.textContent = content;
     }
@@ -298,17 +326,18 @@ function renderLights(lights) {
     lights.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 
     lightsPanel.innerHTML = lights.map(light => {
-        const color = light.color;
-        const rgbColor = `rgb(${color.r}, ${color.g}, ${color.b})`;
+        const color = light.color || {};
+        const rgbColor = `rgb(${toColorChannel(color.r)}, ${toColorChannel(color.g)}, ${toColorChannel(color.b)})`;
+        const safeName = escapeHtml(light.name);
         const isOn = light.on && light.reachable;
         const stateClass = isOn ? 'on' : 'off';
 
         return `
-            <div class="light-mini" title="${light.name}">
+            <div class="light-mini" title="${safeName}">
                 <div class="light-mini-bulb ${stateClass}"
                      style="background-color: ${rgbColor}; --light-color: ${rgbColor}">
                 </div>
-                <span class="light-mini-name">${light.name}</span>
+                <span class="light-mini-name">${safeName}</span>
             </div>
         `;
     }).join('');
