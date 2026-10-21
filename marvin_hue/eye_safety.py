@@ -102,3 +102,13 @@ def clamp_eye_safety(light_name: str, value: int, scale: str = "pct") -> int:
         hue_limit = int((limit_pct / 100) * 254)
         return min(value, hue_limit)
     raise ValueError(f"escala desconhecida: {scale!r}")
+
+
+def effective_hue_brightness(light_name: str, brightness: int) -> int:
+    """Brilho efetivo (escala Hue) que a lâmpada recebe de fato.
+
+    Regra única usada pelo ``HueController`` (set_light_color / set_brightness)
+    e pelo preview de cena: clampa em 0–254 e depois aplica o teto de
+    segurança ocular (floor) da lâmpada.
+    """
+    return clamp_eye_safety(light_name, max(0, min(254, brightness)), scale="hue")

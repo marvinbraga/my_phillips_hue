@@ -47,3 +47,18 @@ def test_clear_runtime_policy_restores_defaults() -> None:
     es.clear_runtime_policy()
     assert es.eye_safety_limit_pct("X") is None
     assert es.is_enabled_for_app("Y") is True
+
+
+def test_effective_hue_brightness_clamps_range_then_caps() -> None:
+    assert es.effective_hue_brightness("Lâmpada 1", 300) == 254
+    assert es.effective_hue_brightness("Lâmpada 1", -5) == 0
+    assert es.effective_hue_brightness("Lâmpada 1", 120) == 120
+    # 25% de 254 = 63.5 -> floor 63
+    assert es.effective_hue_brightness("Fita Led", 254) == 63
+    assert es.effective_hue_brightness("Fita Led", 300) == 63
+    assert es.effective_hue_brightness("Fita Led", 30) == 30
+
+
+def test_effective_hue_brightness_honours_runtime_limits() -> None:
+    es.set_runtime_limits({"Lâmpada 1": 50})
+    assert es.effective_hue_brightness("Lâmpada 1", 254) == 127
