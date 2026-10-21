@@ -8,9 +8,11 @@ the JSON files, a mocked phue Bridge and no chat keys (chat fails open).
 
 from __future__ import annotations
 
+import inspect
 import json
 import shutil
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 from unittest.mock import Mock
 
@@ -38,28 +40,29 @@ _REPO_CLASSES = (
     SqliteLastAppliedSceneRepository,
 )
 
-# Process-wide state in the service locator: restored after the test so the
-# lifespan's leftovers (hue controller, mirrors, chat agent...) never leak.
-_DEPENDENCY_STATE = (
-    "_hue_controller",
-    "_manager",
-    "_screen_mirror",
-    "_audio_mirror",
-    "_entertainment_client",
-    "_chat_agent",
-    "_chat_unavailable_reason",
-    "_chat_checkpointer",
-    "_light_registry_service",
-    "_group_service",
-    "_scene_history_service",
-    "_schedule_service",
-    "_schedule_runner",
-    "_mirror_control_service",
-    "_backup_service",
-    "_scene_favorites_service",
-    "_last_applied_scene_service",
-    "_bound_app",
-)
+_DUMMY_API_KEY = "lifespan-smoke-key"
+_BRIDGE_IP = "192.168.1.100"
+
+
+def _locator_state_names() -> list[str]:
+    """Module-level ``_``-prefixed state globals of the service locator.
+
+    Functions, classes and modules are skipped; instances are kept even when
+    callable (``_bound_app`` is an ASGI app).
+
+    Built dynamically so a new service slot is snapshotted without editing
+    this test (the lifespan never clears the hue controller, mirrors, chat...).
+    """
+    return [
+        name
+        for name, value in vars(dependencies).items()
+        if name.startswith("_")
+        and not name.startswith("__")
+        and not inspect.isroutine(value)
+        and not inspect.isclass(value)
+        and not isinstance(value, ModuleType)
+    ]
+
 
 _CHAT_KEY_ENV = (
     "OPENAI_API_KEY",
@@ -87,8 +90,13 @@ def isolated_app(monkeypatch, tmp_path, mock_phue_bridge: Mock):
     import app as app_module
     from marvin_hue.config import settings
 
-    for name in _DEPENDENCY_STATE:
+    from marvin_hue.api.middleware.api_key import ApiKeyMiddleware
+
+    for name in _locator_state_names():
         monkeypatch.setattr(dependencies, name, getattr(dependencies, name))
+    app = app_module.app
+    # populate_app_state() writes the lifespan services onto app.state.
+    state_snapshot = dict(vars(app.state).get("_state", {}))
 
     res = tmp_path / "res"
     res.mkdir()
@@ -98,6 +106,8 @@ def isolated_app(monkeypatch, tmp_path, mock_phue_bridge: Mock):
     db_path = tmp_path / "app.sqlite"
 
     overrides: dict[str, Any] = {
+        "bridge_ip": _BRIDGE_IP,
+        "api_key": _DUMMY_API_KEY,
         "app_db_path": str(db_path),
         "setups_file": str(setups),
         "positions_file": str(positions),
@@ -119,7 +129,24 @@ def isolated_app(monkeypatch, tmp_path, mock_phue_bridge: Mock):
     monkeypatch.setattr(dependencies, "_DEFAULT_PHYSICAL_LOCATIONS", str(physical))
     for env in _CHAT_KEY_ENV:
         monkeypatch.delenv(env, raising=False)
-    monkeypatch.setattr("marvin_hue.controllers.Bridge", lambda ip: mock_phue_bridge)
+    bridge_ips: list[str] = []
+
+    def _bridge(ip: str) -> Mock:
+        bridge_ips.append(ip)
+        return mock_phue_bridge
+
+    monkeypatch.setattr("marvin_hue.controllers.Bridge", _bridge)
+
+    # The ApiKeyMiddleware got the key from the real .env at import time. Force
+    # a fixed dummy key and let Starlette rebuild its middleware stack, so the
+    # test never depends on the developer's API_KEY.
+    original_init = ApiKeyMiddleware.__init__
+
+    def _init(self: Any, inner: Any, api_key: str | None = None) -> None:
+        original_init(self, inner, api_key=_DUMMY_API_KEY)
+
+    monkeypatch.setattr(ApiKeyMiddleware, "__init__", _init)
+    monkeypatch.setattr(app, "middleware_stack", None)
 
     opened: list[tuple[object, str]] = []
     closed: list[object] = []
@@ -139,21 +166,21 @@ def isolated_app(monkeypatch, tmp_path, mock_phue_bridge: Mock):
         monkeypatch.setattr(cls, "open", staticmethod(_open))
         monkeypatch.setattr(cls, "close", _close)
 
-    return app_module.app, {"db_path": str(db_path), "opened": opened, "closed": closed}
+    yield app, {
+        "db_path": str(db_path),
+        "opened": opened,
+        "closed": closed,
+        "bridge_ips": bridge_ips,
+    }
 
-
-def _api_headers(app: Any) -> dict[str, str]:
-    """Send the key the ApiKeyMiddleware was built with (if any)."""
-    for middleware in app.user_middleware:
-        key = middleware.kwargs.get("api_key")
-        if key:
-            return {"X-API-Key": key}
-    return {}
+    live_state = vars(app.state)["_state"]
+    live_state.clear()
+    live_state.update(state_snapshot)
 
 
 def test_lifespan_registers_services_and_releases_them(isolated_app) -> None:
     app, spy = isolated_app
-    headers = _api_headers(app)
+    headers = {"X-API-Key": _DUMMY_API_KEY}
 
     with TestClient(app) as client:
         assert dependencies.get_light_registry_service() is not None
@@ -176,13 +203,20 @@ def test_lifespan_registers_services_and_releases_them(isolated_app) -> None:
 
         # Chat fails open without keys: no agent, but a diagnostic reason.
         assert dependencies.get_chat_agent() is None
-        assert dependencies.get_chat_unavailable_reason()
+        assert "OPENAI_API_KEY" in (dependencies.get_chat_unavailable_reason() or "")
+        assert spy["bridge_ips"] == [_BRIDGE_IP]
+
+        # /api/* is guarded by the dummy key, never by a key from the real .env.
+        assert client.get("/api/health").status_code == 401
 
         health = client.get("/api/health", headers=headers)
         assert health.status_code == 200
         payload = health.json()
         assert payload["schedules"]["runner_alive"] is True
         assert payload["mirror"]["running"] is False
+        assert payload["mirror"]["mode"] is None
+        assert payload["mirror"]["audio"] is None
+        assert payload["bridge"]["bridge_ip"] == _BRIDGE_IP
         assert payload["chat"]["available"] is False
         assert payload["registry"]["db_path"] == spy["db_path"]
 
