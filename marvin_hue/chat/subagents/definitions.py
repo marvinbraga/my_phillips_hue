@@ -87,7 +87,13 @@ def build_subagents(
     room_index: Optional[dict[str, list[str]]] = None,
     services: Optional[ChatServices] = None,
     require_approval: bool = False,
+    prompt_caching: bool = False,
 ) -> dict[str, dict]:
+    """Monta os três subagents com tools least-privilege.
+
+    ``prompt_caching`` liga ``AnthropicPromptCachingMiddleware`` (o chamador
+    passa True só quando o provider é anthropic, como no orquestrador).
+    """
     all_tools = build_all_tools(
         controller, manager, room_index=room_index, services=services,
     )
@@ -101,6 +107,10 @@ def build_subagents(
         # Mesma política HITL do orquestrador: sem isso a delegação via `task`
         # contornaria a aprovação das tools de mutação.
         stack = list(safety)
+        if prompt_caching:
+            from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+
+            stack.append(AnthropicPromptCachingMiddleware(ttl="5m"))
         interrupt_on = interrupt_on_for(names) if require_approval else {}
         if interrupt_on:
             from langchain.agents.middleware import HumanInTheLoopMiddleware

@@ -1,6 +1,8 @@
 """O orquestrador deve ser montado com create_agent + pilha de middleware."""
 from __future__ import annotations
 
+import pytest
+
 
 def test_orchestrator_uses_create_agent_with_middleware(
     monkeypatch, fake_controller, fake_manager, bindable_model_factory
@@ -70,3 +72,37 @@ def test_anthropic_provider_adds_prompt_caching(
 
     names = [type(m).__name__ for m in seen["middleware"]]
     assert "AnthropicPromptCachingMiddleware" in names
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected"), [("anthropic", True), ("openai", False), ("groq", False)]
+)
+def test_orchestrator_threads_prompt_caching_to_subagents(
+    monkeypatch, fake_controller, fake_manager, bindable_model_factory, provider, expected
+):
+    """O orquestrador liga o cache de prompt dos subagents só com Anthropic (#22)."""
+    import marvin_hue.chat.agents.react_agent as ra
+    from marvin_hue.chat.subagents import definitions
+
+    seen: dict = {}
+
+    def fake_build_subagents(*args, **kwargs):
+        seen.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(definitions, "build_subagents", fake_build_subagents)
+    monkeypatch.setattr(ra, "create_agent", lambda **kw: object(), raising=False)
+
+    class _FakeProvider:
+        model = bindable_model_factory()
+
+    monkeypatch.setattr(
+        ra.LLMProviderFactory, "create",
+        classmethod(lambda cls, **kw: _FakeProvider()),
+    )
+
+    ra.HueLightAgent(
+        fake_controller, fake_manager, config=ra.AgentConfig(provider=provider)
+    )
+
+    assert seen["prompt_caching"] is expected

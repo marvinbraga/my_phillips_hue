@@ -314,6 +314,7 @@ class HueLightAgent(BaseAgent):
             room_index=self._room_index,
             services=self._services,
             require_approval=self._config.require_approval,
+            prompt_caching=self._config.provider == "anthropic",
         )
         task_tool = build_task_tool(subagents)
         return create_agent(

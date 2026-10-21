@@ -30,3 +30,62 @@ def test_subagent_tool_subsets_have_no_typo(fake_controller, fake_manager):
         # _subset retorna exatamente o subconjunto pedido, sem perdas.
         got = {t.name for t in d._subset(build_all_tools(fake_controller, fake_manager), names)}
         assert got == set(names)
+
+
+def _capture_subagent_middleware(monkeypatch, fake_controller, fake_manager, **kwargs):
+    from marvin_hue.chat.subagents import definitions as d
+
+    stacks: dict[str, list[str]] = {}
+
+    def fake_create_agent(**kw):
+        stacks[kw["system_prompt"]] = [type(m).__name__ for m in kw["middleware"]]
+        return object()
+
+    monkeypatch.setattr(d, "create_agent", fake_create_agent)
+    d.build_subagents(object(), fake_controller, fake_manager, **kwargs)
+    assert set(stacks) == {
+        d.SCENE_DESIGNER_PROMPT,
+        d.CONFIG_LIBRARIAN_PROMPT,
+        d.GENERAL_PROMPT,
+    }
+    return stacks
+
+
+def test_subagents_add_prompt_caching_when_enabled(
+    monkeypatch, fake_controller, fake_manager
+):
+    stacks = _capture_subagent_middleware(
+        monkeypatch, fake_controller, fake_manager, prompt_caching=True
+    )
+    for names in stacks.values():
+        assert names.count("AnthropicPromptCachingMiddleware") == 1
+        # Mesma ordem do orquestrador: depois da pilha de segurança.
+        assert names.index("AnthropicPromptCachingMiddleware") > names.index(
+            "EyeSafetyMiddleware"
+        )
+
+
+def test_subagents_without_prompt_caching_by_default(
+    monkeypatch, fake_controller, fake_manager
+):
+    stacks = _capture_subagent_middleware(monkeypatch, fake_controller, fake_manager)
+    for names in stacks.values():
+        assert "AnthropicPromptCachingMiddleware" not in names
+
+
+def test_prompt_caching_comes_before_hitl(monkeypatch, fake_controller, fake_manager):
+    from marvin_hue.chat.subagents import definitions as d
+
+    stacks = _capture_subagent_middleware(
+        monkeypatch,
+        fake_controller,
+        fake_manager,
+        prompt_caching=True,
+        require_approval=True,
+    )
+    for names in stacks.values():
+        if "HumanInTheLoopMiddleware" in names:
+            assert names.index("AnthropicPromptCachingMiddleware") < names.index(
+                "HumanInTheLoopMiddleware"
+            )
+    assert "HumanInTheLoopMiddleware" in stacks[d.SCENE_DESIGNER_PROMPT]
