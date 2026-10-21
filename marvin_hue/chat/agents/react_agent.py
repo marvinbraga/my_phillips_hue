@@ -23,6 +23,7 @@ from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.chat.providers import LLMProviderFactory
 from marvin_hue.chat.tools import build_light_tools
+from marvin_hue.chat.tools.light_tools import FavoritesProvider
 from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
 from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
 
@@ -31,6 +32,25 @@ from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
 # Cada session_id novo cria uma thread que nunca seria coletada -> vazamento
 # monotônico num servidor de longa duração. O LRU descarta a mais antiga.
 MAX_SESSIONS = 100
+
+
+def _message_text(content: Any) -> str:
+    """Texto visível de uma AIMessage.
+
+    Modelos com raciocínio (ex.: Claude 5) devolvem `content` como lista de
+    blocos (`thinking`, `text`, ...). Só os blocos `text` vão para o usuário.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "".join(parts)
+    return str(content) if content else ""
 
 
 # System prompt para o agente.
@@ -44,6 +64,7 @@ SYSTEM_PROMPT = """Você é Marvin, um assistente inteligente especializado em c
 Você controla as lâmpadas via ferramentas: listar/ver status, mudar cor (RGB),
 ajustar brilho, ligar/desligar, aplicar e salvar presets, e consultar a
 localização física das lâmpadas.
+Também lista, marca e desmarca cenas favoritas (aparecem com estrela na tela Controle).
 
 Diretrizes:
 1. Seja prestativo, amigável e responda sempre em português brasileiro.
@@ -185,6 +206,7 @@ class HueLightAgent(BaseAgent):
         *,
         checkpointer: Optional[Any] = None,
         room_index: Optional[dict[str, list[str]]] = None,
+        favorites_provider: Optional[FavoritesProvider] = None,
     ):
         """Inicializa o agente.
 
@@ -199,11 +221,14 @@ class HueLightAgent(BaseAgent):
             room_index: Snapshot sala → nomes (registry). None → tools usam
                 fallback de localizações físicas. Mudanças de room no registry
                 exigem rebuild do agente (lifespan / reconfigure).
+            favorites_provider: Resolve o SceneFavoritesService a cada chamada
+                das tools de favoritos. None → provider padrão (dependencies).
         """
         self._controller = controller
         self._manager = manager
         self._config = config or AgentConfig()
         self._room_index = room_index
+        self._favorites_provider = favorites_provider
 
         # Memória por sessão via checkpointer (thread_id = session_id).
         # Substitui o antigo _conversation_history de instância (bug #2: estado
@@ -277,13 +302,15 @@ class HueLightAgent(BaseAgent):
         from marvin_hue.chat.subagents.task import build_task_tool
 
         light_tools = build_light_tools(
-            self._controller, self._manager, room_index=self._room_index
+            self._controller, self._manager, room_index=self._room_index,
+            favorites_provider=self._favorites_provider,
         )
         middleware = self._build_middleware()  # cria self._hue_context (cache compartilhado)
         subagents = build_subagents(
             self._llm, self._controller, self._manager,
             context_middleware=self._hue_context,  # MESMA instância -> mesmo cache TTL
             room_index=self._room_index,
+            favorites_provider=self._favorites_provider,
         )
         task_tool = build_task_tool(subagents)
         return create_agent(
@@ -312,7 +339,9 @@ class HueLightAgent(BaseAgent):
             if isinstance(message, AIMessage) and message.content:
                 # Ignora mensagens que são apenas tool calls
                 if not message.tool_calls:
-                    return message.content
+                    text = _message_text(message.content)
+                    if text:
+                        return text
 
         return "Operação concluída."
 
@@ -406,7 +435,9 @@ class HueLightAgent(BaseAgent):
             if messages:
                 last = messages[-1]
                 if isinstance(last, AIMessage) and last.content and not last.tool_calls:
-                    yield last.content if isinstance(last.content, str) else str(last.content)
+                    text = _message_text(last.content)
+                    if text:
+                        yield text
         # NÃO re-invocar: o checkpointer já persistiu o histórico (corrige bug #1).
 
     async def astream(self, message: str, session_id: str = "default") -> AsyncIterator[str]:
@@ -430,7 +461,9 @@ class HueLightAgent(BaseAgent):
             if messages:
                 last = messages[-1]
                 if isinstance(last, AIMessage) and last.content and not last.tool_calls:
-                    yield last.content if isinstance(last.content, str) else str(last.content)
+                    text = _message_text(last.content)
+                    if text:
+                        yield text
 
     def clear_history(self, session_id: str = "default") -> None:
         """Limpa o histórico de uma sessão (caminho SÍNCRONO — CLI/InMemory).
@@ -467,6 +500,7 @@ class HueLightAgentBuilder:
         self._controller: Optional[HueController] = None
         self._manager: Optional[LightSetupsManager] = None
         self._config = AgentConfig()
+        self._favorites_provider: Optional[FavoritesProvider] = None
 
     def with_controller(self, controller: HueController) -> "HueLightAgentBuilder":
         """Define o controlador Hue.
@@ -564,6 +598,20 @@ class HueLightAgentBuilder:
         self._config.system_prompt = prompt
         return self
 
+    def with_favorites_provider(
+        self, provider: FavoritesProvider
+    ) -> "HueLightAgentBuilder":
+        """Define o provider do SceneFavoritesService (tools de favoritos).
+
+        Args:
+            provider: Callable que retorna o serviço ou None
+
+        Returns:
+            Self para encadeamento
+        """
+        self._favorites_provider = provider
+        return self
+
     def with_extra_params(self, **params) -> "HueLightAgentBuilder":
         """Define parâmetros extras.
 
@@ -591,7 +639,8 @@ class HueLightAgentBuilder:
             raise ValueError("Manager não foi definido. Use with_manager().")
 
         return HueLightAgent(
-            controller=self._controller, manager=self._manager, config=self._config
+            controller=self._controller, manager=self._manager, config=self._config,
+            favorites_provider=self._favorites_provider,
         )
 
 
@@ -604,6 +653,7 @@ def create_hue_agent(
     *,
     checkpointer: Optional[Any] = None,
     room_index: Optional[dict[str, list[str]]] = None,
+    favorites_provider: Optional[FavoritesProvider] = None,
     **kwargs,
 ) -> HueLightAgent:
     """Factory function para criar um agente de iluminação.
@@ -618,6 +668,7 @@ def create_hue_agent(
         temperature: Temperatura para geração
         checkpointer: Checkpointer LangGraph opcional
         room_index: Snapshot sala → lâmpadas do registry (opcional)
+        favorites_provider: Provider do SceneFavoritesService (opcional)
         **kwargs: Parâmetros adicionais para o AgentConfig
 
     Returns:
@@ -641,4 +692,5 @@ def create_hue_agent(
         config=config,
         checkpointer=checkpointer,
         room_index=room_index,
+        favorites_provider=favorites_provider,
     )

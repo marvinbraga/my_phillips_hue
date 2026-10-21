@@ -11,7 +11,7 @@ from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
 from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
-from marvin_hue.chat.tools.light_tools import build_light_tools
+from marvin_hue.chat.tools.light_tools import FavoritesProvider, build_light_tools
 
 SCENE_DESIGNER_PROMPT = (
     "Você é o scene-designer. Projeta cenas RGB multi-lâmpada para um mood, "
@@ -21,7 +21,7 @@ SCENE_DESIGNER_PROMPT = (
 CONFIG_LIBRARIAN_PROMPT = (
     "Você é o config-librarian. Busca, filtra e deduplica os presets existentes. "
     "ANTES de salvar um novo preset, recomende um existente equivalente se houver. "
-    "Use tools de listar/buscar/salvar."
+    "Use tools de listar/buscar/salvar e de favoritos (listar/marcar/desmarcar)."
 )
 GENERAL_PROMPT = (
     "Você é o general-purpose. Responde status e perguntas gerais sobre as lâmpadas."
@@ -39,7 +39,15 @@ SCENE_DESIGNER_TOOLS = [
     "set_room_power",
     "set_room_brightness",
 ]
-CONFIG_LIBRARIAN_TOOLS = ["list_configs", "apply_config", "save_current_config", "get_light_status"]
+CONFIG_LIBRARIAN_TOOLS = [
+    "list_configs",
+    "apply_config",
+    "save_current_config",
+    "get_light_status",
+    "list_favorites",
+    "add_favorite",
+    "remove_favorite",
+]
 GENERAL_TOOLS = [
     "list_lights",
     "get_light_status",
@@ -61,8 +69,12 @@ def build_subagents(
     *,
     context_middleware: Optional[HueContextMiddleware] = None,
     room_index: Optional[dict[str, list[str]]] = None,
+    favorites_provider: Optional[FavoritesProvider] = None,
 ) -> dict[str, dict]:
-    all_tools = build_light_tools(controller, manager, room_index=room_index)
+    all_tools = build_light_tools(
+        controller, manager, room_index=room_index,
+        favorites_provider=favorites_provider,
+    )
     # REUSA a instância de HueContextMiddleware do orquestrador quando fornecida:
     # compartilha o cache TTL do status (Tarefa 3.3) — sem isso, cada subagent
     # faria seu próprio I/O na bridge a cada chamada de modelo.

@@ -518,10 +518,18 @@ create_agent(model, tools=[*light_tools, task], middleware=[...], checkpointer)
         ├─ light tools (closures sobre controller/manager, sem estado global):
         │   list_lights, get_light_status, set_light_color, apply_config,
         │   list_configs, turn_off_lights, turn_on_lights, set_brightness,
-        │   save_current_config, get_light_locations
+        │   save_current_config, get_light_locations, get_rooms,
+        │   list_lights_by_room, set_room_power, set_room_brightness
+        │
+        ├─ favorite tools (async; SceneFavoritesService resolvido a cada
+        │   chamada via favorites_provider, fail-open se indisponível):
+        │   list_favorites, add_favorite, remove_favorite
+        │   (só o caminho async — ainvoke/astream — mexe no SQLite; o invoke
+        │    síncrono devolve mensagem, sem rodar o serviço fora do loop do app)
         │
         └─ task tool → delega a subagents isolados:
             scene-designer | config-librarian | general-purpose
+            (config-librarian inclui list/add/remove_favorite)
             (cada um é um create_agent aninhado, com subconjunto restrito de
              tools + os mesmos middleware de segurança; SEM a tool task → sem
              recursão de delegação; recursion_limit explícito)
