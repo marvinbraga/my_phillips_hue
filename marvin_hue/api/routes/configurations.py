@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from marvin_hue.api.dependencies import (
     get_hue_controller,
@@ -19,9 +19,13 @@ from marvin_hue.api.models import (
     ApplyConfigRequest,
     ApplyConfigResponse,
     ApplyFailedLight,
+    ConfigurationColor,
+    ConfigurationPreview,
+    ConfigurationSetting,
+    ConfigurationWithSettings,
 )
 from marvin_hue.apply_result import ApplyResult
-from marvin_hue.basics import LightSetupsManager
+from marvin_hue.basics import LightConfig, LightSetupsManager
 from marvin_hue.controllers import HueController
 from marvin_hue.logging_config import get_logger
 from marvin_hue.services.apply_config import (
@@ -29,6 +33,7 @@ from marvin_hue.services.apply_config import (
     ApplyConfigService,
 )
 from marvin_hue.services.scene_history import SceneHistoryService
+from marvin_hue.services.scene_preview import build_scene_preview
 
 logger = get_logger("configurations")
 
@@ -70,12 +75,46 @@ def _apply_response(
     )
 
 
+def _sorted_unique_configs(manager: LightSetupsManager) -> list[LightConfig]:
+    """Deduplica por nome (primeiro vence, como ``get_config``/apply) e ordena."""
+    unique_configs: dict[str, LightConfig] = {}
+    for item in manager.configs:
+        unique_configs.setdefault(item.name, item)
+    return sorted(unique_configs.values(), key=lambda item: item.name)
+
+
 def get_sorted_configs(manager: LightSetupsManager) -> list[dict[str, str]]:
     """Retorna configurações ordenadas."""
-    unique_configs = {item.name: item for item in manager.configs}.values()
-    sorted_list = sorted(unique_configs, key=lambda item: item.name)
     return [
-        {"name": item.name, "description": item.description} for item in sorted_list
+        {"name": item.name, "description": item.description}
+        for item in _sorted_unique_configs(manager)
+    ]
+
+
+def get_sorted_configs_with_settings(
+    manager: LightSetupsManager,
+) -> list[ConfigurationWithSettings]:
+    """Configurações ordenadas com settings e preview por lâmpada."""
+    return [
+        ConfigurationWithSettings(
+            name=item.name,
+            description=item.description,
+            settings=[
+                ConfigurationSetting(
+                    light_name=light.light_name,
+                    color=ConfigurationColor(**light.color),
+                    preview=ConfigurationPreview(
+                        r=light.r,
+                        g=light.g,
+                        b=light.b,
+                        brightness=light.brightness,
+                        enabled=light.enabled,
+                    ),
+                )
+                for light in build_scene_preview(item)
+            ],
+        )
+        for item in _sorted_unique_configs(manager)
     ]
 
 
@@ -91,8 +130,17 @@ def get_apply_config_service(
 @router.get("/configurations")
 async def get_configurations(
     manager: Annotated[LightSetupsManager, Depends(get_manager)],
-) -> list[dict[str, str]]:
-    """Retorna todas as configurações de iluminação disponíveis."""
+    include_settings: Annotated[
+        bool,
+        Query(description="Inclui settings por lâmpada com cor configurada e preview"),
+    ] = False,
+) -> list[ConfigurationWithSettings] | list[dict[str, str]]:
+    """Retorna todas as configurações de iluminação disponíveis.
+
+    Sem ``include_settings`` a resposta continua ``[{name, description}]``.
+    """
+    if include_settings:
+        return get_sorted_configs_with_settings(manager)
     return get_sorted_configs(manager)
 
 
