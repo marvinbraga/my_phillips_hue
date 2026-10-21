@@ -111,6 +111,20 @@ class FavoriteStatusResponse(BaseModel):
     favorite: bool
 
 
+class LastAppliedSceneResponse(BaseModel):
+    """GET /configurations/last-applied.
+
+    Todos os campos são null quando nada foi aplicado, quando "Desligar todas"
+    ou o undo limparam o registro, ou quando a cena não existe mais.
+    """
+
+    name: str | None = None
+    source: str | None = None
+    applied_at: str | None = Field(
+        default=None, description="ISO 8601 com fuso (UTC)"
+    )
+
+
 class LightPosition(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
     position: str = Field(

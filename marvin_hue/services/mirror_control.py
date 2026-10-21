@@ -18,6 +18,11 @@ from marvin_hue.entertainment.client import EntertainmentClient
 from marvin_hue.logging_config import get_logger
 from marvin_hue.output.factory import build_audio_output_port
 from marvin_hue.screen_mirror import MIRROR_PROFILES, ScreenMirror
+from marvin_hue.services.last_applied_scene import (
+    SOURCE_MIRROR,
+    LastAppliedProvider,
+    resolve_last_applied,
+)
 from marvin_hue.services.scene_history import SceneHistoryService
 
 logger = get_logger("services.mirror_control")
@@ -231,6 +236,7 @@ class MirrorControlService:
         get_manager: GetManager,
         get_entertainment: GetEntertainment,
         get_history: GetHistory | None = None,
+        get_last_applied: LastAppliedProvider | None = None,
     ) -> None:
         self._get_screen = get_screen
         self._get_audio = get_audio
@@ -238,6 +244,7 @@ class MirrorControlService:
         self._get_manager = get_manager
         self._get_entertainment = get_entertainment
         self._get_history = get_history
+        self._get_last_applied = get_last_applied
         self._pending_transport_preference: str = "auto"
         self._pending_area_id: str | None = None
 
@@ -296,10 +303,16 @@ class MirrorControlService:
     async def start(self, mode: str = "screen", **kwargs: Any) -> dict[str, Any]:
         resolved = (mode or "screen").strip().lower()
         if resolved == "audio":
-            return await self._start_audio(**kwargs)
-        if resolved == "screen":
-            return await self._start_screen(**kwargs)
-        raise MirrorValidationError(f"Modo '{mode}' inválido")
+            result = await self._start_audio(**kwargs)
+        elif resolved == "screen":
+            result = await self._start_screen(**kwargs)
+        else:
+            raise MirrorValidationError(f"Modo '{mode}' inválido")
+        # The capture loop now drives the lights: they leave the last scene
+        last_applied = resolve_last_applied(self._get_last_applied)
+        if last_applied is not None:
+            await last_applied.clear(source=SOURCE_MIRROR)
+        return result
 
     async def stop(self) -> dict[str, Any]:
         screen = self._get_screen()

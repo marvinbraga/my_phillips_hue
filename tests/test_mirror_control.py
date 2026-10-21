@@ -257,3 +257,62 @@ def test_unified_status_audio_mode_includes_spectrum() -> None:
     assert status["bass"] == 0.8
     assert "spectrum" in status
     assert "entertainment_ready" in status
+
+
+# --- last applied scene (issue #14) -------------------------------------
+
+
+class _FakeLastApplied:
+    def __init__(self) -> None:
+        self.cleared: list[str] = []
+
+    async def record(self, name: str, *, source: str) -> None:  # pragma: no cover
+        raise AssertionError("mirror never records")
+
+    async def clear(self, *, source: str) -> None:
+        self.cleared.append(source)
+
+
+def _service_with_last_applied(screen, audio, provider) -> MirrorControlService:
+    return MirrorControlService(
+        get_screen=lambda: screen,
+        get_audio=lambda: audio,
+        get_hue=MagicMock,
+        get_manager=MagicMock,
+        get_entertainment=lambda: None,
+        get_last_applied=provider,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["screen", "audio"])
+async def test_start_clears_last_applied_with_mirror_source(mode: str) -> None:
+    last_applied = _FakeLastApplied()
+    svc = _service_with_last_applied(_mirror(), _mirror(), lambda: last_applied)
+    await svc.start(mode)
+    assert last_applied.cleared == ["mirror"]
+
+
+@pytest.mark.asyncio
+async def test_failed_start_does_not_clear_last_applied() -> None:
+    from marvin_hue.services.mirror_control import MirrorAlreadyActiveError
+
+    last_applied = _FakeLastApplied()
+    svc = _service_with_last_applied(
+        _mirror(running=True), _mirror(), lambda: last_applied
+    )
+    with pytest.raises(MirrorAlreadyActiveError):
+        await svc.start("screen")
+    assert last_applied.cleared == []
+
+
+@pytest.mark.asyncio
+async def test_start_with_broken_last_applied_provider_still_starts() -> None:
+    def broken():
+        raise RuntimeError("not initialized")
+
+    screen = _mirror()
+    svc = _service_with_last_applied(screen, _mirror(), broken)
+    result = await svc.start("screen")
+    assert "iniciado" in result["message"]
+    screen.start.assert_called_once()

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from marvin_hue.api.dependencies import (
     get_hue_controller,
+    get_last_applied_scene_service_optional,
     get_scene_history_service,
 )
 from marvin_hue.api.models import (
@@ -23,6 +24,10 @@ from marvin_hue.domain.scene_history import (
     SceneSnapshot,
 )
 from marvin_hue.logging_config import get_logger
+from marvin_hue.services.last_applied_scene import (
+    LastAppliedSceneService,
+    clear_after_undo,
+)
 from marvin_hue.services.scene_history import SceneHistoryService
 
 router = APIRouter(tags=["History"])
@@ -77,7 +82,10 @@ async def create_snapshot(
 async def undo_last(
     svc: SceneHistoryService = Depends(get_scene_history_service),
     hue: HueController = Depends(get_hue_controller),
-):
+    last_applied: Optional[LastAppliedSceneService] = Depends(
+        get_last_applied_scene_service_optional
+    ),
+) -> HistoryUndoResponse:
     try:
         result = await svc.restore_last(hue)
     except SceneHistoryNotFoundError as exc:
@@ -87,4 +95,5 @@ async def undo_last(
         raise HTTPException(
             status_code=500, detail="Erro ao restaurar cena"
         ) from exc
+    await clear_after_undo(last_applied, result)
     return HistoryUndoResponse(**result)

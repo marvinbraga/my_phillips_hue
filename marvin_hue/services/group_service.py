@@ -17,6 +17,11 @@ from marvin_hue.domain.groups import (
 from marvin_hue.logging_config import get_logger
 from marvin_hue.persistence.group_repository import GroupRepository
 from marvin_hue.services.apply_config import ApplyConfigService
+from marvin_hue.services.last_applied_scene import (
+    SOURCE_GROUP,
+    LastAppliedProvider,
+    resolve_last_applied,
+)
 
 logger = get_logger("services.group")
 
@@ -50,8 +55,15 @@ class HueGroupController(Protocol):
 class GroupService:
     """CRUD and apply use cases over GroupRepository."""
 
-    def __init__(self, repo: GroupRepository) -> None:
+    def __init__(
+        self,
+        repo: GroupRepository,
+        *,
+        last_applied_provider: LastAppliedProvider | None = None,
+    ) -> None:
         self._repo = repo
+        # Lazy: resolved on every apply (fail-open when missing/broken).
+        self._last_applied_provider = last_applied_provider
 
     async def aclose(self) -> None:
         await self._repo.close()
@@ -195,10 +207,14 @@ class GroupService:
         """Apply a LightConfig filtered to group member light names."""
         group = await self._repo.get_by_id(group_id, include_deleted=False)
         names = set(await self._repo.list_member_light_names(group_id))
-        await ApplyConfigService(_LoadedConfigLookup(config), hue).apply(
+        await ApplyConfigService(
+            _LoadedConfigLookup(config),
+            hue,
+            last_applied=resolve_last_applied(self._last_applied_provider),
+        ).apply(
             config.name,
             transition_time=transition_time_secs,
-            source="group",
+            source=SOURCE_GROUP,
             light_names=names,
         )
         applied_names = [s.light_name for s in config.settings if s.light_name in names]
