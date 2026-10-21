@@ -74,15 +74,15 @@ async def test_init_db_enables_wal(db_path):
 
 
 @pytest.mark.asyncio
-async def test_schema_version_is_4(db_path):
+async def test_schema_version_is_5(db_path):
     await init_db(db_path)
-    assert CURRENT_SCHEMA_VERSION == 4
+    assert CURRENT_SCHEMA_VERSION == 5
     async with aiosqlite.connect(db_path) as conn:
         async with conn.execute(
             "SELECT version FROM schema_version ORDER BY version"
         ) as cur:
             versions = [int(r[0]) for r in await cur.fetchall()]
-    assert versions == [1, 2, 3, 4]
+    assert versions == [1, 2, 3, 4, 5]
 
 
 @pytest.mark.asyncio
@@ -152,6 +152,24 @@ async def test_v4_schedules_table(db_path):
 
 
 @pytest.mark.asyncio
+async def test_v5_scene_favorites_table(db_path):
+    await init_db(db_path)
+    async with aiosqlite.connect(db_path) as conn:
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_favorites'"
+        ) as cur:
+            assert await cur.fetchone() is not None
+        async with conn.execute("PRAGMA table_info(scene_favorites)") as cur:
+            rows = await cur.fetchall()
+    cols = {row[1]: row for row in rows}
+    assert set(cols) == {"config_name", "created_at"}
+    # PRAGMA table_info: (cid, name, type, notnull, dflt_value, pk)
+    assert cols["config_name"][5] == 1
+    assert cols["config_name"][3] == 1
+    assert cols["created_at"][3] == 1
+
+
+@pytest.mark.asyncio
 async def test_migration_chain_from_v1_only(tmp_path):
     """Simulate a v1 DB then upgrade by re-running init_db with full migrations."""
     db_path = str(tmp_path / "upgrade.sqlite")
@@ -192,10 +210,11 @@ async def test_migration_chain_from_v1_only(tmp_path):
     async with aiosqlite.connect(db_path) as conn:
         async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [int(r[0]) for r in await cur.fetchall()]
-        assert versions == [1, 2, 3, 4]
+        assert versions == [1, 2, 3, 4, 5]
         async with conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name IN ('light_groups', 'scene_snapshots', 'schedules')"
+            "AND name IN ('light_groups', 'scene_snapshots', 'schedules', "
+            "'scene_favorites')"
         ) as cur:
             tables = {r[0] for r in await cur.fetchall()}
-    assert tables == {"light_groups", "scene_snapshots", "schedules"}
+    assert tables == {"light_groups", "scene_snapshots", "schedules", "scene_favorites"}
