@@ -297,6 +297,7 @@ def fastapi_test_client(
     original_history = getattr(dependencies, "_scene_history_service", None)
     original_schedule = getattr(dependencies, "_schedule_service", None)
     original_runner = getattr(dependencies, "_schedule_runner", None)
+    original_favorites = getattr(dependencies, "_scene_favorites_service", None)
 
     async def _bootstrap():
         from marvin_hue.persistence.schema import init_db
@@ -308,6 +309,10 @@ def fastapi_test_client(
             SqliteSceneHistoryRepository,
         )
         from marvin_hue.persistence.schedule_repository import SqliteScheduleRepository
+        from marvin_hue.persistence.favorites_repository import (
+            SqliteSceneFavoritesRepository,
+        )
+        from marvin_hue.services.scene_favorites import SceneFavoritesService
         from marvin_hue.services.light_registry import LightRegistryService
         from marvin_hue.services.group_service import GroupService
         from marvin_hue.services.scene_history import SceneHistoryService
@@ -318,6 +323,7 @@ def fastapi_test_client(
         group_repo = await SqliteGroupRepository.open(db_path)
         history_repo = await SqliteSceneHistoryRepository.open(db_path)
         schedule_repo = await SqliteScheduleRepository.open(db_path)
+        favorites_repo = await SqliteSceneFavoritesRepository.open(db_path)
         light_svc = LightRegistryService(light_repo, bridge=mock_hue_controller)
         group_svc = GroupService(group_repo)
         history_svc = SceneHistoryService(history_repo)
@@ -327,18 +333,24 @@ def fastapi_test_client(
             manager=mock_light_setups_manager,
             group_service=group_svc,
         )
-        return light_svc, group_svc, history_svc, schedule_svc
+        # Lookup lazy (como no lifespan): testes podem trocar o manager.
+        favorites_svc = SceneFavoritesService(favorites_repo, dependencies.get_manager)
+        return light_svc, group_svc, history_svc, schedule_svc, favorites_svc
 
-    light_svc, group_svc, history_svc, schedule_svc = asyncio.run(_bootstrap())
+    light_svc, group_svc, history_svc, schedule_svc, favorites_svc = asyncio.run(
+        _bootstrap()
+    )
     dependencies.set_light_registry_service(light_svc)
     dependencies.set_group_service(group_svc)
     dependencies.set_scene_history_service(history_svc)
     dependencies.set_schedule_service(schedule_svc)
+    dependencies.set_scene_favorites_service(favorites_svc)
 
     client = TestClient(app.app)
     yield client
 
     async def _teardown():
+        await favorites_svc.aclose()
         await schedule_svc.aclose()
         await history_svc.aclose()
         await group_svc.aclose()
@@ -356,6 +368,7 @@ def fastapi_test_client(
     dependencies._scene_history_service = original_history
     dependencies._schedule_service = original_schedule
     dependencies._schedule_runner = original_runner
+    dependencies._scene_favorites_service = original_favorites
 
 
 @pytest.fixture
