@@ -1,0 +1,1529 @@
+{
+  "verdict": "PASS",
+  "pre_existing": {
+    "baseline": 1.0,
+    "branch": 1.0
+  },
+  "new_tools": {
+    "branch": 1.0,
+    "gate": 0.9
+  },
+  "per_case": {
+    "sel-turn-off-all": {
+      "baseline": 1.0,
+      "branch": 1.0
+    },
+    "sel-color-one-light": {
+      "baseline": 1.0,
+      "branch": 1.0
+    },
+    "sel-apply-scene": {
+      "baseline": 1.0,
+      "branch": 1.0
+    },
+    "sel-status": {
+      "baseline": 1.0,
+      "branch": 1.0
+    },
+    "sel-room-brightness": {
+      "baseline": 1.0,
+      "branch": 1.0
+    },
+    "sel-save-current": {
+      "baseline": 1.0,
+      "branch": 1.0
+    },
+    "sel-add-favorite": {
+      "baseline": 1.0,
+      "branch": 1.0
+    },
+    "sel-search-theme": {
+      "baseline": null,
+      "branch": 1.0
+    },
+    "sel-describe": {
+      "baseline": null,
+      "branch": 1.0
+    },
+    "sel-create-spec": {
+      "baseline": null,
+      "branch": 1.0
+    },
+    "sel-undo": {
+      "baseline": null,
+      "branch": 1.0
+    },
+    "sel-group-apply": {
+      "baseline": null,
+      "branch": 1.0
+    },
+    "sel-list-schedules": {
+      "baseline": null,
+      "branch": 1.0
+    },
+    "sel-create-schedule": {
+      "baseline": null,
+      "branch": 1.0
+    },
+    "sel-start-mirror": {
+      "baseline": null,
+      "branch": 1.0
+    },
+    "sel-kelvin": {
+      "baseline": null,
+      "branch": 1.0
+    },
+    "sel-health": {
+      "baseline": null,
+      "branch": 1.0
+    }
+  },
+  "tokens": {
+    "baseline": {
+      "input": 323504,
+      "output": 7127
+    },
+    "branch": {
+      "input": 965833,
+      "output": 15461
+    }
+  },
+  "baseline_run": {
+    "label": "baseline",
+    "golden_set": "hue.chat@2",
+    "prompt_version": "hue.chat.prompt@1 (implícito)",
+    "prompt_surface_sha256": "8c350612f380decd7d7e2521338dbcc1f77f9486ca783dfae91532f1d43b8ead",
+    "model": "claude-haiku-5-5",
+    "provider": "anthropic",
+    "runs_per_case": 3,
+    "cases": {
+      "sel-turn-off-all": {
+        "pre_existing": true,
+        "intent": "apaga todas as luzes da casa, por favor",
+        "expected_tools": [
+          "turn_off_lights"
+        ],
+        "applicable": true
+      },
+      "sel-color-one-light": {
+        "pre_existing": true,
+        "intent": "pinta o Hue Iris de vermelho",
+        "expected_tools": [
+          "set_light_color"
+        ],
+        "applicable": true
+      },
+      "sel-apply-scene": {
+        "pre_existing": true,
+        "intent": "coloca a cena noite_relaxante",
+        "expected_tools": [
+          "apply_config"
+        ],
+        "applicable": true
+      },
+      "sel-status": {
+        "pre_existing": true,
+        "intent": "quais lâmpadas estão acesas neste momento?",
+        "expected_tools": [
+          "get_light_status"
+        ],
+        "applicable": true
+      },
+      "sel-room-brightness": {
+        "pre_existing": true,
+        "intent": "baixa as luzes do teto para 30%",
+        "expected_tools": [
+          "set_room_brightness",
+          "set_brightness"
+        ],
+        "applicable": true
+      },
+      "sel-save-current": {
+        "pre_existing": true,
+        "intent": "grava a iluminação exatamente como está agora com o nome estudo_noturno",
+        "expected_tools": [
+          "save_current_config"
+        ],
+        "applicable": true
+      },
+      "sel-add-favorite": {
+        "pre_existing": true,
+        "intent": "põe a noite_relaxante nas minhas favoritas",
+        "expected_tools": [
+          "add_favorite"
+        ],
+        "applicable": true
+      },
+      "sel-search-theme": {
+        "pre_existing": false,
+        "intent": "existe alguma cena com clima de praia ou mar?",
+        "expected_tools": [
+          "search_configs"
+        ],
+        "applicable": false
+      },
+      "sel-describe": {
+        "pre_existing": false,
+        "intent": "detalha o que a cena mar_calmo faz em cada lâmpada",
+        "expected_tools": [
+          "describe_config"
+        ],
+        "applicable": false
+      },
+      "sel-create-spec": {
+        "pre_existing": false,
+        "intent": "monta uma cena nova chamada oceano_profundo com a Lâmpada 1 azul escuro a 40% e o Hue Iris ciano a 30%, mas não aplica",
+        "expected_tools": [
+          "create_config"
+        ],
+        "applicable": false
+      },
+      "sel-undo": {
+        "pre_existing": false,
+        "intent": "volta a iluminação para como estava antes da última mudança",
+        "expected_tools": [
+          "undo_last_scene"
+        ],
+        "applicable": false
+      },
+      "sel-group-apply": {
+        "pre_existing": false,
+        "intent": "aplica a mar_calmo apenas no grupo Sala",
+        "expected_tools": [
+          "apply_config_to_group"
+        ],
+        "applicable": false
+      },
+      "sel-list-schedules": {
+        "pre_existing": false,
+        "intent": "que horários automáticos estão programados?",
+        "expected_tools": [
+          "list_schedules"
+        ],
+        "applicable": false
+      },
+      "sel-create-schedule": {
+        "pre_existing": false,
+        "intent": "programa para desligar tudo às 23:30 em dias úteis",
+        "expected_tools": [
+          "create_schedule"
+        ],
+        "applicable": false
+      },
+      "sel-start-mirror": {
+        "pre_existing": false,
+        "intent": "liga o espelhamento da tela com o perfil cinema",
+        "expected_tools": [
+          "start_mirror"
+        ],
+        "applicable": false
+      },
+      "sel-kelvin": {
+        "pre_existing": false,
+        "intent": "deixa o teto num branco quente de 2700 kelvin",
+        "expected_tools": [
+          "set_color_temperature"
+        ],
+        "applicable": false
+      },
+      "sel-health": {
+        "pre_existing": false,
+        "intent": "a bridge está conectada? me dá um panorama da saúde do sistema",
+        "expected_tools": [
+          "get_system_health"
+        ],
+        "applicable": false
+      }
+    },
+    "results": [
+      {
+        "case": "sel-turn-off-all",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "turn_off_lights"
+        ],
+        "orchestrator_calls": [
+          "turn_off_lights"
+        ],
+        "input_tokens": 12187,
+        "output_tokens": 80,
+        "latency_s": 2.34
+      },
+      {
+        "case": "sel-turn-off-all",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "turn_off_lights"
+        ],
+        "orchestrator_calls": [
+          "turn_off_lights"
+        ],
+        "input_tokens": 12187,
+        "output_tokens": 77,
+        "latency_s": 2.56
+      },
+      {
+        "case": "sel-turn-off-all",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "turn_off_lights"
+        ],
+        "orchestrator_calls": [
+          "turn_off_lights"
+        ],
+        "input_tokens": 12187,
+        "output_tokens": 80,
+        "latency_s": 2.31
+      },
+      {
+        "case": "sel-color-one-light",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_light_color"
+        ],
+        "orchestrator_calls": [
+          "set_light_color"
+        ],
+        "input_tokens": 12289,
+        "output_tokens": 185,
+        "latency_s": 2.53
+      },
+      {
+        "case": "sel-color-one-light",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_light_color"
+        ],
+        "orchestrator_calls": [
+          "set_light_color"
+        ],
+        "input_tokens": 12266,
+        "output_tokens": 165,
+        "latency_s": 2.08
+      },
+      {
+        "case": "sel-color-one-light",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_light_color"
+        ],
+        "orchestrator_calls": [
+          "set_light_color"
+        ],
+        "input_tokens": 12289,
+        "output_tokens": 184,
+        "latency_s": 2.53
+      },
+      {
+        "case": "sel-apply-scene",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "apply_config"
+        ],
+        "orchestrator_calls": [
+          "apply_config"
+        ],
+        "input_tokens": 12223,
+        "output_tokens": 105,
+        "latency_s": 2.66
+      },
+      {
+        "case": "sel-apply-scene",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "apply_config"
+        ],
+        "orchestrator_calls": [
+          "apply_config"
+        ],
+        "input_tokens": 12321,
+        "output_tokens": 215,
+        "latency_s": 2.84
+      },
+      {
+        "case": "sel-apply-scene",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "apply_config"
+        ],
+        "orchestrator_calls": [
+          "apply_config"
+        ],
+        "input_tokens": 12303,
+        "output_tokens": 199,
+        "latency_s": 2.39
+      },
+      {
+        "case": "sel-status",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_light_status"
+        ],
+        "orchestrator_calls": [
+          "get_light_status"
+        ],
+        "input_tokens": 12671,
+        "output_tokens": 261,
+        "latency_s": 2.52
+      },
+      {
+        "case": "sel-status",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_light_status"
+        ],
+        "orchestrator_calls": [
+          "get_light_status"
+        ],
+        "input_tokens": 12658,
+        "output_tokens": 253,
+        "latency_s": 2.49
+      },
+      {
+        "case": "sel-status",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_light_status"
+        ],
+        "orchestrator_calls": [
+          "get_light_status"
+        ],
+        "input_tokens": 12663,
+        "output_tokens": 260,
+        "latency_s": 3.27
+      },
+      {
+        "case": "sel-room-brightness",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_light_locations",
+          "get_light_status",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness"
+        ],
+        "orchestrator_calls": [
+          "get_light_locations",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness",
+          "get_light_status"
+        ],
+        "input_tokens": 21306,
+        "output_tokens": 1075,
+        "latency_s": 6.22
+      },
+      {
+        "case": "sel-room-brightness",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_light_locations",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness"
+        ],
+        "orchestrator_calls": [
+          "get_light_locations",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness"
+        ],
+        "input_tokens": 20559,
+        "output_tokens": 670,
+        "latency_s": 4.59
+      },
+      {
+        "case": "sel-room-brightness",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_light_locations",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness"
+        ],
+        "orchestrator_calls": [
+          "get_light_locations",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness",
+          "set_brightness"
+        ],
+        "input_tokens": 20628,
+        "output_tokens": 689,
+        "latency_s": 4.38
+      },
+      {
+        "case": "sel-save-current",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "save_current_config"
+        ],
+        "orchestrator_calls": [
+          "save_current_config"
+        ],
+        "input_tokens": 12504,
+        "output_tokens": 456,
+        "latency_s": 4.52
+      },
+      {
+        "case": "sel-save-current",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "save_current_config"
+        ],
+        "orchestrator_calls": [
+          "save_current_config"
+        ],
+        "input_tokens": 12440,
+        "output_tokens": 508,
+        "latency_s": 3.88
+      },
+      {
+        "case": "sel-save-current",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "save_current_config"
+        ],
+        "orchestrator_calls": [
+          "save_current_config"
+        ],
+        "input_tokens": 12373,
+        "output_tokens": 396,
+        "latency_s": 3.33
+      },
+      {
+        "case": "sel-add-favorite",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "list_configs",
+          "add_favorite",
+          "add_favorite"
+        ],
+        "orchestrator_calls": [
+          "list_configs",
+          "add_favorite",
+          "add_favorite"
+        ],
+        "input_tokens": 25196,
+        "output_tokens": 420,
+        "latency_s": 5.32
+      },
+      {
+        "case": "sel-add-favorite",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "list_configs",
+          "add_favorite",
+          "add_favorite"
+        ],
+        "orchestrator_calls": [
+          "list_configs",
+          "add_favorite",
+          "add_favorite"
+        ],
+        "input_tokens": 25204,
+        "output_tokens": 437,
+        "latency_s": 5.8
+      },
+      {
+        "case": "sel-add-favorite",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "list_configs",
+          "add_favorite",
+          "add_favorite"
+        ],
+        "orchestrator_calls": [
+          "list_configs",
+          "add_favorite",
+          "add_favorite"
+        ],
+        "input_tokens": 25050,
+        "output_tokens": 412,
+        "latency_s": 4.93
+      }
+    ]
+  },
+  "branch_run": {
+    "label": "branch",
+    "golden_set": "hue.chat@2",
+    "prompt_version": "hue.chat.prompt@2",
+    "prompt_surface_sha256": "ff41e68f04a9a311ed145ede703929043cdc7580183b2035f09acc2b7cff11d8",
+    "model": "claude-haiku-5-5",
+    "provider": "anthropic",
+    "runs_per_case": 3,
+    "cases": {
+      "sel-turn-off-all": {
+        "pre_existing": true,
+        "intent": "apaga todas as luzes da casa, por favor",
+        "expected_tools": [
+          "turn_off_lights"
+        ],
+        "applicable": true
+      },
+      "sel-color-one-light": {
+        "pre_existing": true,
+        "intent": "pinta o Hue Iris de vermelho",
+        "expected_tools": [
+          "set_light_color"
+        ],
+        "applicable": true
+      },
+      "sel-apply-scene": {
+        "pre_existing": true,
+        "intent": "coloca a cena noite_relaxante",
+        "expected_tools": [
+          "apply_config"
+        ],
+        "applicable": true
+      },
+      "sel-status": {
+        "pre_existing": true,
+        "intent": "quais lâmpadas estão acesas neste momento?",
+        "expected_tools": [
+          "get_light_status"
+        ],
+        "applicable": true
+      },
+      "sel-room-brightness": {
+        "pre_existing": true,
+        "intent": "baixa as luzes do teto para 30%",
+        "expected_tools": [
+          "set_room_brightness",
+          "set_brightness"
+        ],
+        "applicable": true
+      },
+      "sel-save-current": {
+        "pre_existing": true,
+        "intent": "grava a iluminação exatamente como está agora com o nome estudo_noturno",
+        "expected_tools": [
+          "save_current_config"
+        ],
+        "applicable": true
+      },
+      "sel-add-favorite": {
+        "pre_existing": true,
+        "intent": "põe a noite_relaxante nas minhas favoritas",
+        "expected_tools": [
+          "add_favorite"
+        ],
+        "applicable": true
+      },
+      "sel-search-theme": {
+        "pre_existing": false,
+        "intent": "existe alguma cena com clima de praia ou mar?",
+        "expected_tools": [
+          "search_configs"
+        ],
+        "applicable": true
+      },
+      "sel-describe": {
+        "pre_existing": false,
+        "intent": "detalha o que a cena mar_calmo faz em cada lâmpada",
+        "expected_tools": [
+          "describe_config"
+        ],
+        "applicable": true
+      },
+      "sel-create-spec": {
+        "pre_existing": false,
+        "intent": "monta uma cena nova chamada oceano_profundo com a Lâmpada 1 azul escuro a 40% e o Hue Iris ciano a 30%, mas não aplica",
+        "expected_tools": [
+          "create_config"
+        ],
+        "applicable": true
+      },
+      "sel-undo": {
+        "pre_existing": false,
+        "intent": "volta a iluminação para como estava antes da última mudança",
+        "expected_tools": [
+          "undo_last_scene"
+        ],
+        "applicable": true
+      },
+      "sel-group-apply": {
+        "pre_existing": false,
+        "intent": "aplica a mar_calmo apenas no grupo Sala",
+        "expected_tools": [
+          "apply_config_to_group"
+        ],
+        "applicable": true
+      },
+      "sel-list-schedules": {
+        "pre_existing": false,
+        "intent": "que horários automáticos estão programados?",
+        "expected_tools": [
+          "list_schedules"
+        ],
+        "applicable": true
+      },
+      "sel-create-schedule": {
+        "pre_existing": false,
+        "intent": "programa para desligar tudo às 23:30 em dias úteis",
+        "expected_tools": [
+          "create_schedule"
+        ],
+        "applicable": true
+      },
+      "sel-start-mirror": {
+        "pre_existing": false,
+        "intent": "liga o espelhamento da tela com o perfil cinema",
+        "expected_tools": [
+          "start_mirror"
+        ],
+        "applicable": true
+      },
+      "sel-kelvin": {
+        "pre_existing": false,
+        "intent": "deixa o teto num branco quente de 2700 kelvin",
+        "expected_tools": [
+          "set_color_temperature"
+        ],
+        "applicable": true
+      },
+      "sel-health": {
+        "pre_existing": false,
+        "intent": "a bridge está conectada? me dá um panorama da saúde do sistema",
+        "expected_tools": [
+          "get_system_health"
+        ],
+        "applicable": true
+      }
+    },
+    "results": [
+      {
+        "case": "sel-turn-off-all",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "turn_off_lights"
+        ],
+        "orchestrator_calls": [
+          "turn_off_lights"
+        ],
+        "input_tokens": 18029,
+        "output_tokens": 81,
+        "latency_s": 2.66
+      },
+      {
+        "case": "sel-turn-off-all",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "turn_off_lights"
+        ],
+        "orchestrator_calls": [
+          "turn_off_lights"
+        ],
+        "input_tokens": 18029,
+        "output_tokens": 81,
+        "latency_s": 2.65
+      },
+      {
+        "case": "sel-turn-off-all",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "turn_off_lights"
+        ],
+        "orchestrator_calls": [
+          "turn_off_lights"
+        ],
+        "input_tokens": 18029,
+        "output_tokens": 83,
+        "latency_s": 2.59
+      },
+      {
+        "case": "sel-color-one-light",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_light_color"
+        ],
+        "orchestrator_calls": [
+          "set_light_color"
+        ],
+        "input_tokens": 18129,
+        "output_tokens": 185,
+        "latency_s": 2.31
+      },
+      {
+        "case": "sel-color-one-light",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_light_color"
+        ],
+        "orchestrator_calls": [
+          "set_light_color"
+        ],
+        "input_tokens": 18129,
+        "output_tokens": 210,
+        "latency_s": 2.29
+      },
+      {
+        "case": "sel-color-one-light",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_light_color"
+        ],
+        "orchestrator_calls": [
+          "set_light_color"
+        ],
+        "input_tokens": 18129,
+        "output_tokens": 185,
+        "latency_s": 2.1
+      },
+      {
+        "case": "sel-apply-scene",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "apply_config"
+        ],
+        "orchestrator_calls": [
+          "apply_config"
+        ],
+        "input_tokens": 18063,
+        "output_tokens": 105,
+        "latency_s": 2.48
+      },
+      {
+        "case": "sel-apply-scene",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "apply_config"
+        ],
+        "orchestrator_calls": [
+          "apply_config"
+        ],
+        "input_tokens": 18063,
+        "output_tokens": 150,
+        "latency_s": 2.61
+      },
+      {
+        "case": "sel-apply-scene",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "apply_config"
+        ],
+        "orchestrator_calls": [
+          "apply_config"
+        ],
+        "input_tokens": 18063,
+        "output_tokens": 118,
+        "latency_s": 2.52
+      },
+      {
+        "case": "sel-status",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_light_status"
+        ],
+        "orchestrator_calls": [
+          "get_light_status"
+        ],
+        "input_tokens": 18478,
+        "output_tokens": 275,
+        "latency_s": 3.21
+      },
+      {
+        "case": "sel-status",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_light_status"
+        ],
+        "orchestrator_calls": [
+          "get_light_status"
+        ],
+        "input_tokens": 18470,
+        "output_tokens": 222,
+        "latency_s": 3.36
+      },
+      {
+        "case": "sel-status",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_light_status"
+        ],
+        "orchestrator_calls": [
+          "get_light_status"
+        ],
+        "input_tokens": 18503,
+        "output_tokens": 254,
+        "latency_s": 3.58
+      },
+      {
+        "case": "sel-room-brightness",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_room_brightness"
+        ],
+        "orchestrator_calls": [
+          "set_room_brightness"
+        ],
+        "input_tokens": 18173,
+        "output_tokens": 239,
+        "latency_s": 2.61
+      },
+      {
+        "case": "sel-room-brightness",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_room_brightness"
+        ],
+        "orchestrator_calls": [
+          "set_room_brightness"
+        ],
+        "input_tokens": 18159,
+        "output_tokens": 235,
+        "latency_s": 2.47
+      },
+      {
+        "case": "sel-room-brightness",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_room_brightness"
+        ],
+        "orchestrator_calls": [
+          "set_room_brightness"
+        ],
+        "input_tokens": 18202,
+        "output_tokens": 266,
+        "latency_s": 7.03
+      },
+      {
+        "case": "sel-save-current",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "save_current_config"
+        ],
+        "orchestrator_calls": [
+          "save_current_config"
+        ],
+        "input_tokens": 18204,
+        "output_tokens": 283,
+        "latency_s": 3.26
+      },
+      {
+        "case": "sel-save-current",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "save_current_config"
+        ],
+        "orchestrator_calls": [
+          "save_current_config"
+        ],
+        "input_tokens": 18131,
+        "output_tokens": 393,
+        "latency_s": 3.88
+      },
+      {
+        "case": "sel-save-current",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "save_current_config"
+        ],
+        "orchestrator_calls": [
+          "save_current_config"
+        ],
+        "input_tokens": 18129,
+        "output_tokens": 366,
+        "latency_s": 4.33
+      },
+      {
+        "case": "sel-add-favorite",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "add_favorite"
+        ],
+        "orchestrator_calls": [
+          "add_favorite"
+        ],
+        "input_tokens": 18153,
+        "output_tokens": 193,
+        "latency_s": 2.37
+      },
+      {
+        "case": "sel-add-favorite",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "list_configs",
+          "add_favorite"
+        ],
+        "orchestrator_calls": [
+          "list_configs",
+          "add_favorite"
+        ],
+        "input_tokens": 27424,
+        "output_tokens": 262,
+        "latency_s": 3.34
+      },
+      {
+        "case": "sel-add-favorite",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "add_favorite"
+        ],
+        "orchestrator_calls": [
+          "add_favorite"
+        ],
+        "input_tokens": 18105,
+        "output_tokens": 159,
+        "latency_s": 2.54
+      },
+      {
+        "case": "sel-search-theme",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "search_configs",
+          "search_configs",
+          "search_configs",
+          "search_configs"
+        ],
+        "orchestrator_calls": [
+          "search_configs",
+          "search_configs",
+          "search_configs",
+          "search_configs"
+        ],
+        "input_tokens": 27849,
+        "output_tokens": 662,
+        "latency_s": 5.14
+      },
+      {
+        "case": "sel-search-theme",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "search_configs",
+          "search_configs",
+          "search_configs",
+          "search_configs"
+        ],
+        "orchestrator_calls": [
+          "search_configs",
+          "search_configs",
+          "search_configs",
+          "search_configs"
+        ],
+        "input_tokens": 27839,
+        "output_tokens": 680,
+        "latency_s": 5.36
+      },
+      {
+        "case": "sel-search-theme",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "search_configs",
+          "search_configs",
+          "search_configs",
+          "search_configs"
+        ],
+        "orchestrator_calls": [
+          "search_configs",
+          "search_configs",
+          "search_configs",
+          "search_configs"
+        ],
+        "input_tokens": 27869,
+        "output_tokens": 483,
+        "latency_s": 4.33
+      },
+      {
+        "case": "sel-describe",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "describe_config"
+        ],
+        "orchestrator_calls": [
+          "describe_config"
+        ],
+        "input_tokens": 18339,
+        "output_tokens": 651,
+        "latency_s": 4.87
+      },
+      {
+        "case": "sel-describe",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "describe_config"
+        ],
+        "orchestrator_calls": [
+          "describe_config"
+        ],
+        "input_tokens": 18339,
+        "output_tokens": 680,
+        "latency_s": 4.15
+      },
+      {
+        "case": "sel-describe",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "describe_config"
+        ],
+        "orchestrator_calls": [
+          "describe_config"
+        ],
+        "input_tokens": 18339,
+        "output_tokens": 683,
+        "latency_s": 3.98
+      },
+      {
+        "case": "sel-create-spec",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "create_config"
+        ],
+        "orchestrator_calls": [
+          "create_config"
+        ],
+        "input_tokens": 18483,
+        "output_tokens": 552,
+        "latency_s": 3.52
+      },
+      {
+        "case": "sel-create-spec",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "create_config"
+        ],
+        "orchestrator_calls": [
+          "create_config"
+        ],
+        "input_tokens": 18491,
+        "output_tokens": 787,
+        "latency_s": 4.96
+      },
+      {
+        "case": "sel-create-spec",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "create_config"
+        ],
+        "orchestrator_calls": [
+          "create_config"
+        ],
+        "input_tokens": 18435,
+        "output_tokens": 687,
+        "latency_s": 4.42
+      },
+      {
+        "case": "sel-undo",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "undo_last_scene"
+        ],
+        "orchestrator_calls": [
+          "undo_last_scene"
+        ],
+        "input_tokens": 18061,
+        "output_tokens": 136,
+        "latency_s": 2.2
+      },
+      {
+        "case": "sel-undo",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "undo_last_scene"
+        ],
+        "orchestrator_calls": [
+          "undo_last_scene"
+        ],
+        "input_tokens": 18058,
+        "output_tokens": 133,
+        "latency_s": 2.05
+      },
+      {
+        "case": "sel-undo",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "undo_last_scene"
+        ],
+        "orchestrator_calls": [
+          "undo_last_scene"
+        ],
+        "input_tokens": 18060,
+        "output_tokens": 112,
+        "latency_s": 1.83
+      },
+      {
+        "case": "sel-group-apply",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "apply_config_to_group"
+        ],
+        "orchestrator_calls": [
+          "apply_config_to_group"
+        ],
+        "input_tokens": 18158,
+        "output_tokens": 216,
+        "latency_s": 3.66
+      },
+      {
+        "case": "sel-group-apply",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "apply_config_to_group"
+        ],
+        "orchestrator_calls": [
+          "apply_config_to_group"
+        ],
+        "input_tokens": 18162,
+        "output_tokens": 220,
+        "latency_s": 2.46
+      },
+      {
+        "case": "sel-group-apply",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "apply_config_to_group"
+        ],
+        "orchestrator_calls": [
+          "apply_config_to_group"
+        ],
+        "input_tokens": 18100,
+        "output_tokens": 153,
+        "latency_s": 2.24
+      },
+      {
+        "case": "sel-list-schedules",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "list_schedules"
+        ],
+        "orchestrator_calls": [
+          "list_schedules"
+        ],
+        "input_tokens": 18012,
+        "output_tokens": 112,
+        "latency_s": 2.18
+      },
+      {
+        "case": "sel-list-schedules",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "list_schedules"
+        ],
+        "orchestrator_calls": [
+          "list_schedules"
+        ],
+        "input_tokens": 18012,
+        "output_tokens": 86,
+        "latency_s": 1.79
+      },
+      {
+        "case": "sel-list-schedules",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "list_schedules"
+        ],
+        "orchestrator_calls": [
+          "list_schedules"
+        ],
+        "input_tokens": 18012,
+        "output_tokens": 92,
+        "latency_s": 2.37
+      },
+      {
+        "case": "sel-create-schedule",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "create_schedule"
+        ],
+        "orchestrator_calls": [
+          "create_schedule"
+        ],
+        "input_tokens": 18370,
+        "output_tokens": 466,
+        "latency_s": 3.32
+      },
+      {
+        "case": "sel-create-schedule",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "create_schedule"
+        ],
+        "orchestrator_calls": [
+          "create_schedule"
+        ],
+        "input_tokens": 18421,
+        "output_tokens": 530,
+        "latency_s": 3.76
+      },
+      {
+        "case": "sel-create-schedule",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "create_schedule"
+        ],
+        "orchestrator_calls": [
+          "create_schedule"
+        ],
+        "input_tokens": 18408,
+        "output_tokens": 479,
+        "latency_s": 3.31
+      },
+      {
+        "case": "sel-start-mirror",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "start_mirror"
+        ],
+        "orchestrator_calls": [
+          "start_mirror"
+        ],
+        "input_tokens": 18084,
+        "output_tokens": 130,
+        "latency_s": 2.85
+      },
+      {
+        "case": "sel-start-mirror",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "start_mirror"
+        ],
+        "orchestrator_calls": [
+          "start_mirror"
+        ],
+        "input_tokens": 18053,
+        "output_tokens": 154,
+        "latency_s": 2.42
+      },
+      {
+        "case": "sel-start-mirror",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "start_mirror"
+        ],
+        "orchestrator_calls": [
+          "start_mirror"
+        ],
+        "input_tokens": 18053,
+        "output_tokens": 175,
+        "latency_s": 4.52
+      },
+      {
+        "case": "sel-kelvin",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_color_temperature"
+        ],
+        "orchestrator_calls": [
+          "set_color_temperature"
+        ],
+        "input_tokens": 18238,
+        "output_tokens": 306,
+        "latency_s": 2.67
+      },
+      {
+        "case": "sel-kelvin",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_color_temperature"
+        ],
+        "orchestrator_calls": [
+          "set_color_temperature"
+        ],
+        "input_tokens": 18216,
+        "output_tokens": 251,
+        "latency_s": 2.9
+      },
+      {
+        "case": "sel-kelvin",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "set_color_temperature"
+        ],
+        "orchestrator_calls": [
+          "set_color_temperature"
+        ],
+        "input_tokens": 18212,
+        "output_tokens": 301,
+        "latency_s": 2.64
+      },
+      {
+        "case": "sel-health",
+        "run": 0,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_system_health"
+        ],
+        "orchestrator_calls": [
+          "get_system_health"
+        ],
+        "input_tokens": 18122,
+        "output_tokens": 371,
+        "latency_s": 3.78
+      },
+      {
+        "case": "sel-health",
+        "run": 1,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_system_health"
+        ],
+        "orchestrator_calls": [
+          "get_system_health"
+        ],
+        "input_tokens": 18122,
+        "output_tokens": 364,
+        "latency_s": 4.0
+      },
+      {
+        "case": "sel-health",
+        "run": 2,
+        "passed": true,
+        "reason": "tool esperada chamada",
+        "tools_called": [
+          "get_system_health"
+        ],
+        "orchestrator_calls": [
+          "get_system_health"
+        ],
+        "input_tokens": 18122,
+        "output_tokens": 464,
+        "latency_s": 3.78
+      }
+    ]
+  }
+}

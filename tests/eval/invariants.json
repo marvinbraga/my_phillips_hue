@@ -1,6 +1,12 @@
 {
-  "version": 1,
-  "description": "Invariantes do harness Hue. Não usar em prompt/contexto do agente.",
+  "version": 2,
+  "name": "hue.chat",
+  "owner": "Marcus Vinicius Braga (mvbraga@gmail.com)",
+  "description": "Golden set do agente de chat Hue (#16). NÃO usar em prompt, few-shot, descrição de tool ou contexto do agente (anti-leakage; checado em test_invariants.py). Casos level=code rodam no CI; level=prompt rodam ao vivo via tests/eval/run_tool_selection.py; level=prompt-manual é smoke manual.",
+  "changelog": {
+    "1": "Invariantes de segurança ocular, desligar tudo e recomendação de preset.",
+    "2": "Superfície de tools #16 (code) + seleção de tool ao vivo (17 casos prompt). turn-off-all passa a exercitar build_all_tools (LightsOffService no caminho async)."
+  },
   "cases": [
     {
       "id": "eye-safety-fita-led-forte",
@@ -44,11 +50,108 @@
       "invariant": "all_off_called"
     },
     {
+      "id": "tool-surface-complete",
+      "level": "code",
+      "invariant": "tool_surface",
+      "expected_tools": [
+        "list_lights", "get_light_status", "set_light_color", "apply_config",
+        "list_configs", "turn_off_lights", "turn_on_lights", "set_brightness",
+        "save_current_config", "get_light_locations", "get_rooms",
+        "list_lights_by_room", "set_room_power", "set_room_brightness",
+        "search_configs", "describe_config", "create_config", "undo_last_scene",
+        "list_favorites", "add_favorite", "remove_favorite", "list_groups",
+        "apply_config_to_group", "list_schedules", "create_schedule",
+        "set_schedule_enabled", "get_mirror_status", "start_mirror",
+        "stop_mirror", "set_color_temperature", "get_system_health"
+      ]
+    },
+    {
+      "id": "subagent-least-privilege",
+      "level": "code",
+      "invariant": "subagent_read_only",
+      "subagent": "general-purpose",
+      "forbidden_tools": [
+        "set_light_color", "apply_config", "create_config", "save_current_config",
+        "apply_config_to_group", "create_schedule", "set_schedule_enabled",
+        "start_mirror", "stop_mirror", "undo_last_scene", "turn_off_lights",
+        "turn_on_lights", "set_brightness", "set_color_temperature"
+      ]
+    },
+    {
+      "id": "kelvin-target-teto",
+      "level": "code",
+      "intent": "branco quente no teto",
+      "invariant": "kelvin_room_prefix",
+      "target": "teto",
+      "kelvin": 2700,
+      "expected_lights": ["Lâmpada 1", "Lâmpada 2", "Lâmpada 3", "Lâmpada 4"]
+    },
+    {
+      "id": "kelvin-clamp",
+      "level": "code",
+      "invariant": "kelvin_schema_bounds",
+      "rejected_kelvin": [1999, 6501],
+      "accepted_kelvin": [2000, 6500]
+    },
+    {
+      "id": "undo-no-history",
+      "level": "code",
+      "invariant": "undo_without_history",
+      "expected_message": "Desfazer: indisponível no momento (serviço não inicializado)."
+    },
+    {
+      "id": "schedule-22h-schema",
+      "level": "code",
+      "intent": "agenda desligar às 22h de segunda a sexta",
+      "invariant": "schedule_payload",
+      "args": {"name": "Dormir", "time_hhmm": "22:00", "action": "power_off", "days": [4, 0, 1, 2, 3]},
+      "expected": {"action_type": "power_off", "days_of_week": "0,1,2,3,4", "enabled": false, "action_payload": {}}
+    },
+    {
       "id": "preset-recommendation-before-save",
-      "level": "prompt",
+      "level": "prompt-manual",
       "intent": "salve essa cena relaxante",
       "invariant": "recommends_existing_before_save",
       "existing_preset": "noite_relaxante"
-    }
+    },
+    {"id": "sel-turn-off-all", "level": "prompt", "invariant": "tool_selection", "pre_existing": true,
+     "intent": "apaga todas as luzes da casa, por favor", "expected_tools": ["turn_off_lights"]},
+    {"id": "sel-color-one-light", "level": "prompt", "invariant": "tool_selection", "pre_existing": true,
+     "intent": "pinta o Hue Iris de vermelho", "expected_tools": ["set_light_color"]},
+    {"id": "sel-apply-scene", "level": "prompt", "invariant": "tool_selection", "pre_existing": true,
+     "intent": "coloca a cena noite_relaxante", "expected_tools": ["apply_config"],
+     "forbidden_tools": ["apply_config_to_group"]},
+    {"id": "sel-status", "level": "prompt", "invariant": "tool_selection", "pre_existing": true,
+     "intent": "quais lâmpadas estão acesas neste momento?", "expected_tools": ["get_light_status"]},
+    {"id": "sel-room-brightness", "level": "prompt", "invariant": "tool_selection", "pre_existing": true,
+     "intent": "baixa as luzes do teto para 30%", "expected_tools": ["set_room_brightness", "set_brightness"]},
+    {"id": "sel-save-current", "level": "prompt", "invariant": "tool_selection", "pre_existing": true,
+     "intent": "grava a iluminação exatamente como está agora com o nome estudo_noturno",
+     "expected_tools": ["save_current_config"], "forbidden_tools": ["create_config"]},
+    {"id": "sel-add-favorite", "level": "prompt", "invariant": "tool_selection", "pre_existing": true,
+     "intent": "põe a noite_relaxante nas minhas favoritas", "expected_tools": ["add_favorite"]},
+    {"id": "sel-search-theme", "level": "prompt", "invariant": "tool_selection", "pre_existing": false,
+     "intent": "existe alguma cena com clima de praia ou mar?", "expected_tools": ["search_configs"]},
+    {"id": "sel-describe", "level": "prompt", "invariant": "tool_selection", "pre_existing": false,
+     "intent": "detalha o que a cena mar_calmo faz em cada lâmpada", "expected_tools": ["describe_config"]},
+    {"id": "sel-create-spec", "level": "prompt", "invariant": "tool_selection", "pre_existing": false,
+     "intent": "monta uma cena nova chamada oceano_profundo com a Lâmpada 1 azul escuro a 40% e o Hue Iris ciano a 30%, mas não aplica",
+     "expected_tools": ["create_config"], "forbidden_tools": ["save_current_config", "apply_config"]},
+    {"id": "sel-undo", "level": "prompt", "invariant": "tool_selection", "pre_existing": false,
+     "intent": "volta a iluminação para como estava antes da última mudança", "expected_tools": ["undo_last_scene"]},
+    {"id": "sel-group-apply", "level": "prompt", "invariant": "tool_selection", "pre_existing": false,
+     "intent": "aplica a mar_calmo apenas no grupo Sala", "expected_tools": ["apply_config_to_group"],
+     "forbidden_tools": ["apply_config"]},
+    {"id": "sel-list-schedules", "level": "prompt", "invariant": "tool_selection", "pre_existing": false,
+     "intent": "que horários automáticos estão programados?", "expected_tools": ["list_schedules"]},
+    {"id": "sel-create-schedule", "level": "prompt", "invariant": "tool_selection", "pre_existing": false,
+     "intent": "programa para desligar tudo às 23:30 em dias úteis", "expected_tools": ["create_schedule"],
+     "forbidden_tools": ["turn_off_lights"]},
+    {"id": "sel-start-mirror", "level": "prompt", "invariant": "tool_selection", "pre_existing": false,
+     "intent": "liga o espelhamento da tela com o perfil cinema", "expected_tools": ["start_mirror"]},
+    {"id": "sel-kelvin", "level": "prompt", "invariant": "tool_selection", "pre_existing": false,
+     "intent": "deixa o teto num branco quente de 2700 kelvin", "expected_tools": ["set_color_temperature"]},
+    {"id": "sel-health", "level": "prompt", "invariant": "tool_selection", "pre_existing": false,
+     "intent": "a bridge está conectada? me dá um panorama da saúde do sistema", "expected_tools": ["get_system_health"]}
   ]
 }
