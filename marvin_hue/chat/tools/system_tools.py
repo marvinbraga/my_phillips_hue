@@ -97,8 +97,15 @@ def _health_summary(payload: Mapping[str, Any]) -> str:
     else:
         bridge_line = f"desconectada ({bridge.get('error', 'sem resposta')})"
     mirror_line = "ativo" if mirror.get("running") else "parado"
-    if mirror.get("running") and mirror.get("fps") is not None:
-        mirror_line += f" ({mirror['fps']} FPS)"
+    if mirror.get("running"):
+        details: list[str] = []
+        mode_label = _MODE_LABELS.get(str(mirror.get("mode")))
+        if mode_label:
+            details.append(mode_label)
+        if mirror.get("fps") is not None:
+            details.append(f"{mirror['fps']} FPS")
+        if details:
+            mirror_line += f" ({', '.join(details)})"
     chat_line = "disponível" if chat.get("available") else (
         f"indisponível ({chat.get('reason') or 'sem motivo'})"
     )

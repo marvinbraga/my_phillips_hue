@@ -146,6 +146,21 @@ async def test_get_system_health_summary(fake_controller):
     )
 
 
+async def test_get_system_health_audio_mirror_running(fake_controller):
+    payload = {
+        **HEALTH_PAYLOAD,
+        "mirror": {"running": True, "mode": "audio", "fps": 30, "profile": None},
+    }
+
+    async def collect():
+        return payload
+
+    out = await _tools(fake_controller, services(health=collect))[
+        "get_system_health"
+    ].ainvoke({})
+    assert "- Espelhamento: ativo (música, 30 FPS)" in out
+
+
 async def test_get_system_health_error(fake_controller):
     async def collect():
         raise RuntimeError("boom")
@@ -354,9 +369,10 @@ async def test_default_health_collects_with_route_arguments(monkeypatch):
     from marvin_hue.chat.services import ChatServices
     from marvin_hue.services import health
 
-    hue, screen, agent, runner, registry, sched = (object() for _ in range(6))
+    hue, screen, audio, agent, runner, registry, sched = (object() for _ in range(7))
     monkeypatch.setattr(dependencies, "_hue_controller", hue)
     monkeypatch.setattr(dependencies, "_screen_mirror", screen)
+    monkeypatch.setattr(dependencies, "_audio_mirror", audio)
     monkeypatch.setattr(dependencies, "_chat_agent", agent)
     monkeypatch.setattr(dependencies, "_chat_unavailable_reason", None)
     monkeypatch.setattr(dependencies, "_schedule_runner", runner)
@@ -374,6 +390,7 @@ async def test_default_health_collects_with_route_arguments(monkeypatch):
     assert seen == {
         "hue": hue,
         "screen_mirror": screen,
+        "audio_mirror": audio,
         "chat_agent": agent,
         "chat_reason": None,
         "registry": registry,

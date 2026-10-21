@@ -10,12 +10,14 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from marvin_hue.audio_mirror import AudioMirror
 from marvin_hue.chat import HueLightAgent
 from marvin_hue.config import settings
 from marvin_hue.controllers import HueController
 from marvin_hue.logging_config import get_logger
 from marvin_hue.screen_mirror import ScreenMirror
 from marvin_hue.services.light_registry import LightRegistryService
+from marvin_hue.services.mirror_control import active_mode
 from marvin_hue.services.schedule_runner import ScheduleRunner
 from marvin_hue.services.schedule_service import ScheduleService
 
@@ -31,6 +33,7 @@ async def collect_health(
     registry: LightRegistryService | None,
     schedule_runner: ScheduleRunner | None = None,
     schedule_service: ScheduleService | None = None,
+    audio_mirror: AudioMirror | None = None,
 ) -> dict[str, Any]:
     """Build the health snapshot for API and dashboard.
 
@@ -41,7 +44,7 @@ async def collect_health(
     now = datetime.now(timezone.utc)
     bridge_block = await _bridge_block(hue)
     lights_block = await _lights_block(hue, registry)
-    mirror_block = _mirror_block(screen_mirror)
+    mirror_block = _mirror_block(screen_mirror, audio_mirror)
     chat_block = {
         "available": chat_agent is not None,
         "reason": None if chat_agent is not None else chat_reason,
@@ -109,17 +112,51 @@ async def _lights_block(
     }
 
 
-def _mirror_block(screen_mirror: ScreenMirror) -> dict[str, Any]:
+_AUDIO_LEVEL_KEYS = ("bass", "mid", "treble", "beat")
+
+
+def _mirror_block(
+    screen_mirror: ScreenMirror, audio_mirror: AudioMirror | None
+) -> dict[str, Any]:
+    """State of the active mirror (audio wins, like ``unified_status``).
+
+    Keeps the legacy keys (``running``/``fps``/``profile``) and adds ``mode``
+    (``"screen"`` | ``"audio"`` | None) plus a compact ``audio`` block.
+    """
     try:
-        status = screen_mirror.get_status()
+        mode: str | None
+        if (
+            audio_mirror is not None
+            and active_mode(screen_mirror, audio_mirror) == "audio"
+        ):
+            status = audio_mirror.get_status()
+            mode = "audio"
+        else:
+            # Screen keeps the legacy source of truth: its own status payload.
+            status = screen_mirror.get_status()
+            mode = "screen" if status.get("running") else None
+        audio_block: dict[str, Any] | None = None
+        if mode == "audio":
+            audio_block = {
+                key: float(status.get(key) or 0.0) for key in _AUDIO_LEVEL_KEYS
+            }
+            audio_block["config_name"] = status.get("config_name")
         return {
-            "running": bool(status.get("running", False)),
+            "running": mode is not None,
+            "mode": mode,
             "fps": status.get("fps"),
-            "profile": status.get("profile"),  # null until mirror profiles land
+            "profile": status.get("active_profile") or status.get("profile"),
+            "audio": audio_block,
         }
     except Exception as exc:
         logger.warning(f"Health mirror status failed: {exc}")
-        return {"running": False, "fps": None, "profile": None}
+        return {
+            "running": False,
+            "mode": None,
+            "fps": None,
+            "profile": None,
+            "audio": None,
+        }
 
 
 async def _registry_block(

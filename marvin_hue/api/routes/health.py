@@ -16,6 +16,7 @@ from marvin_hue.api.dependencies import (
     get_schedule_runner,
     get_screen_mirror,
 )
+from marvin_hue.audio_mirror import AudioMirror
 from marvin_hue.chat import HueLightAgent
 from marvin_hue.controllers import HueController
 from marvin_hue.logging_config import get_logger
@@ -44,6 +45,13 @@ def _optional_schedule_service() -> ScheduleService | None:
         return None
 
 
+def _optional_audio_mirror() -> AudioMirror | None:
+    try:
+        return deps.get_audio_mirror()
+    except RuntimeError:
+        return None
+
+
 @router.get("/api/health")
 async def api_health(
     hue: HueController = Depends(get_hue_controller),
@@ -60,6 +68,7 @@ async def api_health(
         registry=_optional_registry(),
         schedule_runner=schedule_runner,
         schedule_service=_optional_schedule_service(),
+        audio_mirror=_optional_audio_mirror(),
     )
     return payload
 
