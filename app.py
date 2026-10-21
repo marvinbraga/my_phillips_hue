@@ -21,6 +21,7 @@ from fastapi.templating import Jinja2Templates
 from marvin_hue.api import dependencies
 from marvin_hue.api.exception_handlers import register_exception_handlers
 from marvin_hue.api.middleware.api_key import ApiKeyMiddleware
+from marvin_hue.api.middleware.csp import ContentSecurityPolicyMiddleware
 from marvin_hue.api.routes import (
     backup,
     chat,
@@ -350,6 +351,9 @@ app.add_middleware(
 # Optional API key for /api/* only (no-op when settings.api_key is empty).
 # Starlette: last added middleware is outermost; add after CORS so CORS runs first.
 app.add_middleware(ApiKeyMiddleware, api_key=settings.api_key)
+
+# CSP img-src 'self' data: nas páginas HTML (anti-exfiltração via imagem, #25).
+app.add_middleware(ContentSecurityPolicyMiddleware)
 
 # Configurar arquivos estáticos e templates
 app.mount("/static", StaticFiles(directory="web/static"), name="static")

