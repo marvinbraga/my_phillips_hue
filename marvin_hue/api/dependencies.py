@@ -13,6 +13,7 @@ from marvin_hue.basics import LightSetupsManager
 from marvin_hue.chat import HueLightAgent
 from marvin_hue.controllers import HueController
 from marvin_hue.entertainment.client import EntertainmentClient
+from marvin_hue.persistence.favorites_repository import SceneFavoritesRepository
 from marvin_hue.persistence.group_repository import GroupRepository
 from marvin_hue.persistence.light_repository import LightRegistryRepository
 from marvin_hue.persistence.schedule_repository import ScheduleRepository
@@ -21,6 +22,7 @@ from marvin_hue.services.backup import BackupService
 from marvin_hue.services.group_service import GroupService
 from marvin_hue.services.light_registry import LightRegistryService
 from marvin_hue.services.mirror_control import MirrorControlService
+from marvin_hue.services.scene_favorites import SceneFavoritesService
 from marvin_hue.services.scene_history import SceneHistoryService
 from marvin_hue.services.schedule_runner import ScheduleRunner
 from marvin_hue.services.schedule_service import ScheduleService
@@ -47,6 +49,7 @@ _schedule_service: ScheduleService | None = None
 _schedule_runner: ScheduleRunner | None = None
 _mirror_control_service: MirrorControlService | None = None
 _backup_service: BackupService | None = None
+_scene_favorites_service: SceneFavoritesService | None = None
 _bound_app: FastAPI | None = None
 
 _DEFAULT_PHYSICAL_LOCATIONS = ".res/light_physical_locations.json"
@@ -81,6 +84,7 @@ def populate_app_state(app: FastAPI) -> None:
     app.state.schedule_runner = _schedule_runner
     app.state.mirror_control_service = _mirror_control_service
     app.state.backup_service = _backup_service
+    app.state.scene_favorites_service = _scene_favorites_service
 
 
 # Mapa provider → (nome da env var, atributo em settings)
@@ -296,6 +300,20 @@ def get_schedule_runner() -> ScheduleRunner | None:
     return _schedule_runner
 
 
+def set_scene_favorites_service(service: SceneFavoritesService | None) -> None:
+    """Define (ou limpa) a instância global do SceneFavoritesService."""
+    global _scene_favorites_service
+    _scene_favorites_service = service
+    _sync_app_state("scene_favorites_service", service)
+
+
+def get_scene_favorites_service() -> SceneFavoritesService:
+    """Retorna a instância do SceneFavoritesService."""
+    if _scene_favorites_service is None:
+        raise RuntimeError("SceneFavoritesService não inicializado")
+    return _scene_favorites_service
+
+
 def set_mirror_control_service(service: MirrorControlService | None) -> None:
     """Define (ou limpa) a instância do MirrorControlService."""
     global _mirror_control_service
@@ -340,6 +358,7 @@ def build_backup_service(
     *,
     group_repo: GroupRepository | None = None,
     schedule_repo: ScheduleRepository | None = None,
+    favorites_repo: SceneFavoritesRepository | None = None,
     on_lights_changed: Callable[[], Awaitable[None]] | None = None,
     app_version: str = "2.0.0",
 ) -> BackupService:
@@ -353,6 +372,7 @@ def build_backup_service(
         light_repo,
         group_repo=group_repo,
         schedule_repo=schedule_repo,
+        favorites_repo=favorites_repo,
         setups_path=settings.setups_file,
         positions_path=settings.positions_file,
         physical_locations_path=physical_path,
@@ -380,6 +400,10 @@ def get_backup_service() -> BackupService:
     group_svc = get_group_service()
     schedule_svc = get_schedule_service()
 
+    favorites_repo: SceneFavoritesRepository | None = None
+    if _scene_favorites_service is not None:
+        favorites_repo = _scene_favorites_service.repository
+
     async def _refresh() -> None:
         await light_svc.refresh_runtime_policy()
 
@@ -387,5 +411,6 @@ def get_backup_service() -> BackupService:
         light_svc.repository,
         group_repo=cast(GroupRepository, _repository_from_service(group_svc)),
         schedule_repo=cast(ScheduleRepository, _repository_from_service(schedule_svc)),
+        favorites_repo=favorites_repo,
         on_lights_changed=_refresh,
     )

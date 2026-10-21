@@ -7,11 +7,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from marvin_hue.api.dependencies import (
     get_hue_controller,
     get_manager,
+    get_scene_favorites_service,
     get_scene_history_service,
 )
 from marvin_hue.api.models import (
@@ -23,6 +24,8 @@ from marvin_hue.api.models import (
     ConfigurationPreview,
     ConfigurationSetting,
     ConfigurationWithSettings,
+    FavoritesListResponse,
+    FavoriteStatusResponse,
 )
 from marvin_hue.apply_result import ApplyResult
 from marvin_hue.basics import LightConfig, LightSetupsManager
@@ -31,6 +34,10 @@ from marvin_hue.logging_config import get_logger
 from marvin_hue.services.apply_config import (
     ApplyConfigNotFoundError,
     ApplyConfigService,
+)
+from marvin_hue.services.scene_favorites import (
+    FavoriteConfigNotFoundError,
+    SceneFavoritesService,
 )
 from marvin_hue.services.scene_history import SceneHistoryService
 from marvin_hue.services.scene_preview import build_scene_preview
@@ -142,6 +149,46 @@ async def get_configurations(
     if include_settings:
         return get_sorted_configs_with_settings(manager)
     return get_sorted_configs(manager)
+
+
+@router.get("/configurations/favorites", response_model=FavoritesListResponse)
+async def list_favorite_configurations(
+    service: Annotated[SceneFavoritesService, Depends(get_scene_favorites_service)],
+) -> FavoritesListResponse:
+    """Nomes das cenas favoritas que existem hoje em ``setups.json``.
+
+    Favoritos de cenas removidas/renomeadas ficam no banco, mas não aparecem.
+    """
+    return FavoritesListResponse(favorites=await service.list_existing())
+
+
+@router.put(
+    "/configurations/favorites/{name:path}",
+    response_model=FavoriteStatusResponse,
+    responses={404: {"description": "Configuração não encontrada"}},
+)
+async def add_favorite_configuration(
+    name: str,
+    service: Annotated[SceneFavoritesService, Depends(get_scene_favorites_service)],
+) -> FavoriteStatusResponse:
+    """Marca a cena como favorita (idempotente)."""
+    try:
+        await service.add(name)
+    except FavoriteConfigNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FavoriteStatusResponse(name=name, favorite=True)
+
+
+@router.delete(
+    "/configurations/favorites/{name:path}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_favorite_configuration(
+    name: str,
+    service: Annotated[SceneFavoritesService, Depends(get_scene_favorites_service)],
+) -> None:
+    """Desmarca a cena (idempotente; nome desconhecido também devolve 204)."""
+    await service.remove(name)
 
 
 @router.post(

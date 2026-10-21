@@ -85,6 +85,19 @@ class ConfigurationWithSettings(BaseModel):
     settings: list[ConfigurationSetting]
 
 
+class FavoritesListResponse(BaseModel):
+    """GET /configurations/favorites — só cenas que existem no manager."""
+
+    favorites: list[str]
+
+
+class FavoriteStatusResponse(BaseModel):
+    """PUT /configurations/favorites/{name}."""
+
+    name: str
+    favorite: bool
+
+
 class LightPosition(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
     position: str = Field(

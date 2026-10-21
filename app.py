@@ -113,6 +113,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     dependencies.set_entertainment_client(ent_client)
 
     # App-owned SQLite services (separate connections per repo; same DB file)
+    from marvin_hue.persistence.favorites_repository import (
+        SqliteSceneFavoritesRepository,
+    )
     from marvin_hue.persistence.group_repository import SqliteGroupRepository
     from marvin_hue.persistence.light_repository import SqliteLightRegistryRepository
     from marvin_hue.persistence.scene_history_repository import (
@@ -122,6 +125,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from marvin_hue.persistence.schema import init_db
     from marvin_hue.services.group_service import GroupService
     from marvin_hue.services.light_registry import LightRegistryService
+    from marvin_hue.services.scene_favorites import SceneFavoritesService
     from marvin_hue.services.scene_history import SceneHistoryService
     from marvin_hue.services.schedule_runner import ScheduleRunner
     from marvin_hue.services.schedule_service import ScheduleService
@@ -130,6 +134,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     group_repo: SqliteGroupRepository | None = None
     history_repo: SqliteSceneHistoryRepository | None = None
     schedule_repo: SqliteScheduleRepository | None = None
+    favorites_repo: SqliteSceneFavoritesRepository | None = None
     schedule_runner: ScheduleRunner | None = None
     light_registry: LightRegistryService | None = None
     try:
@@ -138,6 +143,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         group_repo = await SqliteGroupRepository.open(settings.app_db_path)
         history_repo = await SqliteSceneHistoryRepository.open(settings.app_db_path)
         schedule_repo = await SqliteScheduleRepository.open(settings.app_db_path)
+        favorites_repo = await SqliteSceneFavoritesRepository.open(
+            settings.app_db_path
+        )
 
         light_registry = LightRegistryService(light_repo, bridge=hue)
         group_service = GroupService(group_repo)
@@ -153,6 +161,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         dependencies.set_group_service(group_service)
         dependencies.set_scene_history_service(history_service)
         dependencies.set_schedule_service(schedule_service)
+        # Lookup lazy: acompanha manager recarregado (ex.: import de backup).
+        dependencies.set_scene_favorites_service(
+            SceneFavoritesService(favorites_repo, dependencies.get_manager)
+        )
 
         async def _backup_refresh() -> None:
             await light_registry.refresh_runtime_policy()
@@ -162,6 +174,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 light_repo,
                 group_repo=group_repo,
                 schedule_repo=schedule_repo,
+                favorites_repo=favorites_repo,
                 on_lights_changed=_backup_refresh,
             )
         )
@@ -180,6 +193,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         dependencies.set_scene_history_service(None)
         dependencies.set_schedule_service(None)
         dependencies.set_schedule_runner(None)
+        dependencies.set_scene_favorites_service(None)
         dependencies.set_backup_service(None)
         # Fail closed: hard-fail startup so misconfig is visible.
         raise
@@ -255,6 +269,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             if schedule_runner is not None:
                 await schedule_runner.stop()
             dependencies.set_schedule_runner(None)
+            if favorites_repo is not None:
+                await favorites_repo.close()
             if schedule_repo is not None:
                 await schedule_repo.close()
             if history_repo is not None:
@@ -267,6 +283,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             dependencies.set_scene_history_service(None)
             dependencies.set_group_service(None)
             dependencies.set_light_registry_service(None)
+            dependencies.set_scene_favorites_service(None)
             dependencies.set_backup_service(None)
             from marvin_hue.eye_safety import clear_runtime_policy
 
