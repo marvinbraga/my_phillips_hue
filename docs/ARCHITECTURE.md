@@ -515,10 +515,9 @@ create_agent(model, tools=[*build_all_tools(...), task], middleware=[...], check
         │   5. AnthropicPromptCaching  → só quando provider == "anthropic".
         │   (+ HumanInTheLoopMiddleware se require_approval / env
         │    CHAT_REQUIRE_APPROVAL — off por padrão;
-        │    interrupt_on = chat/hitl.HITL_INTERRUPT_ON: apply_config,
-        │    save_current_config, create_config, apply_config_to_group,
-        │    create_schedule, set_schedule_enabled, start_mirror, stop_mirror,
-        │    undo_last_scene; os subagents recebem o mesmo filtro p/ suas tools.
+        │    interrupt_on = chat/hitl.HITL_INTERRUPT_ON: create_config,
+        │    save_current_config, create_schedule, set_schedule_enabled,
+        │    start_mirror; os subagents recebem o mesmo filtro p/ suas tools.
         │    Fluxo interrupt/resume: ver "Aprovação humana (HITL)" abaixo)
         │   recursion_limit do orquestrador = 25 por turno (AGENT_RECURSION_LIMIT)
         │
@@ -661,7 +660,7 @@ POST /api/chat/message | WS action "message"
   → 200 {approval_required, session_id} | WS {"type": "approval_required"}
 POST /api/chat/resume | WS action "resume"
   → HueLightAgent.aresume: relê state.interrupts, valida as decisões
-      (contagem, tipo, ids) ANTES de retomar
+      (id obrigatório e exato, tipo) ANTES de retomar
   → Command(resume={interrupt_id: {"decisions": [...]}}) no mesmo thread_id
   → texto final ou outro ApprovalRequired
 ```
@@ -673,14 +672,27 @@ POST /api/chat/resume | WS action "resume"
   HITL fica nos subagents (o `task` em si não pede aprovação). Não dê
   checkpointer próprio ao subagent nem um config desligado do pai em
   `subagents/task.py`.
+- **Política:** só pede aprovação o que grava algo que fica ou toma o
+  controle (`create_config`, `save_current_config`, `create_schedule`,
+  `set_schedule_enabled`, `start_mirror`). Mutações reversíveis ficam fora
+  de propósito para evitar fadiga de aprovação; a lista completa e o motivo
+  estão no docstring de `chat/hitl.py`.
 - **Várias interrupções** (ex.: duas `task` em paralelo) exigem resume por
   id; a forma por id é usada sempre. A ordem de `__interrupt__` e de
-  `state.interrupts` pode divergir: `chat/hitl.py` ordena por id nos dois
-  caminhos, e o cliente pode mandar o `id` de cada decisão.
+  `state.interrupts` pode divergir (visto na prática), por isso cada
+  decisão TEM de levar o `id` do pedido; id ausente, repetido, desconhecido
+  ou de um conjunto antigo é recusado.
 - **Pendência:** mensagem nova com aprovação pendente não roda turno (uma
   tool call sem `ToolMessage` quebraria a thread nos provedores reais) e
-  devolve o pedido pendente. Um `asyncio.Lock` por sessão impede que dois
-  resumes simultâneos executem a ação duas vezes.
+  devolve o pedido pendente.
+- **Concorrência:** um `asyncio.Lock` por sessão, de módulo
+  (`WeakValueDictionary`, compartilhado com o agente novo de
+  `/api/chat/configure`), serializa turno, resume e clear: dois resumes
+  simultâneos executam a ação uma vez só; o outro recebe 409.
+- **Flag desligada com pendência antiga:** o grafo sem o middleware não
+  enxerga a interrupção; o turno seguinte fecha as tool calls órfãs com uma
+  `ToolMessage` "Aprovação desativada; ação cancelada." (sem executar) via
+  `aupdate_state` e segue.
 - **Decisões:** só `approve` e `reject` (motivo opcional, até 500
   caracteres). `edit` fica fora: o middleware montaria o novo tool call com o
   nome vindo do cliente.
@@ -689,10 +701,17 @@ POST /api/chat/resume | WS action "resume"
 - **Persistência:** o pedido pendente vive no checkpointer (`thread_id =
   session_id`). Com `CHAT_CHECKPOINT=sqlite` ele sobrevive a restart e a
   `configure`; com `memory`, some no restart.
-- **UI:** a tela Chat mostra um cartão por pedido (rótulo pt-BR, args em
-  lista chave/valor via `textContent`, Aprovar/Rejeitar), bloqueia o input
-  até decidir e envia `action: "pending"` ao conectar para reapresentar o
-  cartão após recarregar a página.
+- **UI:** a tela Chat mostra um cartão por pedido (rótulo pt-BR, descrição,
+  args em lista chave/valor via `textContent`, uma linha por lâmpada,
+  Aprovar/Rejeitar), bloqueia o input até decidir e envia
+  `action: "pending"` ao conectar; a resposta (lista vazia = nada pendente)
+  reapresenta ou limpa o cartão após recarregar ou reconectar.
+- **Markdown das respostas (#25):** o DOMPurify proíbe `img`/mídia/`svg` e
+  `src`/`srcset`/`style`; links abrem em nova aba com
+  `rel="noopener noreferrer"`. As páginas HTML mandam
+  `Content-Security-Policy: img-src 'self' data:`
+  (`marvin_hue/api/middleware/csp.py`) como segunda barreira contra
+  exfiltração por URL de imagem.
 
 ---
 

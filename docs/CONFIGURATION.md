@@ -157,10 +157,15 @@ GROQ_API_KEY="gsk-..."
 
 #### `CHAT_REQUIRE_APPROVAL`
 
-Exige aprovação humana antes das ações de mutação ampla do chat: aplicar,
-criar ou salvar cena, aplicar cena a um grupo, criar ou ativar agendamento,
-iniciar ou parar espelhamento e desfazer a última cena. Mudanças pontuais de
-lâmpada (cor, brilho, ligar/desligar, Kelvin) não pedem aprovação.
+Exige aprovação humana antes das ações do chat que gravam algo que fica ou
+tomam o controle das lâmpadas: criar uma cena nova, salvar o estado atual como cena, criar ou ativar/desativar um agendamento e iniciar o espelhamento. O que dá para desfazer na hora
+não pede aprovação: cor, brilho, ligar/desligar, Kelvin, salas, favoritos,
+aplicar cena (inclusive a um grupo), parar o espelhamento e desfazer a
+última cena.
+
+Se você desligar a flag com uma aprovação ainda pendente (por exemplo, com
+`CHAT_CHECKPOINT=sqlite` e restart), a ação pendente é cancelada sem rodar
+na próxima mensagem da sessão.
 
 ```bash
 CHAT_REQUIRE_APPROVAL=false  # padrão: o agente executa direto

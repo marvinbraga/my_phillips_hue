@@ -36,9 +36,11 @@ Copy `.env.example` to `.env` and set `BRIDGE_IP`.
 
 Chat providers: `openai` | `anthropic` | `xai` | `groq`. There is **no Ollama** provider.
 
-`CHAT_REQUIRE_APPROVAL` (default `false`) makes the agent stop for human approval before broad mutations (scenes, groups, schedules, mirror, undo). The Chat screen shows an Aprovar/Rejeitar card; API clients get `approval_required` and answer with `POST /api/chat/resume`. Interrupts raised inside subagents (`task` tool) propagate to the orchestrator and resume from there.
+`CHAT_REQUIRE_APPROVAL` (default `false`) makes the agent stop for human approval before actions that persist or take over: `create_config`, `save_current_config`, `create_schedule`, `set_schedule_enabled`, `start_mirror` (policy in `marvin_hue/chat/hitl.py`; reversible mutations stay ungated). Each decision must carry the request `id`. The Chat screen shows an Aprovar/Rejeitar card; API clients get `approval_required` and answer with `POST /api/chat/resume`. Interrupts raised inside subagents (`task` tool) propagate to the orchestrator and resume from there.
 
 `API_KEY` (optional) protects only `/api/*`. HTML pages, `/static/*`, `/apply`, `/configurations`, `/mirror/*`, `/positions*`, and WebSockets stay open for LAN UI.
+
+HTML pages send `Content-Security-Policy: img-src 'self' data:` and chat markdown forbids images (DOMPurify), so model output cannot exfiltrate data through image URLs.
 
 The chat is a full-privilege channel (lights, scenes, schedules, mirror). `WS /ws/chat` rejects cross-origin browser connections (`Origin` must match `Host`; close code 1008); clients without `Origin` are accepted.
 

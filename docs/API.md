@@ -1476,9 +1476,8 @@ Envia uma mensagem para o agente e retorna a resposta.
 
 **Response 200 — aprovação necessária** (só com `CHAT_REQUIRE_APPROVAL=true`):
 
-O agente parou antes de uma ação de mutação ampla (aplicar/criar/salvar
-cena, aplicar a grupo, criar ou ativar agendamento, iniciar/parar
-espelhamento, desfazer cena). Nada foi executado ainda. Retome com
+O agente parou antes de uma ação que grava algo ou toma o controle das
+lâmpadas (criar uma cena nova, salvar o estado atual como cena, criar ou ativar/desativar um agendamento e iniciar o espelhamento). Nada foi executado ainda. Retome com
 `POST /api/chat/resume`.
 
 ```json
@@ -1490,7 +1489,7 @@ espelhamento, desfazer cena). Nada foi executado ainda. Retome com
       "id": "7f3c…:0",
       "tool": "start_mirror",
       "args": {"mode": "screen"},
-      "description": "Esta ação precisa da sua aprovação\n\nTool: start_mirror\nArgs: {'mode': 'screen'}",
+      "description": "Iniciar o espelhamento: as lâmpadas passam a seguir a tela ou a música.",
       "allowed_decisions": ["approve", "reject"]
     }
   ]
@@ -1558,8 +1557,10 @@ configurada, como as demais rotas `/api/*`.
 }
 ```
 
-- `decisions` (1-20): uma por pedido pendente. Com `id` em todas, o casamento
-  é por id; sem `id`, pela ordem de `approval_required`.
+- `decisions` (1-20): exatamente uma por pedido pendente.
+- `id` (obrigatório): o `id` do pedido em `approval_required`. Não há
+  casamento por posição; id ausente ou vazio → 422; repetido, desconhecido
+  ou de um conjunto antigo (ex.: depois de uma segunda aprovação) → 400.
 - `type`: `approve` ou `reject`. `edit` não é aceito (422).
 - `message` (opcional, até 500): motivo da rejeição, repassado ao agente.
 
@@ -1572,15 +1573,26 @@ segunda aprovação).
 
 | Status | Quando |
 |--------|--------|
-| 400 | Número de decisões ou ids não batem com os pedidos pendentes, ou decisão não permitida para a tool |
-| 409 | Nada pendente na sessão (já retomada, limpa ou despejada) |
-| 422 | Corpo inválido (`type` fora de approve/reject, lista vazia) |
+| 400 | Ids não cobrem exatamente os pedidos pendentes (repetido, desconhecido, faltando) ou decisão não permitida para a tool |
+| 409 | Nada pendente na sessão (já retomada, limpa, despejada, ou outro resume simultâneo chegou antes) |
+| 422 | Corpo inválido (`id` ausente, `type` fora de approve/reject, motivo > 500, lista vazia) |
+| 500 | Erro inesperado ao retomar (`detail`: "Erro ao retomar a conversa: …") |
 | 503 | Agente de chat indisponível |
+
+Notas:
+
+- Dois resumes simultâneos da mesma sessão são serializados: a ação roda
+  uma vez; o segundo recebe 409.
+- `POST /api/chat/configure` troca o agente mas mantém o checkpointer e o
+  lock da sessão: um pedido pendente continua retomável (com
+  `CHAT_CHECKPOINT=memory` ele some só no restart do processo).
+- Na LAN sem `API_KEY`, qualquer cliente que conheça o `session_id` pode
+  aprovar; a tela Chat gera um id aleatório por navegador.
 
 ```bash
 curl -X POST http://localhost:5081/api/chat/resume \
   -H "Content-Type: application/json" \
-  -d '{"session_id": "minha-sessao", "decisions": [{"type": "reject", "message": "agora não"}]}'
+  -d '{"session_id": "minha-sessao", "decisions": [{"id": "7f3c…:0", "type": "reject", "message": "agora não"}]}'
 ```
 
 ---
@@ -1831,15 +1843,18 @@ WebSocket para comunicação em tempo real com o agente de chat.
 }
 
 // Responder a um approval_required (resposta: typing, response ou outro
-// approval_required, typing; erro de validação ou nada pendente → error)
+// approval_required, typing; erro de validação ou nada pendente → error).
+// Cada decisão leva o id do pedido (obrigatório).
 {
   "action": "resume",
   "session_id": "minha-sessao",
   "decisions": [{"id": "7f3c…:0", "type": "approve"}]
 }
 
-// Reapresentar aprovações pendentes (a tela Chat envia ao conectar);
-// responde approval_required só se houver algo pendente
+// Reapresentar aprovações pendentes (a tela Chat envia ao conectar).
+// Sempre responde approval_required; "requests": [] = nada pendente
+// (também sem agente disponível). Frames que não são objeto JSON são
+// ignorados.
 {
   "action": "pending",
   "session_id": "minha-sessao"
