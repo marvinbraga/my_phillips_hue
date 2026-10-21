@@ -17,15 +17,26 @@ Disabled lights (``enabled_for_app=false``)
 - Control tools call HueController, which already **skips** disabled lights
   (set_light_color raises; turn_on/off/set_brightness return False;
   apply_light_config / set_all skip). Room batch tools skip them too.
+
+Favorites (``list_favorites`` / ``add_favorite`` / ``remove_favorite``)
+-----------------------------------------------------------------------
+``SceneFavoritesService`` is async and owns one aiosqlite connection plus an
+``asyncio.Lock`` bound to the FastAPI event loop. The tools therefore do the
+real work only in their ``coroutine`` (used by ``ainvoke``/``astream``, i.e.
+REST and WebSocket chat). The sync ``func`` never drives the service from a
+second event loop (that would be a cross-loop use of the lock/connection); it
+returns a clear message instead. The service is resolved lazily on each call
+through ``favorites_provider`` and the tools fail open: no service → message,
+never an exception.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
@@ -34,10 +45,37 @@ from marvin_hue.basics import LightSetupsManager
 from marvin_hue.colors import Color
 from marvin_hue.controllers import HueController
 from marvin_hue.eye_safety import is_enabled_for_app
+from marvin_hue.services.scene_favorites import FavoriteConfigNotFoundError
+
+if TYPE_CHECKING:
+    from marvin_hue.services.scene_favorites import SceneFavoritesService
 
 
 _DEFAULT_LOCATIONS_PATH = ".res/light_physical_locations.json"
 _DEFAULT_ROOM = "sem_sala"
+
+FavoritesProvider = Callable[[], "SceneFavoritesService | None"]
+
+_FAVORITES_UNAVAILABLE = (
+    "Favoritos indisponíveis no momento (serviço de favoritos não inicializado)."
+)
+_FAVORITES_SYNC_ONLY = (
+    "Favoritos só podem ser consultados ou alterados pelo chat do servidor "
+    "(web/API), que roda no contexto assíncrono do app."
+)
+
+
+def default_favorites_provider() -> "SceneFavoritesService | None":
+    """Resolve o SceneFavoritesService registrado no lifespan (ou None).
+
+    Import tardio: evita ciclo chat → api no import do pacote.
+    """
+    try:
+        from marvin_hue.api.dependencies import get_scene_favorites_service
+
+        return get_scene_favorites_service()
+    except (RuntimeError, ImportError):
+        return None
 
 
 @dataclass(frozen=True)
@@ -292,6 +330,7 @@ def build_light_tools(
     locations_path: str = _DEFAULT_LOCATIONS_PATH,
     *,
     room_index: Mapping[str, Sequence[str]] | None = None,
+    favorites_provider: FavoritesProvider | None = None,
 ) -> list[BaseTool]:
     """Cria as tools de iluminação com closures (sem estado global).
 
@@ -303,6 +342,9 @@ def build_light_tools(
             If None, falls back to grouping physical locations JSON by room/location.
             Disabled lights should already be omitted when built from the registry;
             listing still re-checks ``is_enabled_for_app`` at call time.
+        favorites_provider: resolve o SceneFavoritesService a cada chamada
+            (None → ``default_favorites_provider``). Retornar None ou levantar
+            torna as tools de favoritos indisponíveis (fail-open, sem exceção).
 
     Returns:
         Lista de BaseTool prontas para create_agent (list/status/control + room tools).
@@ -312,6 +354,7 @@ def build_light_tools(
         Room metadata is a build-time snapshot; registry room edits need agent rebuild.
     """
     rooms_map = _normalize_room_index(room_index, locations_path)
+    resolve_favorites = favorites_provider or default_favorites_provider
 
     # ----- schemas de argumentos (guiam o LLM) -----
     class _SetColorArgs(BaseModel):
@@ -354,6 +397,11 @@ def build_light_tools(
         )
         description: str = Field(
             description="Descrição de uma linha capturando o mood/ambiente das cores."
+        )
+
+    class _FavoriteArgs(BaseModel):
+        config_name: str = Field(
+            description="Nome exato da cena/preset (veja list_configs)."
         )
 
     class _RoomArgs(BaseModel):
@@ -619,6 +667,109 @@ def build_light_tools(
             msg += f" Falha/skip: {', '.join(failed)}."
         return msg
 
+    # ----- favoritos (async; ver docstring do módulo) -----
+    def _favorites_service() -> "SceneFavoritesService | None":
+        try:
+            return resolve_favorites()
+        except Exception:  # noqa: BLE001 — fail-open
+            return None
+
+    def _resolve_scene(name: str) -> tuple[str | None, str | None]:
+        """(nome canônico, None) ou (None, mensagem de erro)."""
+        if manager.get_config(name) is not None:
+            return name, None
+        key = name.strip().casefold()
+        matches = sorted(
+            {c.name for c in manager.configs if c.name.casefold() == key}
+        )
+        if len(matches) == 1:
+            return matches[0], None
+        if len(matches) > 1:
+            return None, (
+                f"Nome '{name}' é ambíguo: {', '.join(matches)}. "
+                "Use o nome exato."
+            )
+        return None, (
+            f"A cena '{name}' não existe. Use list_configs para ver os nomes "
+            "disponíveis."
+        )
+
+    def _favorites_sync() -> str:
+        if _favorites_service() is None:
+            return _FAVORITES_UNAVAILABLE
+        return _FAVORITES_SYNC_ONLY
+
+    def _list_favorites_sync() -> str:
+        return _favorites_sync()
+
+    def _add_favorite_sync(config_name: str) -> str:
+        return _favorites_sync()
+
+    def _remove_favorite_sync(config_name: str) -> str:
+        return _favorites_sync()
+
+    async def _list_favorites() -> str:
+        service = _favorites_service()
+        if service is None:
+            return _FAVORITES_UNAVAILABLE
+        try:
+            names = await service.list_existing()
+        except Exception as e:  # noqa: BLE001
+            return f"Erro ao listar favoritos: {e}"
+        if not names:
+            return "Nenhuma cena favorita ainda."
+        return "Cenas favoritas: " + ", ".join(names)
+
+    async def _current_favorites(service: "SceneFavoritesService") -> str:
+        # Devolve a lista atualizada: o modelo pode chamar list_favorites em
+        # paralelo no mesmo turno e ler o estado anterior à escrita.
+        try:
+            names = await service.list_existing()
+        except Exception:  # noqa: BLE001
+            return ""
+        return "Favoritas agora: " + (", ".join(names) or "nenhuma") + "."
+
+    async def _add_favorite(config_name: str) -> str:
+        service = _favorites_service()
+        if service is None:
+            return _FAVORITES_UNAVAILABLE
+        name, error = _resolve_scene(config_name)
+        if name is None:
+            return error or ""
+        try:
+            if name in await service.list_existing():
+                return f"A cena '{name}' já era favorita."
+            await service.add(name)
+        except FavoriteConfigNotFoundError:
+            return (
+                f"A cena '{name}' não existe. Use list_configs para ver os nomes "
+                "disponíveis."
+            )
+        except Exception as e:  # noqa: BLE001
+            return f"Erro ao marcar '{name}' como favorita: {e}"
+        return (
+            f"Cena '{name}' marcada como favorita "
+            "(aparece com estrela na tela Controle). "
+            + await _current_favorites(service)
+        )
+
+    async def _remove_favorite(config_name: str) -> str:
+        service = _favorites_service()
+        if service is None:
+            return _FAVORITES_UNAVAILABLE
+        name, error = _resolve_scene(config_name)
+        if name is None:
+            return error or ""
+        try:
+            if name not in await service.list_existing():
+                return f"A cena '{name}' não era favorita."
+            await service.remove(name)
+        except Exception as e:  # noqa: BLE001
+            return f"Erro ao remover '{name}' dos favoritos: {e}"
+        return f"Cena '{name}' removida dos favoritos. " + await _current_favorites(
+            service
+        )
+
     # ----- montagem das StructuredTools -----
     return [
         StructuredTool.from_function(
@@ -728,5 +879,28 @@ def build_light_tools(
                 "Eye-safety e skip de desabilitadas via controller."
             ),
             args_schema=_SetRoomBrightnessArgs,
+        ),
+        StructuredTool.from_function(
+            func=_list_favorites_sync,
+            coroutine=_list_favorites,
+            name="list_favorites",
+            description="Lista as cenas favoritas (marcadas com estrela na tela Controle).",
+        ),
+        StructuredTool.from_function(
+            func=_add_favorite_sync,
+            coroutine=_add_favorite,
+            name="add_favorite",
+            description=(
+                "Marca uma cena/preset existente como favorita (estrela na tela "
+                "Controle). Idempotente."
+            ),
+            args_schema=_FavoriteArgs,
+        ),
+        StructuredTool.from_function(
+            func=_remove_favorite_sync,
+            coroutine=_remove_favorite,
+            name="remove_favorite",
+            description="Remove uma cena dos favoritos. Idempotente.",
+            args_schema=_FavoriteArgs,
         ),
     ]

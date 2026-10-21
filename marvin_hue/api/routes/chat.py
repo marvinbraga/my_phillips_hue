@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from marvin_hue.chat import create_hue_agent, HueLightAgent
+from marvin_hue.chat.tools.light_tools import default_favorites_provider
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.config import settings
@@ -166,6 +167,7 @@ async def configure_chat(
             # Reusa o checkpointer ativo (lifespan) — sob sqlite, não recai p/ memória.
             checkpointer=get_chat_checkpointer(),
             room_index=room_index,
+            favorites_provider=default_favorites_provider,
         )
         set_chat_agent(new_agent)
         return {
