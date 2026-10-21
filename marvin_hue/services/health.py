@@ -113,6 +113,51 @@ async def _lights_block(
 
 
 _AUDIO_LEVEL_KEYS = ("bass", "mid", "treble", "beat")
+_MIRROR_STOPPED: dict[str, Any] = {
+    "running": False,
+    "mode": None,
+    "fps": None,
+    "profile": None,
+    "audio": None,
+}
+
+
+def _running_block(
+    mode: str, status: dict[str, Any], audio: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    return {
+        "running": True,
+        "mode": mode,
+        "fps": status.get("fps"),
+        "profile": status.get("active_profile"),
+        "audio": audio,
+    }
+
+
+def _audio_block(
+    audio_mirror: AudioMirror | None, screen_mirror: ScreenMirror
+) -> dict[str, Any] | None:
+    """Block for a running audio mirror, or None (not running / probe failed).
+
+    Own try: an audio error must fall back to the screen path, never mask a
+    running screen mirror.
+    """
+    if audio_mirror is None:
+        return None
+    try:
+        if active_mode(screen_mirror, audio_mirror) != "audio":
+            return None
+        status = audio_mirror.get_status()
+        if not status.get("running"):
+            return None
+        levels: dict[str, Any] = {
+            key: float(status.get(key) or 0.0) for key in _AUDIO_LEVEL_KEYS
+        }
+        levels["config_name"] = status.get("config_name")
+        return _running_block("audio", status, levels)
+    except Exception as exc:
+        logger.warning(f"Health audio mirror status failed: {exc}")
+        return None
 
 
 def _mirror_block(
@@ -122,41 +167,20 @@ def _mirror_block(
 
     Keeps the legacy keys (``running``/``fps``/``profile``) and adds ``mode``
     (``"screen"`` | ``"audio"`` | None) plus a compact ``audio`` block.
+    ``fps``/``profile`` are only reported while a mirror is running.
     """
+    audio = _audio_block(audio_mirror, screen_mirror)
+    if audio is not None:
+        return audio
     try:
-        mode: str | None
-        if (
-            audio_mirror is not None
-            and active_mode(screen_mirror, audio_mirror) == "audio"
-        ):
-            status = audio_mirror.get_status()
-            mode = "audio"
-        else:
-            # Screen keeps the legacy source of truth: its own status payload.
-            status = screen_mirror.get_status()
-            mode = "screen" if status.get("running") else None
-        audio_block: dict[str, Any] | None = None
-        if mode == "audio":
-            audio_block = {
-                key: float(status.get(key) or 0.0) for key in _AUDIO_LEVEL_KEYS
-            }
-            audio_block["config_name"] = status.get("config_name")
-        return {
-            "running": mode is not None,
-            "mode": mode,
-            "fps": status.get("fps"),
-            "profile": status.get("active_profile") or status.get("profile"),
-            "audio": audio_block,
-        }
+        # Screen keeps the legacy source of truth: its own status payload.
+        status = screen_mirror.get_status()
     except Exception as exc:
         logger.warning(f"Health mirror status failed: {exc}")
-        return {
-            "running": False,
-            "mode": None,
-            "fps": None,
-            "profile": None,
-            "audio": None,
-        }
+        return dict(_MIRROR_STOPPED)
+    if not status.get("running"):
+        return dict(_MIRROR_STOPPED)
+    return _running_block("screen", status)
 
 
 async def _registry_block(

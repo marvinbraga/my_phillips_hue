@@ -146,11 +146,19 @@ async def test_get_system_health_summary(fake_controller):
     )
 
 
-async def test_get_system_health_audio_mirror_running(fake_controller):
-    payload = {
-        **HEALTH_PAYLOAD,
-        "mirror": {"running": True, "mode": "audio", "fps": 30, "profile": None},
-    }
+@pytest.mark.parametrize(
+    ("mirror", "expected"),
+    [
+        ({"running": True, "mode": "audio", "fps": 30}, "ativo (música, 30 FPS)"),
+        ({"running": True, "mode": "screen", "fps": 25}, "ativo (tela, 25 FPS)"),
+        ({"running": True, "mode": "laser", "fps": 25}, "ativo (25 FPS)"),
+        ({"running": True, "mode": "screen", "fps": None}, "ativo (tela)"),
+        ({"running": True, "mode": None, "fps": None}, "ativo"),
+    ],
+    ids=["audio", "screen", "unknown-mode", "no-fps", "bare"],
+)
+async def test_get_system_health_mirror_line(fake_controller, mirror, expected):
+    payload = {**HEALTH_PAYLOAD, "mirror": {**mirror, "profile": None}}
 
     async def collect():
         return payload
@@ -158,7 +166,7 @@ async def test_get_system_health_audio_mirror_running(fake_controller):
     out = await _tools(fake_controller, services(health=collect))[
         "get_system_health"
     ].ainvoke({})
-    assert "- Espelhamento: ativo (música, 30 FPS)" in out
+    assert f"- Espelhamento: {expected}\n" in out
 
 
 async def test_get_system_health_error(fake_controller):
