@@ -104,11 +104,13 @@ class HueContextMiddleware(AgentMiddleware):
         return block
 
     def _augment(self, base: str) -> str:
+        # Estático primeiro, status vivo POR ÚLTIMO: o prefixo (base + restrições
+        # + presets) fica byte-estável entre turnos e o cache de prompt acerta.
         blocks = [
             base,
-            self._status_block(),
             self._locations_block(),
             self._presets_block(),
+            self._status_block(),
         ]
         return "\n\n".join(b for b in blocks if b)
 
