@@ -461,7 +461,14 @@ class HueLightAgent(BaseAgent):
         return tuple(getattr(state, "interrupts", ()) or ())
 
     async def apending(self, session_id: str = "default") -> Optional[ApprovalRequired]:
-        """Aprovações pendentes da sessão (ex.: a página recarregou), ou None."""
+        """Aprovações pendentes da sessão (ex.: a página recarregou), ou None.
+
+        Com a flag desligada é sempre None: uma interrupção antiga de subagent
+        ainda aparece no estado (o nó ``tools`` existe nos dois grafos), mas
+        não há mais o que aprovar — o próximo turno a cancela.
+        """
+        if not self._config.require_approval:
+            return None
         return approval_from_interrupts(await self._apending_interrupts(session_id))
 
     def _stale_calls(self, state: Any) -> list[dict[str, Any]]:
@@ -576,9 +583,13 @@ class HueLightAgent(BaseAgent):
         """
         async with session_lock(session_id):
             await self._aevict(session_id)
-            resume = build_resume_map(
-                await self._apending_interrupts(session_id), decisions
+            # Flag desligada: nada é aprovável (ver apending).
+            pending = (
+                await self._apending_interrupts(session_id)
+                if self._config.require_approval
+                else ()
             )
+            resume = build_resume_map(pending, decisions)
             result = await self._agent.ainvoke(
                 Command(resume=resume), config=self._config_for(session_id)
             )
