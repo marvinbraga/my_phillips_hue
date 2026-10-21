@@ -1,7 +1,6 @@
 """build_light_tools deve criar tools com closures, sem estado global."""
 from __future__ import annotations
 
-import pytest
 
 
 def test_build_light_tools_returns_bound_tools(fake_controller, fake_manager):

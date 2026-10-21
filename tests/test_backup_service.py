@@ -167,7 +167,6 @@ async def test_import_upserts_light_by_bridge_id(backup_env):
         }
     ]
     # rebuild zip
-    from marvin_hue.services.backup import BackupService as BS
 
     buf = BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:

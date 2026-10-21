@@ -135,8 +135,10 @@ def test_eval_eye_safety_all_max_via_chokepoint():
     from unittest.mock import MagicMock
     from marvin_hue.controllers import HueController
     c = HueController.__new__(HueController)  # sem conectar à bridge
-    fita = MagicMock(); fita.name = "Fita Led"
-    teto = MagicMock(); teto.name = "Lâmpada 1"
+    fita = MagicMock()
+    fita.name = "Fita Led"
+    teto = MagicMock()
+    teto.name = "Lâmpada 1"
     c.lights = [fita, teto]
     c._light_cache = {fita.name: fita, teto.name: teto}
     c.set_all_brightness(254)

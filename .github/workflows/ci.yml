@@ -28,10 +28,10 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       - name: Tests
         run: uv run pytest -q
 
       - name: Lint
-        run: uv run --with ruff ruff check marvin_hue tests
+        run: uv run ruff check marvin_hue tests

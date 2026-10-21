@@ -79,7 +79,7 @@ async def test_unique_active_name(repos):
 @pytest.mark.asyncio
 async def test_list_excludes_deleted(repos):
     lights, groups = repos
-    a = await groups.create(_make_group(name="A"))
+    await groups.create(_make_group(name="A"))
     b = await groups.create(_make_group(name="B"))
     await groups.soft_delete(b.id)
     active = await groups.list_all(include_deleted=False)
