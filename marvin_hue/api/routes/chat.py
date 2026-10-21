@@ -3,10 +3,17 @@ Chat Routes
 Endpoints para interação com o agente de chat.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from marvin_hue.chat import create_hue_agent, HueLightAgent
+from marvin_hue.chat.hitl import (
+    ApprovalRequired,
+    InvalidDecisionError,
+    NoPendingApprovalError,
+)
 from marvin_hue.chat.services import ChatServices
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
@@ -23,6 +30,7 @@ from marvin_hue.api.models import (
     ChatMessageRequest,
     ChatClearRequest,
     ChatConfigRequest,
+    ChatResumeRequest,
 )
 from marvin_hue.logging_config import get_logger
 
@@ -38,6 +46,28 @@ templates = Jinja2Templates(directory="web/templates")
 async def chat_page(request: Request):
     """Página de chat com o agente Marvin."""
     return templates.TemplateResponse(request, "chat.html", {"active": "chat"})
+
+
+def _turn_payload(result: Any, session_id: str) -> dict[str, Any]:
+    """Resposta de um turno: texto final ou pedidos de aprovação (HITL)."""
+    if isinstance(result, ApprovalRequired):
+        return {
+            "success": True,
+            "approval_required": result.to_list(),
+            "session_id": session_id,
+        }
+    return {"response": result, "success": True}
+
+
+def _require_agent(chat_agent: HueLightAgent | None) -> HueLightAgent:
+    if chat_agent is None:
+        reason = get_chat_unavailable_reason()
+        raise HTTPException(
+            status_code=503,
+            detail=reason
+            or "Agente de chat não disponível. Verifique as configurações.",
+        )
+    return chat_agent
 
 
 def _status_provider_model(chat_agent: HueLightAgent | None) -> tuple[str, str]:
@@ -84,31 +114,69 @@ async def send_chat_message(
         request: Mensagem do usuário
 
     Returns:
-        dict: Resposta do agente
+        dict: ``{"response", "success"}`` ou, com CHAT_REQUIRE_APPROVAL, quando
+        o agente para pedindo aprovação: ``{"approval_required": [...],
+        "session_id", "success"}`` — retome com POST /api/chat/resume. Com
+        aprovação já pendente a mensagem não é processada e os pedidos
+        pendentes voltam.
 
     Raises:
         HTTPException: Se o agente não estiver disponível ou houver erro
     """
-    if chat_agent is None:
-        reason = get_chat_unavailable_reason()
-        raise HTTPException(
-            status_code=503,
-            detail=reason
-            or "Agente de chat não disponível. Verifique as configurações.",
-        )
+    chat_agent = _require_agent(chat_agent)
 
     # Validação adicional da mensagem
     if not request.message or not request.message.strip():
         raise HTTPException(status_code=400, detail="Mensagem não pode ser vazia")
 
     try:
-        response = await chat_agent.ainvoke(request.message, session_id=request.session_id)
-        return {"response": response, "success": True}
+        result = await chat_agent.ainvoke(request.message, session_id=request.session_id)
+        return _turn_payload(result, request.session_id)
     except Exception as e:
         logger.exception(f"Error processing chat message: {e}")
         raise HTTPException(
             status_code=500, detail=f"Erro ao processar mensagem: {str(e)}"
         )
+
+
+@router.post("/api/chat/resume")
+async def resume_chat(
+    request: ChatResumeRequest,
+    chat_agent: HueLightAgent | None = Depends(get_chat_agent),
+):
+    """Retoma um turno que parou pedindo aprovação (HITL).
+
+    ``decisions``: uma por pedido pendente, na ordem recebida. 409 se não há
+    nada pendente; 400 se a contagem ou o tipo não batem.
+    """
+    chat_agent = _require_agent(chat_agent)
+    decisions = [d.model_dump(exclude_none=True) for d in request.decisions]
+    try:
+        result = await chat_agent.aresume(request.session_id, decisions)
+    except NoPendingApprovalError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except InvalidDecisionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Error resuming chat: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Erro ao retomar a conversa: {str(e)}"
+        )
+    return _turn_payload(result, request.session_id)
+
+
+@router.get("/api/chat/pending")
+async def pending_chat_approvals(
+    session_id: str = Query(default="default", max_length=128),
+    chat_agent: HueLightAgent | None = Depends(get_chat_agent),
+):
+    """Pedidos de aprovação pendentes da sessão (lista vazia se nenhum)."""
+    chat_agent = _require_agent(chat_agent)
+    pending = await chat_agent.apending(session_id)
+    return {
+        "session_id": session_id,
+        "approval_required": pending.to_list() if pending is not None else [],
+    }
 
 
 @router.post("/api/chat/clear")
@@ -162,6 +230,7 @@ async def configure_chat(
             provider=request.provider,
             model=request.model,
             temperature=request.temperature,
+            require_approval=settings.chat_require_approval,
             # Reusa o checkpointer ativo (lifespan) — sob sqlite, não recai p/ memória.
             checkpointer=get_chat_checkpointer(),
             room_index=room_index,
