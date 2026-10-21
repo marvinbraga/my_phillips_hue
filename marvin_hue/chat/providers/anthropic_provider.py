@@ -2,12 +2,25 @@
 Anthropic Provider - Implementação do provedor para modelos Anthropic (Claude).
 """
 
+import re
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_anthropic import ChatAnthropic
 
 from marvin_hue.chat.providers.base import BaseLLMProvider
 from marvin_hue.chat.providers.registry import register_provider
 from marvin_hue.config import settings
+
+# Modelos que rejeitam temperature/top_p/top_k com HTTP 400
+# (família Claude 5, Fable/Mythos e Opus 4.7/4.8).
+_NO_SAMPLING_MODELS = re.compile(
+    r"^claude-(fable|mythos)-|^claude-(opus|sonnet|haiku)-(5|4-7|4-8)(\b|-)"
+)
+
+
+def accepts_sampling_params(model: str) -> bool:
+    """Indica se o modelo aceita parâmetros de amostragem (temperature etc.)."""
+    return not _NO_SAMPLING_MODELS.match(model or "")
 
 
 @register_provider("anthropic")
@@ -27,6 +40,9 @@ class AnthropicProvider(BaseLLMProvider):
     @property
     def supported_models(self) -> list[str]:
         return [
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5",
             "claude-3-5-sonnet-20241022",
             "claude-3-5-haiku-20241022",
             "claude-3-opus-20240229",
@@ -38,9 +54,10 @@ class AnthropicProvider(BaseLLMProvider):
         """Cria uma instância do ChatAnthropic."""
         params = {
             "model": self._config.model,
-            "temperature": self._config.temperature,
             "streaming": self._config.streaming,
         }
+        if accepts_sampling_params(self._config.model):
+            params["temperature"] = self._config.temperature
 
         # API key: usa config ou settings
         api_key = self._config.api_key or settings.anthropic_api_key
