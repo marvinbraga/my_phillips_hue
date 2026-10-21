@@ -62,6 +62,21 @@ class SceneHistoryService:
             return list(hue.get_lights_status())
 
         payload = await asyncio.to_thread(_capture)
+        return await self.snapshot_status(payload, source=source, label=label)
+
+    async def snapshot_status(
+        self,
+        status: list[dict[str, Any]],
+        *,
+        source: str,
+        label: Optional[str] = None,
+    ) -> SceneSnapshot:
+        """Store an already-captured ``get_lights_status`` payload; prune old rows.
+
+        Lets a caller read the bridge once and decide (e.g. skip when every
+        light is already off) before persisting.
+        """
+        payload = list(status)
         snap = SceneSnapshot(source=source, payload=payload, label=label)
         created = await self._repo.create(snap)
         deleted = await self._repo.prune_keep_latest(self._keep_latest)
