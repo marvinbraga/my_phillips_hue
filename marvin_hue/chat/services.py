@@ -103,6 +103,7 @@ def default_health_provider() -> HealthCollector | None:
             registry=_optional(deps.get_light_registry_service),
             schedule_runner=deps.get_schedule_runner(),
             schedule_service=_optional(deps.get_schedule_service),
+            audio_mirror=_optional(deps.get_audio_mirror),
         )
 
     return _collect
