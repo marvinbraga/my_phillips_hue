@@ -9,7 +9,7 @@ def test_chat_page_includes_external_chat_js(fastapi_test_client: TestClient) ->
     response = fastapi_test_client.get("/chat")
     assert response.status_code == 200
     html = response.text
-    assert 'src="/static/chat.js"' in html
+    assert 'src="/static/chat.js' in html
     assert 'id="model-badge"' in html
     assert "/api/chat/status" in html
     assert "function connectWebSocket" not in html

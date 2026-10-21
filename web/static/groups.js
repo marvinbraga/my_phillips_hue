@@ -265,7 +265,7 @@ function initTheme() {
     const saved = localStorage.getItem('theme') || 'light';
     document.documentElement.setAttribute('data-bs-theme', saved);
     const icon = $('#theme-icon');
-    if (saved === 'dark') icon.removeClass('bi-moon-fill').addClass('bi-sun-fill');
+    icon.toggleClass('bi-sun-fill', saved === 'dark').toggleClass('bi-moon-fill', saved !== 'dark');
 }
 
 $(document).ready(function () {
