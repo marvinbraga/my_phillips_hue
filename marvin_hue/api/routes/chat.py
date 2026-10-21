@@ -146,8 +146,9 @@ async def resume_chat(
 ):
     """Retoma um turno que parou pedindo aprovação (HITL).
 
-    ``decisions``: uma por pedido pendente, na ordem recebida. 409 se não há
-    nada pendente; 400 se a contagem ou o tipo não batem.
+    ``decisions``: uma por pedido pendente, cada uma com o ``id`` do pedido
+    (obrigatório; sem casamento por posição). 409 se não há nada pendente;
+    400 se os ids não cobrem exatamente os pedidos ou o tipo não é permitido.
     """
     chat_agent = _require_agent(chat_agent)
     decisions = [d.model_dump(exclude_none=True) for d in request.decisions]

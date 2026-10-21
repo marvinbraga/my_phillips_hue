@@ -7,6 +7,7 @@ para interação inteligente com as lâmpadas.
 
 import asyncio
 import time
+import weakref
 from typing import Optional, Any
 from collections.abc import Iterator, AsyncIterator
 from dataclasses import dataclass, field
@@ -33,6 +34,8 @@ from marvin_hue.chat.hitl import (
     ApprovalRequired,
     approval_from_interrupts,
     build_resume_map,
+    cancellation_messages,
+    dangling_tool_calls,
 )
 from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
 from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
@@ -49,6 +52,25 @@ MAX_SESSIONS = 100
 # aqui, rode tests/eval/run_tool_selection.py e atualize
 # tests/eval/prompt_version.json (o hash é conferido no CI).
 PROMPT_VERSION = "hue.chat.prompt@2"
+
+# Um turno por sessão de cada vez (async): impede que dois cliques/abas
+# retomem o mesmo checkpoint e executem a ação aprovada duas vezes. É de
+# MÓDULO (não do agente) para valer também entre a instância antiga e a nova
+# após /api/chat/configure. WeakValueDictionary: o lock some sozinho quando
+# ninguém o segura — nunca é removido à mão, então um lock em uso não some.
+_SESSION_LOCKS: "weakref.WeakValueDictionary[str, asyncio.Lock]" = (
+    weakref.WeakValueDictionary()
+)
+
+
+def session_lock(session_id: str) -> asyncio.Lock:
+    """Lock do turno da sessão, compartilhado por todas as instâncias."""
+    lock = _SESSION_LOCKS.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _SESSION_LOCKS[session_id] = lock
+    return lock
+
 
 # Teto de passos do grafo do orquestrador por turno (LLM04: loop/custo
 # runaway). Cada tool call custa ~2 passos; 25 cobre pedidos compostos.
@@ -257,9 +279,6 @@ class HueLightAgent(BaseAgent):
         self._checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
         self._session_last_access: dict[str, float] = {}
         self._max_sessions = MAX_SESSIONS
-        # Um turno por sessão de cada vez (async): impede que dois cliques/abas
-        # retomem o mesmo checkpoint e executem a ação aprovada duas vezes.
-        self._session_locks: dict[str, asyncio.Lock] = {}
 
         # Cria o modelo LLM
         self._llm = self._create_llm()
@@ -425,20 +444,12 @@ class HueLightAgent(BaseAgent):
                     return text
         return None
 
-    def _lock_for(self, session_id: str) -> asyncio.Lock:
-        lock = self._session_locks.get(session_id)
-        if lock is None:
-            lock = self._session_locks[session_id] = asyncio.Lock()
-        return lock
-
     async def _aevict(self, session_id: str) -> None:
         for tid in self._touch_session(session_id):
-            self._session_locks.pop(tid, None)
             await self._adelete_thread(tid)
 
     def _evict(self, session_id: str) -> None:
         for tid in self._touch_session(session_id):
-            self._session_locks.pop(tid, None)
             self._checkpointer.delete_thread(tid)
 
     async def _apending_interrupts(self, session_id: str) -> tuple:
@@ -453,16 +464,43 @@ class HueLightAgent(BaseAgent):
         """Aprovações pendentes da sessão (ex.: a página recarregou), ou None."""
         return approval_from_interrupts(await self._apending_interrupts(session_id))
 
-    # Sem HITL nenhum interrupt nasce: pula a leitura de estado por turno.
-    def _pending_before_turn(self, session_id: str) -> Optional[ApprovalRequired]:
-        if not self._config.require_approval:
-            return None
-        return approval_from_interrupts(self._pending_interrupts(session_id))
+    def _stale_calls(self, state: Any) -> list[dict[str, Any]]:
+        values = getattr(state, "values", None) or {}
+        return dangling_tool_calls(values.get("messages"))
 
-    async def _apending_before_turn(self, session_id: str) -> Optional[ApprovalRequired]:
-        if not self._config.require_approval:
-            return None
-        return await self.apending(session_id)
+    async def _abefore_turn(self, session_id: str) -> Optional[ApprovalRequired]:
+        """Prepara a thread para uma mensagem nova (async).
+
+        - Flag ligada + aprovação pendente → devolve o pedido (a mensagem não
+          é processada: uma tool call sem ToolMessage quebraria a thread nos
+          provedores reais).
+        - Flag desligada + tool calls órfãs (pendências de quando a flag
+          estava ligada, ex.: SQLite após restart) → fecha cada uma com uma
+          ToolMessage de cancelamento SEM executar a tool.
+        """
+        config = self._config_for(session_id)
+        state = await self._agent.aget_state(config)
+        if self._config.require_approval:
+            return approval_from_interrupts(getattr(state, "interrupts", None))
+        stale = self._stale_calls(state)
+        if stale:
+            await self._agent.aupdate_state(
+                config, {"messages": cancellation_messages(stale)}, as_node="tools"
+            )
+        return None
+
+    def _before_turn(self, session_id: str) -> Optional[ApprovalRequired]:
+        """Versão síncrona de ``_abefore_turn`` (CLI / InMemorySaver)."""
+        config = self._config_for(session_id)
+        state = self._agent.get_state(config)
+        if self._config.require_approval:
+            return approval_from_interrupts(getattr(state, "interrupts", None))
+        stale = self._stale_calls(state)
+        if stale:
+            self._agent.update_state(
+                config, {"messages": cancellation_messages(stale)}, as_node="tools"
+            )
+        return None
 
     def invoke(self, message: str, session_id: str = "default") -> "str | ApprovalRequired":
         """Processa uma mensagem do usuário.
@@ -477,11 +515,10 @@ class HueLightAgent(BaseAgent):
             Resposta do agente, ou ``ApprovalRequired`` quando o turno parou
             pedindo aprovação (só com ``require_approval``). Se já houver
             aprovação pendente, a mensagem NÃO é processada e o pedido
-            pendente volta: uma tool call sem ToolMessage quebraria a thread
-            nos provedores reais.
+            pendente volta (ver ``_abefore_turn``).
         """
         self._evict(session_id)
-        pending = self._pending_before_turn(session_id)
+        pending = self._before_turn(session_id)
         if pending is not None:
             return pending
         result = self._agent.invoke(
@@ -502,9 +539,9 @@ class HueLightAgent(BaseAgent):
         Returns:
             Resposta do agente, ou ``ApprovalRequired`` (ver ``invoke``).
         """
-        async with self._lock_for(session_id):
+        async with session_lock(session_id):
             await self._aevict(session_id)
-            pending = await self._apending_before_turn(session_id)
+            pending = await self._abefore_turn(session_id)
             if pending is not None:
                 return pending
             result = await self._agent.ainvoke(
@@ -520,23 +557,24 @@ class HueLightAgent(BaseAgent):
 
         Args:
             session_id: Id da sessão (thread_id) que está aguardando.
-            decisions: Uma decisão por pedido pendente, na MESMA ordem de
-                ``ApprovalRequired.requests``: ``{"type": "approve"}`` ou
-                ``{"type": "reject", "message"?: str}``.
+            decisions: Uma decisão por pedido pendente, cada uma com o ``id``
+                do pedido (``ApprovalRequest.id``): ``{"id", "type":
+                "approve"}`` ou ``{"id", "type": "reject", "message"?}``.
 
         Returns:
-            Resposta final, ou outro ``ApprovalRequired`` (ex.: o subagent
-            pediu uma segunda aprovação).
+            Resposta final, ou outro ``ApprovalRequired`` (ex.: o modelo ou o
+            subagent pediu uma segunda aprovação).
 
         Raises:
             NoPendingApprovalError: nada pendente (já retomado, limpo ou
                 despejado pelo LRU).
-            InvalidDecisionError: contagem ou tipo de decisão inválidos.
+            InvalidDecisionError: id ausente/repetido/desconhecido ou tipo de
+                decisão não permitido.
 
         A tool aprovada roda pelo caminho normal do grafo: schema Pydantic e
         EyeSafetyMiddleware revalidam os args — aprovar não contorna nada.
         """
-        async with self._lock_for(session_id):
+        async with session_lock(session_id):
             await self._aevict(session_id)
             resume = build_resume_map(
                 await self._apending_interrupts(session_id), decisions
@@ -559,7 +597,7 @@ class HueLightAgent(BaseAgent):
             Chunks da resposta; um ``ApprovalRequired`` se o turno parar num HITL.
         """
         self._evict(session_id)
-        pending = self._pending_before_turn(session_id)
+        pending = self._before_turn(session_id)
         if pending is not None:
             yield pending
             return
@@ -585,9 +623,9 @@ class HueLightAgent(BaseAgent):
         Yields:
             Chunks da resposta; um ``ApprovalRequired`` se o turno parar num HITL.
         """
-        async with self._lock_for(session_id):
+        async with session_lock(session_id):
             await self._aevict(session_id)
-            pending = await self._apending_before_turn(session_id)
+            pending = await self._abefore_turn(session_id)
             if pending is not None:
                 yield pending
                 return
@@ -608,12 +646,16 @@ class HueLightAgent(BaseAgent):
         """
         self._checkpointer.delete_thread(session_id)
         self._session_last_access.pop(session_id, None)
-        self._session_locks.pop(session_id, None)
 
     async def aclear_history(self, session_id: str = "default") -> None:
-        """Limpa o histórico de uma sessão (caminho ASYNC — rotas/WS)."""
-        await self._adelete_thread(session_id)
-        self._session_last_access.pop(session_id, None)
+        """Limpa o histórico de uma sessão (caminho ASYNC — rotas/WS).
+
+        Pega o lock da sessão: um clear no meio de um resume esperaria o
+        turno terminar em vez de apagar a thread por baixo dele.
+        """
+        async with session_lock(session_id):
+            await self._adelete_thread(session_id)
+            self._session_last_access.pop(session_id, None)
 
 
 class HueLightAgentBuilder:

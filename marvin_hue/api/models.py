@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from marvin_hue.chat.hitl import MAX_REJECT_MESSAGE_CHARS
+
 
 class ApplyConfigRequest(BaseModel):
     config_name: str = Field(
@@ -305,15 +307,16 @@ class ChatClearRequest(BaseModel):
 class ChatDecision(BaseModel):
     """Decisão humana sobre UM pedido de aprovação (HITL)."""
 
-    type: Literal["approve", "reject"]
-    id: str | None = Field(
-        default=None,
+    id: str = Field(
+        ...,
+        min_length=1,
         max_length=200,
-        description="Id do pedido (approval_required[].id); recomendado.",
+        description="Id do pedido (approval_required[].id). Obrigatório.",
     )
+    type: Literal["approve", "reject"]
     message: str | None = Field(
         default=None,
-        max_length=500,
+        max_length=MAX_REJECT_MESSAGE_CHARS,
         description="Motivo da rejeição (opcional); repassado ao agente.",
     )
 
@@ -328,7 +331,7 @@ class ChatResumeRequest(BaseModel):
         ...,
         min_length=1,
         max_length=20,
-        description="Uma decisão por pedido pendente, na mesma ordem.",
+        description="Uma decisão por pedido pendente (casadas pelo id).",
     )
 
 

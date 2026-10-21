@@ -1,9 +1,28 @@
-"""HITL (P9): tools que mudam estado de forma ampla/persistente.
+"""HITL (P9): aprovação humana antes das tools persistentes ou de tomada de controle.
 
 Com ``AgentConfig.require_approval`` (padrão: desligado; env
 ``CHAT_REQUIRE_APPROVAL``), o orquestrador e os subagents pedem aprovação
-humana antes delas. Mudanças pontuais de lâmpada (set_light_color,
-set_brightness, turn_*, set_color_temperature) ficam fora.
+humana antes das tools de ``HITL_INTERRUPT_ON``.
+
+Política (evita fadiga de aprovação): só pede aprovação o que GRAVA algo que
+fica (catálogo de cenas, agendamentos que disparam sozinhos depois) ou TOMA o
+controle contínuo das lâmpadas (espelhamento):
+
+- ``create_config``, ``save_current_config``: gravam cena nova em
+  ``.res/setups.json``.
+- ``create_schedule``, ``set_schedule_enabled``: criam/ligam ações futuras
+  sem ninguém olhando.
+- ``start_mirror``: passa a escrever nas lâmpadas a ~25 FPS até alguém parar.
+
+Tools que mudam estado e ficam FORA de propósito (reversíveis na hora, pelo
+próprio chat, pela tela Controle ou por ``undo_last_scene``):
+``set_light_color``, ``set_brightness``, ``turn_on_lights``,
+``turn_off_lights``, ``set_color_temperature``, ``set_room_power``,
+``set_room_brightness``, ``add_favorite``, ``remove_favorite``,
+``apply_config``, ``apply_config_to_group`` (o snapshot "before apply"
+permite desfazer), ``stop_mirror`` (só devolve o controle) e
+``undo_last_scene`` (é o próprio desfazer). A segurança ocular não depende do
+HITL: é invariante de código (EyeSafetyMiddleware + chokepoint do controller).
 
 Fluxo (langchain 1.3 / langgraph 1.2, conferido na prática):
 
@@ -19,32 +38,49 @@ Fluxo (langchain 1.3 / langgraph 1.2, conferido na prática):
   tem de ser endereçada por id: ``Command(resume={interrupt_id:
   {"decisions": [...]}})``. Usamos sempre essa forma (vale também para uma).
 - A ORDEM das interrupções em ``__interrupt__`` e em ``state.interrupts``
-  pode divergir: ordenamos por id nos dois caminhos e aceitamos ``id`` em
-  cada decisão para o mapeamento explícito.
+  pode divergir. Por isso cada decisão leva OBRIGATORIAMENTE o ``id`` do
+  pedido; não há casamento por posição.
+- Um grafo montado SEM o middleware (flag desligada) não enxerga as
+  interrupções antigas do checkpointer: sobra uma AIMessage com tool_calls
+  sem ToolMessage. ``dangling_tool_calls`` acha essas chamadas para o agente
+  cancelá-las antes do próximo turno.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
-_APPROVE_REJECT = {"allowed_decisions": ["approve", "reject"]}
-_APPROVE_EDIT_REJECT = {"allowed_decisions": ["approve", "edit", "reject"]}
+from langchain_core.messages import AIMessage, ToolMessage
 
-HITL_INTERRUPT_ON: dict[str, dict[str, list[str]]] = {
-    "apply_config": _APPROVE_REJECT,
-    "save_current_config": _APPROVE_EDIT_REJECT,
-    "create_config": _APPROVE_EDIT_REJECT,
-    "apply_config_to_group": _APPROVE_REJECT,
-    "create_schedule": _APPROVE_REJECT,
-    "set_schedule_enabled": _APPROVE_REJECT,
-    "start_mirror": _APPROVE_REJECT,
-    "stop_mirror": _APPROVE_REJECT,
-    "undo_last_scene": _APPROVE_REJECT,
+APPROVAL_REQUIRED = "approval_required"
+
+# A descrição vai só ao humano (payload do interrupt), nunca ao modelo.
+HITL_INTERRUPT_ON: dict[str, dict[str, Any]] = {
+    "create_config": {
+        "allowed_decisions": ["approve", "edit", "reject"],
+        "description": "Gravar uma cena nova no catálogo de cenas.",
+    },
+    "save_current_config": {
+        "allowed_decisions": ["approve", "edit", "reject"],
+        "description": "Gravar o estado atual das lâmpadas como uma cena nova.",
+    },
+    "create_schedule": {
+        "allowed_decisions": ["approve", "reject"],
+        "description": "Criar um agendamento que vai rodar sozinho no horário marcado.",
+    },
+    "set_schedule_enabled": {
+        "allowed_decisions": ["approve", "reject"],
+        "description": "Ativar ou desativar um agendamento.",
+    },
+    "start_mirror": {
+        "allowed_decisions": ["approve", "reject"],
+        "description": "Iniciar o espelhamento: as lâmpadas passam a seguir a tela ou a música.",
+    },
 }
 
-# Texto mostrado só ao humano (vai no payload do interrupt, nunca ao modelo).
+# Prefixo usado só se uma tool de HITL_INTERRUPT_ON ficar sem "description".
 HITL_DESCRIPTION_PREFIX = "Esta ação precisa da sua aprovação"
 
 # Decisões aceitas pela UI/API. "edit" fica de fora de propósito: o middleware
@@ -55,8 +91,11 @@ SUPPORTED_DECISIONS: frozenset[str] = frozenset({"approve", "reject"})
 # A mensagem de rejeição chega ao modelo como ToolMessage: limite o tamanho.
 MAX_REJECT_MESSAGE_CHARS = 500
 
+# ToolMessage sintética para chamadas pendentes canceladas com a flag desligada.
+CANCELLED_MESSAGE = "Aprovação desativada; ação cancelada."
 
-def interrupt_on_for(tool_names: Iterable[str]) -> dict[str, dict[str, list[str]]]:
+
+def interrupt_on_for(tool_names: Iterable[str]) -> dict[str, dict[str, Any]]:
     """Subconjunto de ``HITL_INTERRUPT_ON`` para as tools dadas."""
     names = set(tool_names)
     return {k: dict(v) for k, v in HITL_INTERRUPT_ON.items() if k in names}
@@ -100,7 +139,7 @@ class ApprovalRequired:
 
     requests: tuple[ApprovalRequest, ...]
 
-    type: str = "approval_required"
+    type: ClassVar[str] = APPROVAL_REQUIRED
 
     def to_list(self) -> list[dict[str, Any]]:
         return [r.to_dict() for r in self.requests]
@@ -119,22 +158,29 @@ def _interrupt_parts(intr: Any) -> tuple[str, Mapping[str, Any]]:
 
 
 def _requests_of(intr: Any) -> list[ApprovalRequest]:
+    """Um pedido por action_request, alinhado por índice com o middleware.
+
+    Itens malformados (None, sem config) viram pedidos sem decisão permitida
+    em vez de sumirem: o middleware exige uma decisão por action_request.
+    """
     iid, value = _interrupt_parts(intr)
     actions = value.get("action_requests") or []
     configs = value.get("review_configs") or []
     out: list[ApprovalRequest] = []
-    for idx, action in enumerate(actions):
-        cfg = configs[idx] if idx < len(configs) else {}
+    for idx, raw_action in enumerate(actions):
+        action = raw_action if isinstance(raw_action, Mapping) else {}
+        raw_cfg = configs[idx] if idx < len(configs) else None
+        cfg = raw_cfg if isinstance(raw_cfg, Mapping) else {}
         allowed = tuple(
-            d for d in cfg.get("allowed_decisions", ()) if d in SUPPORTED_DECISIONS
+            d for d in (cfg.get("allowed_decisions") or ()) if d in SUPPORTED_DECISIONS
         )
         args = action.get("args")
         out.append(
             ApprovalRequest(
                 id=f"{iid}:{idx}",
-                tool=str(action.get("name", "")),
+                tool=str(action.get("name") or ""),
                 args=dict(args) if isinstance(args, Mapping) else {},
-                description=str(action.get("description", "")),
+                description=str(action.get("description") or ""),
                 allowed_decisions=allowed,
             )
         )
@@ -178,35 +224,60 @@ def build_resume_map(
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """Valida as decisões e agrupa por interrupt id.
 
-    Cada decisão pode trazer o ``id`` do pedido (``ApprovalRequest.id``); se
-    TODAS trazem, o casamento é por id, senão pela ordem de
-    ``approval_from_interrupts``. Falha fechado ANTES de retomar: com
-    contagem/tipo errados o middleware levantaria ValueError no meio do grafo.
+    Cada decisão TEM de trazer o ``id`` do pedido (``ApprovalRequest.id``) e
+    os ids têm de cobrir exatamente os pedidos pendentes: id ausente,
+    repetido, desconhecido ou de um conjunto antigo → ``InvalidDecisionError``.
+    Falha fechado ANTES de retomar: o middleware levantaria ValueError no
+    meio do grafo.
     """
     if not interrupts:
         raise NoPendingApprovalError("Nenhuma aprovação pendente nesta sessão.")
     grouped: list[tuple[str, list[ApprovalRequest]]] = [
         (_interrupt_parts(intr)[0], _requests_of(intr)) for intr in _ordered(interrupts)
     ]
-    total = sum(len(reqs) for _, reqs in grouped)
-    if total == 0:
+    expected = [req.id for _, reqs in grouped for req in reqs]
+    if not expected:
         raise NoPendingApprovalError("Nenhuma aprovação pendente nesta sessão.")
-    if len(decisions) != total:
+
+    ids = [str(d.get("id") or "") for d in decisions]
+    if not all(ids):
+        raise InvalidDecisionError("Toda decisão precisa do id do pedido.")
+    if len(set(ids)) != len(ids):
+        raise InvalidDecisionError("Há decisões repetidas para o mesmo pedido.")
+    if set(ids) != set(expected):
         raise InvalidDecisionError(
-            f"Esperadas {total} decisões, recebidas {len(decisions)}."
+            "Os ids das decisões não batem com os pedidos pendentes "
+            f"(esperados {len(expected)}, recebidos {len(ids)})."
         )
-    if all(d.get("id") for d in decisions):
-        by_id = {str(d["id"]): d for d in decisions}
-        expected = [req.id for _, reqs in grouped for req in reqs]
-        if len(by_id) != len(decisions) or set(by_id) != set(expected):
-            raise InvalidDecisionError("Os ids das decisões não batem com os pedidos pendentes.")
-        decisions = [by_id[rid] for rid in expected]
-    resume: dict[str, dict[str, list[dict[str, Any]]]] = {}
-    cursor = 0
-    for iid, reqs in grouped:
-        normalized = [
-            _normalize(decisions[cursor + j], req) for j, req in enumerate(reqs)
-        ]
-        cursor += len(reqs)
-        resume[iid] = {"decisions": normalized}
-    return resume
+    by_id = dict(zip(ids, decisions))
+
+    return {
+        iid: {"decisions": [_normalize(by_id[req.id], req) for req in reqs]}
+        for iid, reqs in grouped
+    }
+
+
+def dangling_tool_calls(messages: Sequence[Any] | None) -> list[dict[str, Any]]:
+    """Tool calls da última AIMessage que ficaram sem ToolMessage."""
+    answered: set[str] = set()
+    for msg in reversed(list(messages or [])):
+        if isinstance(msg, ToolMessage):
+            answered.add(str(msg.tool_call_id))
+            continue
+        if isinstance(msg, AIMessage):
+            return [tc for tc in (msg.tool_calls or []) if str(tc.get("id")) not in answered]
+        return []
+    return []
+
+
+def cancellation_messages(tool_calls: Sequence[Mapping[str, Any]]) -> list[ToolMessage]:
+    """ToolMessages de erro que fecham chamadas pendentes sem executá-las."""
+    return [
+        ToolMessage(
+            content=CANCELLED_MESSAGE,
+            name=str(tc.get("name") or ""),
+            tool_call_id=str(tc.get("id")),
+            status="error",
+        )
+        for tc in tool_calls
+    ]

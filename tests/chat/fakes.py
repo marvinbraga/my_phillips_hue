@@ -252,3 +252,111 @@ def scripted_model(router):
             return ChatResult(generations=[ChatGeneration(message=router(messages))])
 
     return _Scripted(responses=[AIMessage(content="unused")])
+
+
+# --- HITL: roteiro determinístico do orquestrador real + scene-designer -------
+
+SCENE_DESIGNER_MARKER = "Você é o scene-designer"
+
+START_MIRROR = {"name": "start_mirror", "args": {"mode": "screen"}}
+CREATE_SCHEDULE = {
+    "name": "create_schedule",
+    "args": {"name": "noite", "time_hhmm": "22:00", "action": "power_off"},
+}
+
+
+def create_config_call(name: str) -> tuple[str, dict]:
+    return "create_config", {
+        "name": name,
+        "description": "cena calma",
+        "settings": [
+            {"light_name": "Lâmpada 1", "red": 10, "green": 20, "blue": 200,
+             "brightness_pct": 40},
+        ],
+    }
+
+
+def task_call(description: str) -> dict:
+    return {
+        "name": "task",
+        "args": {"description": description, "subagent_type": "scene-designer"},
+    }
+
+
+class HitlRouter:
+    """Roteia pelo TEXTO achatado (``message_text``) das mensagens.
+
+    ``rounds``: tool calls do orquestrador por rodada do turno atual (rodada =
+    AIMessage com tool_calls desde a última HumanMessage). Esgotadas, ele
+    responde ``"fim: <ToolMessages do turno>"``. O subagent é reconhecido
+    pelo marcador único do prompt e chama ``sub_call(HumanMessage)``.
+    """
+
+    def __init__(self, *rounds: list[dict], sub_call=None):
+        self.rounds = rounds
+        self.sub_call = sub_call
+        self.orch_steps = 0
+        self.sub_human_steps = 0
+
+    @staticmethod
+    def _system_text(messages) -> str:
+        from langchain_core.messages import SystemMessage
+
+        from marvin_hue.chat.messages import message_text
+
+        first = messages[0] if messages else None
+        return message_text(first.content) if isinstance(first, SystemMessage) else ""
+
+    def __call__(self, messages):
+        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+        last = messages[-1]
+        if SCENE_DESIGNER_MARKER in self._system_text(messages):
+            if isinstance(last, HumanMessage):
+                self.sub_human_steps += 1
+                name, args = self.sub_call(last)
+                return AIMessage(
+                    content="",
+                    tool_calls=[{"name": name, "args": args, "id": f"sub-{last.content}"}],
+                )
+            return AIMessage(content=f"sub ok: {last.content}")
+
+        self.orch_steps += 1
+        humans = [i for i, m in enumerate(messages) if isinstance(m, HumanMessage)]
+        turn = messages[humans[-1] + 1:] if humans else list(messages)
+        done = sum(1 for m in turn if isinstance(m, AIMessage) and m.tool_calls)
+        if done < len(self.rounds):
+            calls = [
+                {**c, "id": f"t{len(humans)}-r{done}-{i}"}
+                for i, c in enumerate(self.rounds[done])
+            ]
+            return AIMessage(content="", tool_calls=calls)
+        texts = [str(m.content) for m in turn if isinstance(m, ToolMessage)]
+        return AIMessage(content="fim: " + " | ".join(texts))
+
+
+def hitl_agent(monkeypatch, controller, manager, router, *, require_approval=True,
+               checkpointer=None, **service_overrides):
+    """create_hue_agent REAL com o provider trocado pelo modelo roteirizado."""
+    import marvin_hue.chat.agents.react_agent as ra
+    from marvin_hue.chat import create_hue_agent
+
+    class _FakeProvider:
+        model = scripted_model(router)
+
+    monkeypatch.setattr(
+        ra.LLMProviderFactory, "create", classmethod(lambda cls, **kw: _FakeProvider())
+    )
+    service_overrides.setdefault("mirror", FakeMirror())
+    return create_hue_agent(
+        controller=controller,
+        manager=manager,
+        require_approval=require_approval,
+        services=services(**service_overrides),
+        checkpointer=checkpointer,
+    )
+
+
+def decide_all(pending, kind: str = "approve") -> list[dict]:
+    """Uma decisão por pedido pendente, com o id obrigatório."""
+    return [{"id": r.id, "type": kind} for r in pending.requests]

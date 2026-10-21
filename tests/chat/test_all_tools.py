@@ -38,16 +38,15 @@ LIGHT_TOOLS = {
     "set_room_power",
     "set_room_brightness",
 }
+# Só o que grava algo persistente ou toma o controle (ver chat/hitl.py);
+# apply_config, apply_config_to_group, stop_mirror e undo_last_scene ficam
+# fora de propósito (reversíveis).
 MUTATING_HITL = {
-    "apply_config",
     "save_current_config",
     "create_config",
-    "apply_config_to_group",
     "create_schedule",
     "set_schedule_enabled",
     "start_mirror",
-    "stop_mirror",
-    "undo_last_scene",
 }
 # Tools cujo trabalho real depende de serviço async do app (coroutine=).
 ASYNC_SERVICE_TOOLS = {
