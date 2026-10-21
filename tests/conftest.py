@@ -157,9 +157,61 @@ def mock_phue_bridge() -> Mock:
     light2.xy = [0.3, 0.3]
     light2.reachable = True
 
+    for light_id, light in enumerate((light1, light2), start=1):
+        light.light_id = light_id
+        light.transitiontime = None  # phue default (no persistent transition)
+
     bridge.get_light_objects.return_value = [light1, light2]
     bridge.connect = Mock()
     bridge.groups = []
+
+    def _current_lights() -> list[Mock]:
+        return list(bridge.get_light_objects.return_value)
+
+    def fake_get_light(light_id=None, parameter=None):
+        """Stateful like phue: ``GET /lights/`` derived from the mock lights."""
+        payload = {
+            str(light.light_id): {
+                "name": light.name,
+                "state": {
+                    "on": light.on,
+                    "bri": light.brightness,
+                    "xy": light.xy,
+                    "reachable": light.reachable,
+                },
+            }
+            for light in _current_lights()
+        }
+        if light_id is None:
+            return payload
+        state = payload[str(light_id)]
+        if parameter is None:
+            return state
+        if parameter == "name":
+            return state["name"]
+        return state["state"][parameter]
+
+    def fake_set_light(light_id, parameter, value=None, transitiontime=None):
+        """One-shot state write (``PUT /lights/<id>/state``); mutates the mock."""
+        data = parameter if isinstance(parameter, dict) else {parameter: value}
+        for light in _current_lights():
+            if str(light.light_id) == str(light_id):
+                if "on" in data:
+                    light.on = data["on"]
+                if "bri" in data:
+                    light.brightness = data["bri"]
+                return [
+                    [
+                        {"success": {f"/lights/{light_id}/state/{k}": v}}
+                        for k, v in data.items()
+                    ]
+                ]
+        return [
+            [{"error": {"description": f"resource, /lights/{light_id}, not available"}}]
+        ]
+
+    bridge.get_light.side_effect = fake_get_light
+    bridge.set_light.side_effect = fake_set_light
 
     return bridge
 
