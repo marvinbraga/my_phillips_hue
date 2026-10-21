@@ -177,3 +177,6 @@ secrets.toml
 
 # Hue Entertainment DTLS credentials
 .res/hue_entertainment_creds.json
+
+# Backup import writes .bak siblings next to JSON data files
+.res/*.bak

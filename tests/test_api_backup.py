@@ -4,7 +4,45 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import zipfile
+from pathlib import Path
+
+import pytest
+
+_REAL_PHYSICAL = Path(".res/light_physical_locations.json")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_res_files(tmp_path, monkeypatch):
+    """Keep import from writing JSON (and ``.bak`` siblings) into the real ``.res``.
+
+    ``physical_locations_file`` is not a Settings field: BackupService falls
+    back to ``dependencies._DEFAULT_PHYSICAL_LOCATIONS``, so patch that too.
+    """
+    iso = tmp_path / "iso_res"
+    iso.mkdir()
+    physical = iso / "light_physical_locations.json"
+    if _REAL_PHYSICAL.exists():
+        shutil.copyfile(_REAL_PHYSICAL, physical)  # read-only use of the real file
+    else:
+        physical.write_text("{}", encoding="utf-8")
+    setups = iso / "setups.json"
+    positions = iso / "positions.json"
+    setups.write_text(json.dumps({"setups": []}), encoding="utf-8")
+    positions.write_text(json.dumps({"lights": []}), encoding="utf-8")
+    monkeypatch.setattr(
+        "marvin_hue.api.dependencies._DEFAULT_PHYSICAL_LOCATIONS", str(physical)
+    )
+    monkeypatch.setattr("marvin_hue.api.routes.backup.settings.setups_file", str(setups))
+    monkeypatch.setattr(
+        "marvin_hue.api.routes.backup.settings.positions_file", str(positions)
+    )
+    return iso
+
+
+def _isolate_res_files_dir(tmp_path: Path) -> Path:
+    return tmp_path / "iso_res"
 
 
 class TestBackupAPI:
@@ -88,6 +126,9 @@ class TestBackupAPI:
         assert body["strategy"] == "merge"
         assert "lights" in body
         assert body["favorites"] == {"added": 1, "removed": 0, "total": 1}
+        # Import rewrote the isolated copies, never the repo's .res
+        assert (_isolate_res_files_dir(tmp_path) / "light_physical_locations.json.bak").exists()
+        assert not (_REAL_PHYSICAL.parent / "light_physical_locations.json.bak").exists()
         active = fastapi_test_client.get("/api/lights").json()
         names = {x["name"] for x in active}
         assert "Roundtrip" in names
