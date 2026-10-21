@@ -952,14 +952,17 @@ function turnOffAllLights() {
 
     $.ajax({
         type: 'POST',
-        url: `/apply`,
+        url: '/lights/off',
         contentType: 'application/json',
-        data: JSON.stringify({
-            config_name: 'all_off',
-            transition_time_secs: 1
-        }),
-        success: function (data) {
-            btn.html('<i class="bi bi-check-circle"></i> Desligadas!');
+        data: JSON.stringify({ transition_time_secs: 1 }),
+        success: function (data, textStatus, jqXHR) {
+            // jQuery treats 207 (partial) as success
+            let label = 'Desligadas!';
+            if (jqXHR.status === 207) {
+                const failedCount = data && Array.isArray(data.failed) ? data.failed.length : 0;
+                label = failedCount > 0 ? `Desligadas (${failedCount} falharam)` : 'Desligadas (parcial)';
+            }
+            btn.html('<i class="bi bi-check-circle"></i> ' + label);
             setTimeout(() => {
                 btn.html(originalHtml).prop('disabled', false);
             }, 2000);
@@ -967,7 +970,14 @@ function turnOffAllLights() {
         },
         error: function (jqXHR, textStatus, errorThrown) {
             btn.html(originalHtml).prop('disabled', false);
-            alert('Erro ao desligar lâmpadas: ' + errorThrown);
+            let detail = errorThrown || 'erro desconhecido';
+            const body = jqXHR.responseJSON;
+            if (body && body.detail) {
+                detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+            } else if (body && body.message) {
+                detail = body.message;
+            }
+            alert('Erro ao desligar lâmpadas: ' + detail);
         }
     });
 }

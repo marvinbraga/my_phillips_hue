@@ -33,6 +33,19 @@ class ApplyConfigRequest(BaseModel):
         return sanitized.strip()
 
 
+class LightsOffRequest(BaseModel):
+    """Optional body for POST /lights/off.
+
+    The HTTP default is a 1 s fade (unlike ``/apply``'s 0): "Desligar Todas"
+    is a room-wide blackout, and a short fade avoids a jarring cut to dark.
+    Send ``0`` for an instant cut (no ``transitiontime`` is sent to the bridge).
+    """
+
+    transition_time_secs: float = Field(
+        default=1, ge=0, le=60, description="Tempo de transição em segundos"
+    )
+
+
 class ApplyFailedLight(BaseModel):
     name: str
     error: str
@@ -44,7 +57,7 @@ class ApplyConfigDetails(BaseModel):
 
 
 class ApplyConfigResponse(BaseModel):
-    """POST /apply body for 200 (ok), 207 (partial) and 500 (all failed)."""
+    """POST /apply and POST /lights/off body for 200 / 207 (partial) / 500."""
 
     message: str
     applied: list[str]

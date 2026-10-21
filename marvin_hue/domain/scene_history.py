@@ -21,6 +21,7 @@ VALID_SCENE_SOURCES = frozenset(
         "mirror_stop",
         "manual",
         "group_apply",
+        "lights_off",
     }
 )
 
@@ -36,7 +37,8 @@ class SceneSnapshot:
     Attributes:
         id: Auto-increment DB id (None before insert).
         label: Optional human label.
-        source: Origin of the snapshot (apply, mirror_stop, manual, group_apply).
+        source: Origin of the snapshot (apply, mirror_stop, manual, group_apply,
+            lights_off).
         payload: List of light status dicts (JSON-serializable).
         created_at: UTC timestamp when captured.
     """

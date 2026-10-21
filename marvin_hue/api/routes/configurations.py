@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from marvin_hue.api.dependencies import (
     get_hue_controller,
     get_manager,
+    get_mirror_control_service,
     get_scene_favorites_service,
     get_scene_history_service,
 )
@@ -26,6 +27,7 @@ from marvin_hue.api.models import (
     ConfigurationWithSettings,
     FavoritesListResponse,
     FavoriteStatusResponse,
+    LightsOffRequest,
 )
 from marvin_hue.apply_result import ApplyResult
 from marvin_hue.basics import LightConfig, LightSetupsManager
@@ -35,6 +37,12 @@ from marvin_hue.services.apply_config import (
     ApplyConfigNotFoundError,
     ApplyConfigService,
 )
+from marvin_hue.services.lights_off import (
+    LIGHTS_OFF_SOURCE,
+    LightsOffBridgeError,
+    LightsOffService,
+)
+from marvin_hue.services.mirror_control import MirrorControlService
 from marvin_hue.services.scene_favorites import (
     FavoriteConfigNotFoundError,
     SceneFavoritesService,
@@ -67,10 +75,14 @@ def _apply_message(config_name: str, result: ApplyResult) -> str:
 
 
 def _apply_response(
-    config_name: str, transition_time_secs: float, result: ApplyResult
+    config_name: str,
+    transition_time_secs: float,
+    result: ApplyResult,
+    *,
+    message: str | None = None,
 ) -> ApplyConfigResponse:
     return ApplyConfigResponse(
-        message=_apply_message(config_name, result),
+        message=message if message is not None else _apply_message(config_name, result),
         applied=list(result.applied),
         failed=[
             ApplyFailedLight(name=name, error=error) for name, error in result.failed
@@ -80,6 +92,16 @@ def _apply_response(
             transition_time_secs=transition_time_secs,
         ),
     )
+
+
+def _lights_off_message(result: ApplyResult) -> str:
+    if result.ok and not result.applied:
+        return "Nenhuma lâmpada habilitada para desligar"
+    if result.ok:
+        return "Lâmpadas desligadas"
+    if result.partial:
+        return "Lâmpadas desligadas parcialmente; algumas lâmpadas falharam"
+    return "Falha ao desligar as lâmpadas; nenhuma lâmpada desligada"
 
 
 def _sorted_unique_configs(manager: LightSetupsManager) -> list[LightConfig]:
@@ -132,6 +154,15 @@ def get_apply_config_service(
 ) -> ApplyConfigService:
     """Compose ApplyConfigService at the HTTP edge (not a module locator)."""
     return ApplyConfigService(manager, hue, history)
+
+
+def get_lights_off_service(
+    hue: Annotated[HueController, Depends(get_hue_controller)],
+    history: Annotated[SceneHistoryService, Depends(get_scene_history_service)],
+    mirror: Annotated[MirrorControlService, Depends(get_mirror_control_service)],
+) -> LightsOffService:
+    """Compose LightsOffService at the HTTP edge (not a module locator)."""
+    return LightsOffService(hue, history, mirror=mirror)
 
 
 @router.get("/configurations")
@@ -259,3 +290,67 @@ async def apply_configuration(
         raise HTTPException(
             status_code=500, detail=f"Erro ao aplicar configuração: {e!s}"
         ) from e
+
+
+@router.post(
+    "/lights/off",
+    response_model=ApplyConfigResponse,
+    responses={
+        200: {
+            "model": ApplyConfigResponse,
+            "description": (
+                "Todas as lâmpadas habilitadas desligadas (ou nenhuma habilitada)"
+            ),
+        },
+        207: {
+            "model": ApplyConfigResponse,
+            "description": "Desligamento parcial: algumas lâmpadas falharam",
+        },
+        500: {
+            "model": ApplyConfigResponse,
+            "description": (
+                "Todas as lâmpadas tentadas falharam, ou bridge indisponível"
+            ),
+        },
+    },
+)
+async def turn_off_all_lights(
+    response: Response,
+    service: Annotated[LightsOffService, Depends(get_lights_off_service)],
+    request: LightsOffRequest | None = None,
+) -> ApplyConfigResponse:
+    """Desliga todas as lâmpadas habilitadas.
+
+    Para o espelhamento ativo antes; grava snapshot ``lights_off`` (para
+    desfazer) só se alguma lâmpada habilitada estava acesa.
+
+    ``details.config_name`` é sempre ``"lights_off"`` (não é uma cena do
+    ``setups.json``); o corpo segue o formato de ``POST /apply``.
+    """
+    body = request or LightsOffRequest()
+    try:
+        result = await service.turn_off_all(transition_time=body.transition_time_secs)
+    except LightsOffBridgeError as e:
+        logger.error(f"Lights off: bridge indisponível: {e}")
+        response.status_code = 500
+        failed = ApplyResult(
+            applied=(), failed=tuple((name, str(e)) for name in e.light_names)
+        )
+        return _apply_response(
+            LIGHTS_OFF_SOURCE,
+            body.transition_time_secs,
+            failed,
+            message="Bridge indisponível; nenhuma lâmpada desligada",
+        )
+    http_status = _apply_http_status(result)
+    logger.info(
+        f"Lights off: {len(result.applied)} applied, "
+        f"{len(result.failed)} failed, http={http_status}"
+    )
+    response.status_code = http_status
+    return _apply_response(
+        LIGHTS_OFF_SOURCE,
+        body.transition_time_secs,
+        result,
+        message=_lights_off_message(result),
+    )
