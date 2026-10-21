@@ -68,6 +68,18 @@ def test_api_configurations_matches_lan(fastapi_test_client: TestClient) -> None
     assert isinstance(api.json(), list)
 
 
+def test_api_configurations_include_settings_matches_lan(
+    fastapi_test_client: TestClient,
+) -> None:
+    params = {"include_settings": "true"}
+    lan = fastapi_test_client.get("/configurations", params=params)
+    api = fastapi_test_client.get("/api/configurations", params=params)
+    assert lan.status_code == 200
+    assert api.status_code == 200
+    assert api.json() == lan.json()
+    assert all("settings" in config for config in api.json())
+
+
 def test_api_apply_matches_lan_not_found(fastapi_test_client: TestClient) -> None:
     payload = {"config_name": "nonexistent_config_xyz"}
     lan = fastapi_test_client.post("/apply", json=payload)

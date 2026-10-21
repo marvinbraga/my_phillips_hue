@@ -52,6 +52,39 @@ class ApplyConfigResponse(BaseModel):
     details: ApplyConfigDetails
 
 
+class ConfigurationColor(BaseModel):
+    """Cor configurada no setups.json (RGB 0-255, brilho 0-254)."""
+
+    red: int
+    green: int
+    blue: int
+    brightness: int
+
+
+class ConfigurationPreview(BaseModel):
+    """Resultado previsto: brilho com segurança ocular e cor no espaço Hue."""
+
+    r: int
+    g: int
+    b: int
+    brightness: int
+    enabled: bool
+
+
+class ConfigurationSetting(BaseModel):
+    light_name: str
+    color: ConfigurationColor
+    preview: ConfigurationPreview
+
+
+class ConfigurationWithSettings(BaseModel):
+    """GET /configurations?include_settings=true — item da lista."""
+
+    name: str
+    description: str
+    settings: list[ConfigurationSetting]
+
+
 class LightPosition(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
     position: str = Field(

@@ -45,6 +45,132 @@ class TestConfigurationsEndpoints:
             names = [config["name"] for config in data]
             assert names == sorted(names)
 
+    def test_configurations_default_shape_has_no_settings(self, fastapi_test_client):
+        """Default response stays [{name, description}] — no settings key (issue #8)."""
+        data = fastapi_test_client.get("/configurations").json()
+        assert data
+        for config in data:
+            assert set(config.keys()) == {"name", "description"}
+
+        explicit_false = fastapi_test_client.get(
+            "/configurations", params={"include_settings": "false"}
+        ).json()
+        assert explicit_false == data
+
+    def test_configurations_include_settings_shape(self, fastapi_test_client):
+        """include_settings=true adds settings with color + preview (issue #8)."""
+        default = fastapi_test_client.get("/configurations").json()
+        response = fastapi_test_client.get(
+            "/configurations", params={"include_settings": "true"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert [c["name"] for c in data] == [c["name"] for c in default]
+        assert [c["description"] for c in data] == [c["description"] for c in default]
+        for config in data:
+            assert set(config.keys()) == {"name", "description", "settings"}
+            assert config["settings"]
+            for setting in config["settings"]:
+                assert set(setting.keys()) == {"light_name", "color", "preview"}
+                assert set(setting["color"].keys()) == {
+                    "red",
+                    "green",
+                    "blue",
+                    "brightness",
+                }
+                assert set(setting["preview"].keys()) == {
+                    "r",
+                    "g",
+                    "b",
+                    "brightness",
+                    "enabled",
+                }
+
+        relax = next(c for c in data if c["name"] == "relax")
+        assert relax["settings"][0]["light_name"] == "Lâmpada 1"
+        assert relax["settings"][0]["color"] == {
+            "red": 255,
+            "green": 147,
+            "blue": 41,
+            "brightness": 180,
+        }
+        assert relax["settings"][0]["preview"]["brightness"] == 180
+        assert relax["settings"][0]["preview"]["enabled"] is True
+
+    @staticmethod
+    def _settings_of(client, name):
+        data = client.get("/configurations", params={"include_settings": "true"}).json()
+        return next(c for c in data if c["name"] == name)["settings"]
+
+    def test_include_settings_preview_rgb_matches_color_space(self, fastapi_test_client):
+        """Preview RGB = xy_to_rgb(rgb_to_xy(cor), brilho efetivo) — mesmo do status."""
+        from marvin_hue.utils import ColorConverter
+
+        preview = self._settings_of(fastapi_test_client, "relax")[0]["preview"]
+        expected = ColorConverter.xy_to_rgb(ColorConverter.rgb_to_xy(255, 147, 41), 180)
+        assert (preview["r"], preview["g"], preview["b"]) == expected
+
+    def test_include_settings_preview_caps_eye_safety(
+        self, fastapi_test_client, mock_light_setups_manager
+    ):
+        """Fita Led a 254: color.brightness intacto, preview.brightness = 63."""
+        from marvin_hue.basics import LightConfig, LightSetting
+        from marvin_hue.colors import Color
+
+        mock_light_setups_manager.configs.append(
+            LightConfig(
+                name="zz_fita",
+                description="fita no máximo",
+                settings=[LightSetting("Fita Led", Color(255, 255, 255, 254))],
+            )
+        )
+        setting = self._settings_of(fastapi_test_client, "zz_fita")[0]
+        assert setting["color"]["brightness"] == 254
+        assert setting["preview"]["brightness"] == 63
+
+    def test_include_settings_preview_flags_disabled_light(self, fastapi_test_client):
+        """Lâmpada desabilitada no app -> preview.enabled False."""
+        from marvin_hue.eye_safety import clear_runtime_policy, set_runtime_enabled
+
+        set_runtime_enabled({"Lâmpada 1": False})
+        try:
+            settings = self._settings_of(fastapi_test_client, "concentration")
+        finally:
+            clear_runtime_policy()
+        by_name = {s["light_name"]: s["preview"]["enabled"] for s in settings}
+        assert by_name == {"Lâmpada 1": False, "Lâmpada 2": True}
+
+    def test_include_settings_duplicate_name_matches_apply(
+        self, fastapi_test_client, mock_light_setups_manager
+    ):
+        """Nome duplicado: preview usa o MESMO config que /apply (primeiro vence)."""
+        from marvin_hue.basics import LightConfig, LightSetting
+        from marvin_hue.colors import Color
+
+        mock_light_setups_manager.configs.append(
+            LightConfig(
+                name="relax",
+                description="duplicata",
+                settings=[LightSetting("Lâmpada 2", Color(1, 2, 3, 4))],
+            )
+        )
+        data = fastapi_test_client.get(
+            "/configurations", params={"include_settings": "true"}
+        ).json()
+        relax = [c for c in data if c["name"] == "relax"]
+        assert len(relax) == 1
+
+        expected = mock_light_setups_manager.get_config("relax")
+        assert relax[0]["description"] == expected.description
+        assert [(s["light_name"], s["color"]) for s in relax[0]["settings"]] == [
+            (s.light_name, s.color.to_dict()) for s in expected.settings
+        ]
+        names = fastapi_test_client.get("/configurations").json()
+        assert [c for c in names if c["name"] == "relax"] == [
+            {"name": "relax", "description": expected.description}
+        ]
+
 
 class TestApplyConfigurationEndpoint:
     """Tests for applying configurations."""
