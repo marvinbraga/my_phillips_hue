@@ -222,55 +222,71 @@ function scrollToBottom() {
 }
 
 // ==================== APROVAÇÃO (HITL) ====================
-// Rótulos amigáveis; o nome técnico da tool aparece só como fallback.
+// Rótulos das tools que pedem aprovação (marvin_hue/chat/hitl.py); outra
+// tool cai no nome técnico.
 const TOOL_LABELS = {
-    apply_config: 'Aplicar cena',
-    save_current_config: 'Salvar o estado atual como cena',
     create_config: 'Criar cena',
-    apply_config_to_group: 'Aplicar cena a um grupo',
+    save_current_config: 'Salvar o estado atual como cena',
     create_schedule: 'Criar agendamento',
     set_schedule_enabled: 'Ativar ou desativar agendamento',
     start_mirror: 'Iniciar espelhamento',
-    stop_mirror: 'Parar espelhamento',
-    undo_last_scene: 'Desfazer a última cena',
-    task: 'Delegar a um assistente especializado',
 };
 
 const ARG_LABELS = {
     config_name: 'Cena',
     name: 'Nome',
     description: 'Descrição',
-    group: 'Grupo',
     mode: 'Modo',
     profile: 'Perfil',
     time_hhmm: 'Horário',
-    days_of_week: 'Dias',
+    action: 'Ação',
+    days: 'Dias',
     enabled: 'Ativo',
     schedule: 'Agendamento',
-    schedule_id: 'Agendamento',
-    transition_time: 'Transição (s)',
-    subagent_type: 'Assistente',
     settings: 'Lâmpadas',
 };
 
-const MAX_ARG_CHARS = 160;
+const WEEKDAYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'];
+
+// Texto livre que vai ser GRAVADO (nome, descrição) aparece inteiro: o
+// usuário precisa ver exatamente o que aprova.
+const FULL_TEXT_ARGS = new Set(['name', 'config_name', 'description']);
+const MAX_ARG_CHARS = 240;
 let approvalPending = false;
 let awaitingResume = false;
 
-function summarizeArg(value) {
+function truncate(text, limit) {
+    return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+// "Lâmpada 1: rgb(10, 20, 200) 40%" — uma linha por lâmpada.
+function settingsLines(value) {
+    return value.map(s => {
+        if (!s || typeof s !== 'object') return String(s);
+        const rgb = `rgb(${toColorChannel(s.red)}, ${toColorChannel(s.green)}, ${toColorChannel(s.blue)})`;
+        const pct = s.brightness_pct != null ? ` ${Number(s.brightness_pct)}%` : '';
+        return `${s.light_name}: ${rgb}${pct}`;
+    });
+}
+
+function argLines(key, value) {
+    if (key === 'settings' && Array.isArray(value)) {
+        return settingsLines(value);
+    }
+    if (key === 'days' && Array.isArray(value)) {
+        return [value.length ? value.map(d => WEEKDAYS[d] || String(d)).join(', ') : 'todo dia'];
+    }
     let text;
     if (typeof value === 'boolean') {
         text = value ? 'Sim' : 'Não';
     } else if (Array.isArray(value)) {
-        text = value.every(v => typeof v !== 'object' || v === null)
-            ? value.join(', ')
-            : `${value.length} itens`;
+        text = value.map(v => (v !== null && typeof v === 'object') ? JSON.stringify(v) : String(v)).join(', ');
     } else if (value !== null && typeof value === 'object') {
         text = JSON.stringify(value);
     } else {
         text = String(value == null ? '' : value);
     }
-    return text.length > MAX_ARG_CHARS ? `${text.slice(0, MAX_ARG_CHARS)}…` : text;
+    return [FULL_TEXT_ARGS.has(key) ? text : truncate(text, MAX_ARG_CHARS)];
 }
 
 function setApprovalPending(pending) {
@@ -286,9 +302,19 @@ function removeActiveApprovalCards() {
     messagesContainer.querySelectorAll('.approval-card.active').forEach(el => el.remove());
 }
 
+// Resposta do servidor sem nada pendente (ex.: "pending" após recarregar).
+function clearApprovalState() {
+    removeActiveApprovalCards();
+    awaitingResume = false;
+    setApprovalPending(false);
+}
+
 // Monta o cartão só com createElement/textContent: args vêm do modelo (não confiáveis).
 function renderApprovalCard(requests) {
-    if (!requests.length) return;
+    if (!requests.length) {
+        clearApprovalState();
+        return;
+    }
     removeActiveApprovalCards();
     if (suggestions) {
         suggestions.style.display = 'none';
@@ -307,6 +333,7 @@ function renderApprovalCard(requests) {
     card.appendChild(title);
 
     const decisions = new Array(requests.length).fill(null);
+    let decidable = true;
 
     requests.forEach((req, index) => {
         const item = document.createElement('div');
@@ -314,8 +341,15 @@ function renderApprovalCard(requests) {
 
         const tool = document.createElement('div');
         tool.className = 'approval-tool';
-        tool.textContent = TOOL_LABELS[req.tool] || req.tool;
+        tool.textContent = TOOL_LABELS[req.tool] || req.tool || 'Ação';
         item.appendChild(tool);
+
+        if (req.description) {
+            const desc = document.createElement('div');
+            desc.className = 'approval-description';
+            desc.textContent = req.description;
+            item.appendChild(desc);
+        }
 
         const args = req.args || {};
         const keys = Object.keys(args);
@@ -326,7 +360,11 @@ function renderApprovalCard(requests) {
                 const dt = document.createElement('dt');
                 dt.textContent = ARG_LABELS[key] || key;
                 const dd = document.createElement('dd');
-                dd.textContent = summarizeArg(args[key]);
+                argLines(key, args[key]).forEach(line => {
+                    const row = document.createElement('div');
+                    row.textContent = line;
+                    dd.appendChild(row);
+                });
                 list.appendChild(dt);
                 list.appendChild(dd);
             });
@@ -335,17 +373,29 @@ function renderApprovalCard(requests) {
 
         const actions = document.createElement('div');
         actions.className = 'approval-actions';
+        const allowed = Array.isArray(req.allowed_decisions) ? req.allowed_decisions : [];
+
+        if (!allowed.length) {
+            // Sem decisão possível aqui: avisa em vez de travar o chat.
+            decidable = false;
+            const note = document.createElement('span');
+            note.className = 'approval-outcome';
+            note.textContent = 'Esta ação não pode ser decidida aqui.';
+            actions.appendChild(note);
+            item.appendChild(actions);
+            card.appendChild(item);
+            return;
+        }
+
         const outcome = document.createElement('span');
         outcome.className = 'approval-outcome';
         outcome.setAttribute('aria-live', 'polite');
-        const allowed = req.allowed_decisions || ['approve', 'reject'];
 
         const makeButton = (type, label, css) => {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = `btn btn-sm ${css}`;
             btn.textContent = label;
-            btn.dataset.decision = type;
             btn.disabled = !allowed.includes(type);
             btn.addEventListener('click', () => {
                 decisions[index] = { id: req.id, type };
@@ -367,12 +417,13 @@ function renderApprovalCard(requests) {
     });
 
     messagesContainer.appendChild(card);
-    setApprovalPending(true);
+    setApprovalPending(decidable);
     scrollToBottom();
 }
 
 function sendResume(card, decisions) {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
+        // Ao reconectar, o "pending" do onopen reapresenta o cartão.
         addMessage('Não conectado ao servidor. Tentando reconectar...', 'error');
         card.remove();
         setApprovalPending(false);
