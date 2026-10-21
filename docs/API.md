@@ -34,7 +34,7 @@ Authorization: Bearer <sua-chave>
 {"detail": "Invalid or missing API key"}
 ```
 
-**Não exigem chave** (UI local e legado): páginas HTML, `/static/*`, WebSocket do mirror, e endpoints JSON fora de `/api` (`/apply`, `/configurations`, `/mirror/*`, `/positions`).
+**Não exigem chave** (UI local e legado): páginas HTML, `/static/*`, WebSocket do mirror, e endpoints JSON fora de `/api` (`/apply`, `/lights/off`, `/configurations`, `/mirror/*`, `/positions`). Os aliases sob `/api` (`/api/apply`, `/api/lights/off`, `/api/configurations`, `/api/mirror/*`, `/api/positions`) exigem a chave.
 
 Exemplos:
 
@@ -682,6 +682,118 @@ data = {
 response = requests.post("http://localhost:5081/apply", json=data)
 result = response.json()
 print(result["message"])
+```
+
+---
+
+### POST /lights/off
+
+Desliga todas as lâmpadas habilitadas no app (`enabled_for_app=true`) que a
+bridge conhece. É o endpoint do botão **Desligar Todas** da tela Controle.
+Lâmpadas desabilitadas no catálogo são ignoradas e não aparecem em `applied`
+nem em `failed`.
+
+Ordem das operações:
+
+1. Se o espelhamento de tela ou de música estiver ativo, ele é parado primeiro
+   (senão o loop de captura religaria as lâmpadas). A parada grava o snapshot
+   `mirror_stop` de sempre. Se parar falhar, o desligamento continua.
+2. O servidor lê o estado da bridge uma vez e grava um snapshot da cena atual
+   no histórico (`source: "lights_off"`, `label: "before lights off"`). Ele é o
+   snapshot mais recente, então **Desfazer última cena**
+   (`POST /api/history/undo`) religa as lâmpadas como estavam.
+3. As lâmpadas habilitadas são desligadas com a transição pedida.
+
+O snapshot é idempotente: se todas as lâmpadas habilitadas já estão apagadas,
+nenhum snapshot é gravado. Apertar **Desligar Todas** duas vezes não faz o
+**Desfazer** restaurar "tudo apagado". Se gravar o snapshot falhar, o
+desligamento continua (fail-open).
+
+Não exige `API_KEY`. O alias `POST /api/lights/off` tem o mesmo comportamento e
+exige a chave quando ela está configurada.
+
+**Request Body (opcional):**
+```json
+{
+  "transition_time_secs": 1.0
+}
+```
+
+**Parâmetros:**
+- `transition_time_secs` (float, optional): Tempo de transição em segundos (0-60, padrão: 1). Sem corpo, usa o padrão. O padrão é 1 s (e não 0 como em `/apply`) para o apagão geral ter um fade curto em vez de um corte seco. Com `0`, o desligamento é instantâneo. A transição vale só para este comando: não fica gravada na lâmpada.
+
+**Response 200 (todas as lâmpadas habilitadas desligadas):**
+```json
+{
+  "message": "Lâmpadas desligadas",
+  "applied": ["Lâmpada 1", "Lâmpada 2"],
+  "failed": [],
+  "details": {
+    "config_name": "lights_off",
+    "transition_time_secs": 1.0
+  }
+}
+```
+
+O corpo segue o formato de `POST /apply`. `details.config_name` é sempre
+`"lights_off"`: não é uma cena do `setups.json`.
+
+**Response 200 (nenhuma lâmpada habilitada):** `applied` e `failed` vazios,
+nenhum snapshot gravado.
+```json
+{
+  "message": "Nenhuma lâmpada habilitada para desligar",
+  "applied": [],
+  "failed": [],
+  "details": {
+    "config_name": "lights_off",
+    "transition_time_secs": 1.0
+  }
+}
+```
+
+**Response 207 (desligamento parcial):**
+```json
+{
+  "message": "Lâmpadas desligadas parcialmente; algumas lâmpadas falharam",
+  "applied": ["Lâmpada 1"],
+  "failed": [{"name": "Lâmpada 2", "error": "boom"}],
+  "details": {
+    "config_name": "lights_off",
+    "transition_time_secs": 1.0
+  }
+}
+```
+
+**Response 422:** `transition_time_secs` fora de 0-60.
+
+**Response 500 (todas as tentativas falharam):** mesmo formato, com `applied: []`
+e a mensagem `"Falha ao desligar as lâmpadas; nenhuma lâmpada desligada"`.
+
+**Response 500 (bridge indisponível):** se o estado da bridge não pode ser lido
+antes do desligamento, nenhum comando é enviado e nenhum snapshot é gravado. O
+corpo tem o mesmo formato; cada lâmpada habilitada aparece em `failed` com o
+erro da bridge.
+```json
+{
+  "message": "Bridge indisponível; nenhuma lâmpada desligada",
+  "applied": [],
+  "failed": [
+    {"name": "Lâmpada 1", "error": "bridge unreachable"},
+    {"name": "Lâmpada 2", "error": "bridge unreachable"}
+  ],
+  "details": {
+    "config_name": "lights_off",
+    "transition_time_secs": 1.0
+  }
+}
+```
+
+**Exemplo com curl:**
+```bash
+curl -X POST http://localhost:5081/lights/off \
+  -H "Content-Type: application/json" \
+  -d '{"transition_time_secs": 1}'
 ```
 
 ---
@@ -1616,6 +1728,7 @@ Interface de chat para controlar as lâmpadas por linguagem natural.
 |--------|-------------|-----|
 | 200 | OK | Requisição bem-sucedida |
 | 201 | Created | Recurso criado (ex: `POST /api/lights`) |
+| 207 | Multi-Status | Aplicação parcial: algumas lâmpadas falharam (`POST /apply`, `POST /lights/off`) |
 | 400 | Bad Request | Parâmetros inválidos ou estado inválido |
 | 404 | Not Found | Recurso não encontrado (ex: light id inexistente no catálogo) |
 | 409 | Conflict | Conflito de recurso (ex: nome ativo duplicado no catálogo) |

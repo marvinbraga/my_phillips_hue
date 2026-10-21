@@ -76,7 +76,7 @@ Hoje apagaria, porque `renderLights()` refaz tudo.
 ### Rodada 4 — Escopo e entrega
 
 **P15. O que fica fora do escopo?**
-- **Bug encontrado:** "Desligar Todas" envia `config_name: "all_off"`, que não existe em `.res/setups.json`, então o `POST /apply` dá 404. Vai virar uma issue separada, sem correção neste ciclo.
+- **Bug encontrado:** "Desligar Todas" envia `config_name: "all_off"`, que não existe em `.res/setups.json`, então o `POST /apply` dá 404. Vai virar uma issue separada, sem correção neste ciclo. (Resolvido na #9 com `POST /lights/off`.)
 - `duration_minutes` continua ignorado.
 
 **P16. E as mudanças locais que não são minhas?**

@@ -88,6 +88,7 @@ Web screens: Controle, Lâmpadas, Grupos, Agendamentos, Posicionamento, Espelham
 - `GET /configurations` (`?include_settings=true` adds per-light `color` + eye-safety-clamped `preview`)
 - `GET /configurations/favorites`, `PUT /configurations/favorites/{name}`, `DELETE /configurations/favorites/{name}` — favorites stored in SQLite (`scene_favorites`, schema v5); orphans hidden, kept
 - `POST /apply` — `ApplyResult` → HTTP **200** (all ok), **207** (partial), **500** (all failed). `duration_minutes` is accepted and **ignored** (not a restore timer)
+- `POST /lights/off` — snapshot (for undo) + turn off every enabled light; `ApplyResult` → 200 / 207 / 500
 - `GET /positions`, `POST /positions`, `POST /positions/reset`
 
 **Mirror (no API key)** — `MirrorControlService`
