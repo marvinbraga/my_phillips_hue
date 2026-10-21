@@ -50,6 +50,12 @@ def test_chat_js_sanitizes_markdown_and_never_injects_raw_html(
     assert "${light.name}" not in body
 
 
+def _approval_code(body: str) -> str:
+    start = body.index("// ==================== APROVAÇÃO (HITL)")
+    end = body.index("// Enviar mensagem")
+    return body[start:end]
+
+
 def test_chat_js_renders_approval_card_without_html_injection(
     fastapi_test_client: TestClient,
 ) -> None:
@@ -57,13 +63,29 @@ def test_chat_js_renders_approval_card_without_html_injection(
     assert "case 'approval_required'" in body
     assert "action: 'resume'" in body
     assert "action: 'pending'" in body
-    assert "'Aprovar'" in body and "'Rejeitar'" in body
-    start = body.index("function renderApprovalCard")
-    end = body.index("function sendResume")
-    card_code = body[start:end]
-    assert "innerHTML" not in card_code
-    assert "dd.textContent = summarizeArg(" in card_code
+    code = _approval_code(body)
+    assert "'Aprovar'" in code and "'Rejeitar'" in code
+    assert "innerHTML" not in code
+    assert "row.textContent = line" in code
+    assert "desc.textContent = req.description" in code
+    # Decisão sempre leva o id do pedido.
+    assert "decisions[index] = { id: req.id, type }" in code
+
+
+def test_chat_js_approval_card_details(fastapi_test_client: TestClient) -> None:
+    code = _approval_code(fastapi_test_client.get("/static/chat.js").text)
+    # Só as tools com HITL têm rótulo; nada de `task` nem dataset morto.
+    assert "task:" not in code and "dataset.decision" not in code
+    for tool in ("create_config", "save_current_config", "create_schedule",
+                 "set_schedule_enabled", "start_mirror"):
+        assert f"{tool}:" in code
+    # Lâmpadas uma por linha; texto livre gravado não é cortado.
+    assert "${s.light_name}: ${rgb}${pct}" in code
+    assert "FULL_TEXT_ARGS = new Set(['name', 'config_name', 'description'])" in code
+    # Sem decisão possível: avisa em vez de travar; lista vazia destrava.
+    assert "Esta ação não pode ser decidida aqui." in code
+    assert "clearApprovalState();" in code
 
 
 def test_chat_page_busts_cache_for_hitl_js(fastapi_test_client: TestClient) -> None:
-    assert 'src="/static/chat.js?v=hitl-1"' in fastapi_test_client.get("/chat").text
+    assert 'src="/static/chat.js?v=hitl-2"' in fastapi_test_client.get("/chat").text
