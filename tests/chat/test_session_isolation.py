@@ -95,7 +95,7 @@ def test_real_checkpointer_isolates_history(monkeypatch, fake_controller, fake_m
         classmethod(lambda cls, **kw: type("P", (), {"model": fake_model})()),
     )
     # Sem light tools próprias: o foco é o isolamento do checkpointer.
-    monkeypatch.setattr(ra, "build_light_tools", lambda *a, **k: [])
+    monkeypatch.setattr(ra, "build_all_tools", lambda *a, **k: [])
     # NÃO mockar create_agent: grafo real + InMemorySaver real.
     agent = ra.HueLightAgent(fake_controller, fake_manager)
 

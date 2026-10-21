@@ -16,12 +16,14 @@ from langchain_core.messages import ToolCall
 
 from marvin_hue.eye_safety import clamp_eye_safety, eye_safety_limit_pct
 
-# Tools cujos args carregam brilho e a escala de cada uma.
-# "pct"  -> brightness é 0-100 (set_brightness)
-# "hue"  -> brightness é 0-254 (set_light_color, apply via cor)
-_BRIGHTNESS_FIELD_SCALE: dict[str, tuple[str, str]] = {
-    "set_brightness": ("brightness", "pct"),
-    "set_light_color": ("brightness", "hue"),
+# Tools cujos args carregam lâmpada + brilho: (campo da lâmpada, campo do
+# brilho, escala). "pct" -> 0-100; "hue" -> 0-254.
+# set_color_temperature: só quando o alvo é UMA lâmpada com teto (sala/'all'
+# não casam com eye_safety_limit_pct; o controller garante por lâmpada).
+_BRIGHTNESS_FIELD_SCALE: dict[str, tuple[str, str, str]] = {
+    "set_brightness": ("light_name", "brightness", "pct"),
+    "set_light_color": ("light_name", "brightness", "hue"),
+    "set_color_temperature": ("target", "brightness_pct", "pct"),
 }
 
 
@@ -33,9 +35,9 @@ class EyeSafetyMiddleware(AgentMiddleware):
         spec = _BRIGHTNESS_FIELD_SCALE.get(name)
         if spec is None:
             return request
-        field, scale = spec
+        light_field, field, scale = spec
         args = request.tool_call["args"]
-        light = args.get("light_name")
+        light = args.get(light_field)
         if (
             not isinstance(light, str)
             or eye_safety_limit_pct(light) is None

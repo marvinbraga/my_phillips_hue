@@ -18,265 +18,63 @@ Disabled lights (``enabled_for_app=false``)
   (set_light_color raises; turn_on/off/set_brightness return False;
   apply_light_config / set_all skip). Room batch tools skip them too.
 
-Favorites (``list_favorites`` / ``add_favorite`` / ``remove_favorite``)
------------------------------------------------------------------------
-``SceneFavoritesService`` is async and owns one aiosqlite connection plus an
-``asyncio.Lock`` bound to the FastAPI event loop. The tools therefore do the
-real work only in their ``coroutine`` (used by ``ainvoke``/``astream``, i.e.
-REST and WebSocket chat). The sync ``func`` never drives the service from a
-second event loop (that would be a cross-loop use of the lock/connection); it
-returns a clear message instead. The service is resolved lazily on each call
-through ``favorites_provider`` and the tools fail open: no service → message,
-never an exception.
+"Desligar tudo" (``turn_off_lights("all")``)
+--------------------------------------------
+The async path uses ``LightsOffService`` (stop mirror, idempotent snapshot,
+one bridge read), like ``POST /lights/off``. The sync path (CLI) keeps the
+plain ``controller.set_all(False)``. Single-light turn-off is unchanged.
 
 Last applied scene (``apply_config``)
 -------------------------------------
 The ``coroutine`` delegates to ``ApplyConfigService`` (source ``"chat"``): it
 takes the "before apply" snapshot (so undo works) and records the last applied
-scene when at least one light applied. History and the last-applied service are
-resolved lazily per call (``history_provider`` / ``last_applied_provider``) and
-fail open. The sync ``func`` talks to the controller only, for the same
-cross-loop reason as favorites.
+scene when at least one light applied. History and the last-applied service
+come lazily from ``ChatServices`` and fail open. The sync ``func`` talks to the
+controller only (no event-loop-bound services).
+
+Favorites, scenes, groups, schedules, mirror and health tools live in
+``scene_tools`` / ``automation_tools`` / ``system_tools`` (see
+``build_all_tools`` in ``marvin_hue.chat.tools``).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
 
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
 from marvin_hue.apply_result import ApplyResult
-from marvin_hue.basics import LightSetupsManager
+from marvin_hue.basics import DuplicateConfigError, LightSetupsManager
+from marvin_hue.chat.services import ChatServices
+from marvin_hue.chat.tools._common import (
+    SINGLE_LINE,
+    pct_to_hue,
+    unexpected_error,
+)
+from marvin_hue.chat.tools.rooms import (
+    DEFAULT_LOCATIONS_PATH,
+    RegistryLocation,
+    enabled_names,
+    match_rooms,
+    normalize_room_index,
+    resolve_room_lights,
+    room_list,
+)
 from marvin_hue.colors import Color
 from marvin_hue.controllers import HueController
 from marvin_hue.eye_safety import is_enabled_for_app
-from marvin_hue.logging_config import get_logger
 from marvin_hue.services.apply_config import (
     ApplyConfigNotFoundError,
     ApplyConfigService,
-    SceneSnapshotPort,
 )
-from marvin_hue.services.last_applied_scene import (
-    SOURCE_CHAT,
-    LastAppliedPort,
-    LastAppliedProvider,
-    resolve_last_applied,
-)
-from marvin_hue.services.scene_favorites import FavoriteConfigNotFoundError
+from marvin_hue.services.last_applied_scene import SOURCE_CHAT
+from marvin_hue.services.lights_off import LightsOffBridgeError
 
-if TYPE_CHECKING:
-    from marvin_hue.services.scene_favorites import SceneFavoritesService
-
-
-_DEFAULT_LOCATIONS_PATH = ".res/light_physical_locations.json"
-_DEFAULT_ROOM = "sem_sala"
-
-logger = get_logger("chat.tools.light_tools")
-
-FavoritesProvider = Callable[[], "SceneFavoritesService | None"]
-
-_FAVORITES_UNAVAILABLE = (
-    "Favoritos indisponíveis no momento (serviço de favoritos não inicializado)."
-)
-_FAVORITES_SYNC_ONLY = (
-    "Favoritos só podem ser consultados ou alterados pelo chat do servidor "
-    "(web/API), que roda no contexto assíncrono do app."
-)
-
-
-def default_favorites_provider() -> "SceneFavoritesService | None":
-    """Resolve o SceneFavoritesService registrado no lifespan (ou None).
-
-    Import tardio: evita ciclo chat → api no import do pacote.
-    """
-    try:
-        from marvin_hue.api.dependencies import get_scene_favorites_service
-
-        return get_scene_favorites_service()
-    except (RuntimeError, ImportError):
-        return None
-
-
-HistoryProvider = Callable[[], "SceneSnapshotPort | None"]
-
-
-def default_history_provider() -> "SceneSnapshotPort | None":
-    """Resolve o SceneHistoryService registrado no lifespan (ou None).
-
-    Import tardio: evita ciclo chat → api no import do pacote.
-    """
-    try:
-        from marvin_hue.api.dependencies import get_scene_history_service
-
-        return get_scene_history_service()
-    except (RuntimeError, ImportError):
-        return None
-
-
-def _resolve_history(provider: HistoryProvider) -> "SceneSnapshotPort | None":
-    try:
-        return provider()
-    except Exception as exc:  # noqa: BLE001 — fail-open: apply without snapshot
-        logger.warning(f"Chat apply_config: histórico indisponível: {exc}")
-        return None
-
-
-def default_last_applied_provider() -> "LastAppliedPort | None":
-    """Resolve o LastAppliedSceneService registrado no lifespan (ou None).
-
-    Import tardio: evita ciclo chat → api no import do pacote.
-    """
-    try:
-        from marvin_hue.api.dependencies import (
-            get_last_applied_scene_service_optional,
-        )
-
-        return get_last_applied_scene_service_optional()
-    except ImportError:
-        return None
-
-
-@dataclass(frozen=True)
-class RegistryLocation:
-    """Registry snapshot row used by get_light_locations (name is Hue join key)."""
-
-    name: str
-    room: str
-    notes: str | None = None
-    eye_safety_limit_pct: int | None = None
-
-
-class RegistryRoomIndex(dict[str, list[str]]):
-    """room → light names, plus registry location rows when built from catalog."""
-
-    def __init__(
-        self,
-        rooms: Mapping[str, Sequence[str]],
-        locations: tuple[RegistryLocation, ...] | None = None,
-    ) -> None:
-        super().__init__({str(k): [str(n) for n in v] for k, v in rooms.items()})
-        self.locations = locations
-
-
-class RoomIndex(Protocol):
-    """Thin read-only view of room → light names (optional DI alternative)."""
-
-    def rooms(self) -> Sequence[str]:
-        """Distinct room labels."""
-        ...
-
-    def lights_in_room(self, room: str) -> Sequence[str]:
-        """Light names in ``room`` (case-insensitive match preferred by caller)."""
-        ...
-
-
-def _eye_safety_pct(raw: object) -> int | None:
-    if isinstance(raw, bool) or not isinstance(raw, int):
-        return None
-    return raw
-
-
-def build_room_index_from_registry_rows(
-    lights: Sequence[object],
-) -> dict[str, list[str]]:
-    """Build room_index from registry-like objects (name, room, enabled_for_app).
-
-    Disabled lights are omitted. Empty/missing room → ``sem_sala``.
-    Carries ``RegistryLocation`` rows (name, room, notes, eye_safety_limit_pct)
-    so get_light_locations can prefer the catalog over JSON.
-    """
-    room_index: dict[str, list[str]] = {}
-    locations: list[RegistryLocation] = []
-    for lt in lights:
-        if not bool(getattr(lt, "enabled_for_app", True)):
-            continue
-        name = str(getattr(lt, "name", "") or "").strip()
-        if not name:
-            continue
-        room_raw = getattr(lt, "room", None)
-        room = (str(room_raw).strip() if room_raw is not None else "") or _DEFAULT_ROOM
-        room_index.setdefault(room, []).append(name)
-        notes_raw = getattr(lt, "notes", None)
-        notes = str(notes_raw).strip() if notes_raw else None
-        locations.append(
-            RegistryLocation(
-                name=name,
-                room=room,
-                notes=notes or None,
-                eye_safety_limit_pct=_eye_safety_pct(
-                    getattr(lt, "eye_safety_limit_pct", None)
-                ),
-            )
-        )
-    return RegistryRoomIndex(room_index, tuple(locations))
-
-
-def _room_index_from_locations(path: str) -> dict[str, list[str]]:
-    """Fallback when no registry snapshot: group by optional ``room`` or location."""
-    p = Path(path)
-    if not p.exists():
-        return {}
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    lights = data.get("lights", []) if isinstance(data, dict) else []
-    room_index: dict[str, list[str]] = {}
-    for light in lights:
-        if not isinstance(light, dict):
-            continue
-        name = str(light.get("name", "") or "").strip()
-        if not name:
-            continue
-        room_raw = light.get("room") or light.get("location") or _DEFAULT_ROOM
-        room = str(room_raw).strip() or _DEFAULT_ROOM
-        room_index.setdefault(room, []).append(name)
-    return room_index
-
-
-def _locations_from_room_index(
-    room_index: Mapping[str, Sequence[str]],
-) -> tuple[RegistryLocation, ...] | None:
-    existing = getattr(room_index, "locations", None)
-    if existing is not None:
-        return tuple(existing)
-    return tuple(
-        RegistryLocation(name=str(n), room=str(room))
-        for room, names in room_index.items()
-        for n in names
-    )
-
-
-def _normalize_room_index(
-    room_index: Mapping[str, Sequence[str]] | None,
-    locations_path: str,
-) -> dict[str, list[str]]:
-    if room_index is not None:
-        rooms = {
-            str(room): [str(n) for n in names] for room, names in room_index.items()
-        }
-        return RegistryRoomIndex(rooms, _locations_from_room_index(room_index))
-    return _room_index_from_locations(locations_path)
-
-
-def _match_room(rooms: Mapping[str, Sequence[str]], room: str) -> str | None:
-    """Exact then case-insensitive room key match."""
-    if room in rooms:
-        return room
-    lower = room.lower()
-    for key in rooms:
-        if key.lower() == lower:
-            return key
-    return None
-
-
-def _enabled_names(names: Sequence[str]) -> list[str]:
-    return [n for n in names if is_enabled_for_app(n)]
+__all__ = ["build_light_tools"]
 
 
 def _registry_location_lines(loc: RegistryLocation, *, heading: bool) -> str:
@@ -390,12 +188,10 @@ def _format_json_locations(locations_path: str, light_name: str) -> str:
 def build_light_tools(
     controller: HueController,
     manager: LightSetupsManager,
-    locations_path: str = _DEFAULT_LOCATIONS_PATH,
+    locations_path: str = DEFAULT_LOCATIONS_PATH,
     *,
     room_index: Mapping[str, Sequence[str]] | None = None,
-    favorites_provider: FavoritesProvider | None = None,
-    last_applied_provider: LastAppliedProvider | None = None,
-    history_provider: HistoryProvider | None = None,
+    services: ChatServices | None = None,
 ) -> list[BaseTool]:
     """Cria as tools de iluminação com closures (sem estado global).
 
@@ -407,15 +203,8 @@ def build_light_tools(
             If None, falls back to grouping physical locations JSON by room/location.
             Disabled lights should already be omitted when built from the registry;
             listing still re-checks ``is_enabled_for_app`` at call time.
-        favorites_provider: resolve o SceneFavoritesService a cada chamada
-            (None → ``default_favorites_provider``). Retornar None ou levantar
-            torna as tools de favoritos indisponíveis (fail-open, sem exceção).
-        last_applied_provider: resolve o LastAppliedSceneService a cada
-            ``apply_config`` assíncrono (None → ``default_last_applied_provider``).
-            Ausente/erro → aplica sem registrar a última cena.
-        history_provider: resolve o SceneHistoryService para o snapshot
-            "before apply" do ``apply_config`` assíncrono (None →
-            ``default_history_provider``). Ausente/erro → aplica sem snapshot.
+        services: providers dos serviços do app (``ChatServices``); usado por
+            ``turn_off_lights("all")`` no caminho async. None → padrão.
 
     Returns:
         Lista de BaseTool prontas para create_agent (list/status/control + room tools).
@@ -424,12 +213,8 @@ def build_light_tools(
         Control tools rely on HueController skipping ``enabled_for_app=false`` lights.
         Room metadata is a build-time snapshot; registry room edits need agent rebuild.
     """
-    rooms_map = _normalize_room_index(room_index, locations_path)
-    resolve_favorites = favorites_provider or default_favorites_provider
-    resolve_last_applied_provider = (
-        last_applied_provider or default_last_applied_provider
-    )
-    resolve_history = history_provider or default_history_provider
+    rooms_map = normalize_room_index(room_index, locations_path)
+    chat_services = services or ChatServices()
 
     # ----- schemas de argumentos (guiam o LLM) -----
     class _SetColorArgs(BaseModel):
@@ -447,7 +232,9 @@ def build_light_tools(
 
     class _ListConfigsArgs(BaseModel):
         search: str = Field(
-            default="", description="Termo opcional para filtrar pelo nome"
+            default="",
+            max_length=100,
+            description="Filtro opcional só pelo NOME (tema/mood: search_configs)",
         )
 
     class _LightNameAllArgs(BaseModel):
@@ -467,30 +254,29 @@ def build_light_tools(
         # de injeção de prompt via nome de preset reinjetado no system message.
         config_name: str = Field(
             pattern=r"^\w+$",
+            max_length=64,
             description="Nome único, sem espaços (use underscores). Crie um nome "
             "criativo baseado nas cores atuais (ex: 'sunset_warm', 'natal_festivo').",
         )
         description: str = Field(
-            description="Descrição de uma linha capturando o mood/ambiente das cores."
-        )
-
-    class _FavoriteArgs(BaseModel):
-        config_name: str = Field(
-            description="Nome exato da cena/preset (veja list_configs)."
+            max_length=200,
+            pattern=SINGLE_LINE,
+            description="Descrição de uma linha capturando o mood/ambiente das cores.",
         )
 
     class _RoomArgs(BaseModel):
         room: str = Field(
             default="",
-            description="Nome da sala. Vazio em list_lights_by_room lista salas e contagens.",
+            max_length=100,
+            description="Sala ou parte do nome (ex.: 'teto'). Vazio lista salas e contagens.",
         )
 
     class _SetRoomPowerArgs(BaseModel):
-        room: str = Field(description="Nome da sala")
+        room: str = Field(max_length=100, description="Sala ou parte do nome (ex.: 'teto')")
         on: bool = Field(description="True para ligar, False para desligar")
 
     class _SetRoomBrightnessArgs(BaseModel):
-        room: str = Field(description="Nome da sala")
+        room: str = Field(max_length=100, description="Sala ou parte do nome (ex.: 'teto')")
         brightness: int = Field(
             ge=0, le=100, description="Brilho em porcentagem (0-100)"
         )
@@ -498,7 +284,7 @@ def build_light_tools(
     # ----- implementações (closures) -----
     def _list_lights() -> str:
         # Exclude disabled (enabled_for_app=false); controller also skips controls.
-        names = _enabled_names(controller.list_lights())
+        names = enabled_names(controller.list_lights())
         if not names:
             return "Nenhuma lâmpada habilitada disponível."
         return f"Lâmpadas disponíveis: {', '.join(names)}"
@@ -576,15 +362,15 @@ def build_light_tools(
         config_name: str, transition_time: float = 0.0
     ) -> str:
         # Same use case as POST /apply: "before apply" snapshot (so undo works)
-        # and the last-applied record (≥1 light applied), both best-effort.
+        # and the last-applied record (>=1 light applied), both best-effort.
         config = manager.get_config(config_name)
         if not config:
             return _apply_not_found(config_name)
         service = ApplyConfigService(
             manager,
             controller,
-            _resolve_history(resolve_history),
-            last_applied=resolve_last_applied(resolve_last_applied_provider),
+            chat_services.history(),
+            last_applied=chat_services.last_applied(),
         )
         try:
             result = await service.apply(
@@ -637,7 +423,7 @@ def build_light_tools(
 
     def _set_brightness(light_name: str, brightness: int) -> str:
         pct = max(0, min(100, brightness))
-        hue_brightness = max(0, min(254, int((pct / 100) * 254)))
+        hue_brightness = pct_to_hue(pct)
         if light_name.lower() == "all":
             controller.set_all_brightness(hue_brightness)
             return f"Brilho de todas as lâmpadas ajustado para {pct}%."
@@ -646,11 +432,12 @@ def build_light_tools(
         return f"Lâmpada '{light_name}' não encontrada."
 
     def _save_current_config(config_name: str, description: str) -> str:
+        duplicate = (
+            "Já existe uma configuração com o nome '{name}'. "
+            "Escolha outro nome ou delete a existente primeiro."
+        )
         if manager.get_config(config_name):
-            return (
-                f"Já existe uma configuração com o nome '{config_name}'. "
-                "Escolha outro nome ou delete a existente primeiro."
-            )
+            return duplicate.format(name=config_name)
         from marvin_hue.basics import LightSetting, LightConfig
 
         settings = []
@@ -673,8 +460,12 @@ def build_light_tools(
             settings=settings,
             description=description or "Configuração salva pelo chat",
         )
-        manager.configs.append(new_config)
-        manager.save()
+        try:
+            manager.add_config(new_config)
+        except DuplicateConfigError:
+            return duplicate.format(name=config_name)
+        except Exception as e:  # noqa: BLE001
+            return unexpected_error(f"salvar a cena '{config_name}'", e, verb="Erro ao")
         names = ", ".join(s.light_name for s in settings)
         return (
             f"Configuração '{config_name}' salva com sucesso!\n"
@@ -696,9 +487,18 @@ def build_light_tools(
             )
         parts = ["Salas (registry / room_index):"]
         for room in sorted(rooms_map.keys(), key=str.lower):
-            enabled = _enabled_names(rooms_map[room])
+            enabled = enabled_names(rooms_map[room])
             parts.append(f"- {room}: {len(enabled)} lâmpada(s)")
         return "\n".join(parts)
+
+    def _room_counts(title: str) -> str:
+        parts = [title]
+        for r in sorted(rooms_map.keys(), key=str.lower):
+            parts.append(f"- {r}: {len(enabled_names(rooms_map[r]))} lâmpada(s)")
+        return "\n".join(parts)
+
+    def _room_not_found(room: str) -> str:
+        return f"Sala '{room}' não encontrada. Salas: {room_list(rooms_map)}"
 
     def _list_lights_by_room(room: str = "") -> str:
         if not rooms_map:
@@ -708,32 +508,34 @@ def build_light_tools(
             )
         room = (room or "").strip()
         if not room:
-            parts = ["Salas e contagens:"]
-            for r in sorted(rooms_map.keys(), key=str.lower):
-                n = len(_enabled_names(rooms_map[r]))
-                parts.append(f"- {r}: {n} lâmpada(s)")
-            return "\n".join(parts)
-        key = _match_room(rooms_map, room)
-        if key is None:
-            available = (
-                ", ".join(sorted(rooms_map.keys(), key=str.lower)) or "(nenhuma)"
-            )
-            return f"Sala '{room}' não encontrada. Salas: {available}"
-        names = _enabled_names(rooms_map[key])
+            return _room_counts("Salas e contagens:")
+        keys = match_rooms(rooms_map, room)
+        if not keys:
+            return _room_not_found(room)
+        lines = []
+        for key in keys:
+            names = enabled_names(rooms_map[key])
+            if names:
+                lines.append(f"Lâmpadas em '{key}': {', '.join(names)}")
+            else:
+                lines.append(f"Sala '{key}' sem lâmpadas habilitadas.")
+        return "\n".join(lines)
+
+    def _room_targets(room: str) -> tuple[str, list[str]] | str:
+        resolved = resolve_room_lights(rooms_map, (room or "").strip())
+        if resolved is None:
+            return _room_not_found(room)
+        label, names = resolved
+        label = label[0].upper() + label[1:]
         if not names:
-            return f"Sala '{key}' sem lâmpadas habilitadas."
-        return f"Lâmpadas em '{key}': {', '.join(names)}"
+            return f"{label} sem lâmpadas habilitadas."
+        return label, names
 
     def _set_room_power(room: str, on: bool) -> str:
-        key = _match_room(rooms_map, (room or "").strip())
-        if key is None:
-            available = (
-                ", ".join(sorted(rooms_map.keys(), key=str.lower)) or "(nenhuma)"
-            )
-            return f"Sala '{room}' não encontrada. Salas: {available}"
-        names = _enabled_names(rooms_map[key])
-        if not names:
-            return f"Sala '{key}' sem lâmpadas habilitadas."
+        targets = _room_targets(room)
+        if isinstance(targets, str):
+            return targets
+        label, names = targets
         ok: list[str] = []
         failed: list[str] = []
         for name in names:
@@ -741,23 +543,18 @@ def build_light_tools(
             success = controller.turn_on(name) if on else controller.turn_off(name)
             (ok if success else failed).append(name)
         action = "ligadas" if on else "desligadas"
-        msg = f"Sala '{key}': {len(ok)} lâmpada(s) {action}."
+        msg = f"{label}: {len(ok)} lâmpada(s) {action}."
         if failed:
             msg += f" Falha/skip: {', '.join(failed)}."
         return msg
 
     def _set_room_brightness(room: str, brightness: int) -> str:
-        key = _match_room(rooms_map, (room or "").strip())
-        if key is None:
-            available = (
-                ", ".join(sorted(rooms_map.keys(), key=str.lower)) or "(nenhuma)"
-            )
-            return f"Sala '{room}' não encontrada. Salas: {available}"
-        names = _enabled_names(rooms_map[key])
-        if not names:
-            return f"Sala '{key}' sem lâmpadas habilitadas."
+        targets = _room_targets(room)
+        if isinstance(targets, str):
+            return targets
+        label, names = targets
         pct = max(0, min(100, brightness))
-        hue_brightness = max(0, min(254, int((pct / 100) * 254)))
+        hue_brightness = pct_to_hue(pct)
         ok: list[str] = []
         failed: list[str] = []
         for name in names:
@@ -766,113 +563,28 @@ def build_light_tools(
                 ok.append(name)
             else:
                 failed.append(name)
-        msg = f"Sala '{key}': brilho {pct}% em {len(ok)} lâmpada(s)."
+        msg = f"{label}: brilho {pct}% em {len(ok)} lâmpada(s)."
         if failed:
             msg += f" Falha/skip: {', '.join(failed)}."
         return msg
 
-    # ----- favoritos (async; ver docstring do módulo) -----
-    def _favorites_service() -> "SceneFavoritesService | None":
-        try:
-            return resolve_favorites()
-        except Exception:  # noqa: BLE001 — fail-open
-            return None
-
-    def _resolve_scene(name: str) -> tuple[str | None, str | None]:
-        """(nome canônico, None) ou (None, mensagem de erro)."""
-        if manager.get_config(name) is not None:
-            return name, None
-        key = name.strip().casefold()
-        matches = sorted(
-            {c.name for c in manager.configs if c.name.casefold() == key}
-        )
-        if len(matches) == 1:
-            return matches[0], None
-        if len(matches) > 1:
-            return None, (
-                f"Nome '{name}' é ambíguo: {', '.join(matches)}. "
-                "Use o nome exato."
-            )
-        return None, (
-            f"A cena '{name}' não existe. Use list_configs para ver os nomes "
-            "disponíveis."
-        )
-
-    def _favorites_sync() -> str:
-        if _favorites_service() is None:
-            return _FAVORITES_UNAVAILABLE
-        return _FAVORITES_SYNC_ONLY
-
-    def _list_favorites_sync() -> str:
-        return _favorites_sync()
-
-    def _add_favorite_sync(config_name: str) -> str:
-        return _favorites_sync()
-
-    def _remove_favorite_sync(config_name: str) -> str:
-        return _favorites_sync()
-
-    async def _list_favorites() -> str:
-        service = _favorites_service()
+    async def _turn_off_lights_async(light_name: str = "all") -> str:
+        if light_name.lower() != "all":
+            return await asyncio.to_thread(_turn_off_lights, light_name)
+        service = chat_services.lights_off(controller)
         if service is None:
-            return _FAVORITES_UNAVAILABLE
+            return await asyncio.to_thread(_turn_off_lights, light_name)
         try:
-            names = await service.list_existing()
+            result = await service.turn_off_all()
+        except LightsOffBridgeError:
+            return "Não consegui ler a bridge para desligar as lâmpadas (bridge inacessível)."
         except Exception as e:  # noqa: BLE001
-            return f"Erro ao listar favoritos: {e}"
-        if not names:
-            return "Nenhuma cena favorita ainda."
-        return "Cenas favoritas: " + ", ".join(names)
-
-    async def _current_favorites(service: "SceneFavoritesService") -> str:
-        # Devolve a lista atualizada: o modelo pode chamar list_favorites em
-        # paralelo no mesmo turno e ler o estado anterior à escrita.
-        try:
-            names = await service.list_existing()
-        except Exception:  # noqa: BLE001
-            return ""
-        return "Favoritas agora: " + (", ".join(names) or "nenhuma") + "."
-
-    async def _add_favorite(config_name: str) -> str:
-        service = _favorites_service()
-        if service is None:
-            return _FAVORITES_UNAVAILABLE
-        name, error = _resolve_scene(config_name)
-        if name is None:
-            return error or ""
-        try:
-            if name in await service.list_existing():
-                return f"A cena '{name}' já era favorita."
-            await service.add(name)
-        except FavoriteConfigNotFoundError:
-            return (
-                f"A cena '{name}' não existe. Use list_configs para ver os nomes "
-                "disponíveis."
-            )
-        except Exception as e:  # noqa: BLE001
-            return f"Erro ao marcar '{name}' como favorita: {e}"
-        return (
-            f"Cena '{name}' marcada como favorita "
-            "(aparece com estrela na tela Controle). "
-            + await _current_favorites(service)
-        )
-
-    async def _remove_favorite(config_name: str) -> str:
-        service = _favorites_service()
-        if service is None:
-            return _FAVORITES_UNAVAILABLE
-        name, error = _resolve_scene(config_name)
-        if name is None:
-            return error or ""
-        try:
-            if name not in await service.list_existing():
-                return f"A cena '{name}' não era favorita."
-            await service.remove(name)
-        except Exception as e:  # noqa: BLE001
-            return f"Erro ao remover '{name}' dos favoritos: {e}"
-        return f"Cena '{name}' removida dos favoritos. " + await _current_favorites(
-            service
-        )
+            return unexpected_error("desligar as lâmpadas", e)
+        msg = f"Todas as lâmpadas foram desligadas ({len(result.applied)})."
+        if result.failed:
+            failed_txt = ", ".join(f"{name} ({err})" for name, err in result.failed)
+            msg += f" Falhas: {failed_txt}."
+        return msg
 
     # ----- montagem das StructuredTools -----
     return [
@@ -903,19 +615,23 @@ def build_light_tools(
             coroutine=_apply_config_async,
             name="apply_config",
             description=(
-                "Aplica uma configuração/preset de iluminação predefinida. "
-                "Lâmpadas desabilitadas no preset são ignoradas pelo controller."
+                "Aplica uma cena/preset salvo em todas as lâmpadas dela "
+                "(para só um grupo use apply_config_to_group)."
             ),
             args_schema=_ApplyConfigArgs,
         ),
         StructuredTool.from_function(
             func=_list_configs,
             name="list_configs",
-            description="Lista os presets de iluminação disponíveis (filtro opcional).",
+            description=(
+                "Lista os presets pelo nome (filtro só no nome). Para buscar por "
+                "tema, mood ou descrição use search_configs."
+            ),
             args_schema=_ListConfigsArgs,
         ),
         StructuredTool.from_function(
             func=_turn_off_lights,
+            coroutine=_turn_off_lights_async,
             name="turn_off_lights",
             description=(
                 "Desliga uma lâmpada específica ou todas ('all'). "
@@ -944,7 +660,10 @@ def build_light_tools(
         StructuredTool.from_function(
             func=_save_current_config,
             name="save_current_config",
-            description="Salva o estado atual das lâmpadas habilitadas como um novo preset.",
+            description=(
+                "Salva o estado ATUAL das lâmpadas como nova cena (para definir "
+                "cores sem aplicar use create_config)."
+            ),
             args_schema=_SaveConfigArgs,
         ),
         StructuredTool.from_function(
@@ -956,7 +675,7 @@ def build_light_tools(
         StructuredTool.from_function(
             func=_get_rooms,
             name="get_rooms",
-            description="Lista salas distintas do registry (room_index) com contagem de lâmpadas.",
+            description="Lista as salas (locais físicos, não grupos) com contagem de lâmpadas.",
         ),
         StructuredTool.from_function(
             func=_list_lights_by_room,
@@ -971,8 +690,8 @@ def build_light_tools(
             func=_set_room_power,
             name="set_room_power",
             description=(
-                "Liga ou desliga todas as lâmpadas habilitadas de uma sala. "
-                "Desabilitadas são ignoradas pelo controller."
+                "Liga ou desliga as lâmpadas de uma sala ou local (ex.: 'teto'); "
+                "salas não são grupos."
             ),
             args_schema=_SetRoomPowerArgs,
         ),
@@ -980,32 +699,9 @@ def build_light_tools(
             func=_set_room_brightness,
             name="set_room_brightness",
             description=(
-                "Ajusta brilho (0-100%) de todas as lâmpadas habilitadas de uma sala. "
-                "Eye-safety e skip de desabilitadas via controller."
+                "Ajusta o brilho (0-100%) das lâmpadas de uma sala ou local "
+                "(ex.: 'teto'); salas não são grupos."
             ),
             args_schema=_SetRoomBrightnessArgs,
-        ),
-        StructuredTool.from_function(
-            func=_list_favorites_sync,
-            coroutine=_list_favorites,
-            name="list_favorites",
-            description="Lista as cenas favoritas (marcadas com estrela na tela Controle).",
-        ),
-        StructuredTool.from_function(
-            func=_add_favorite_sync,
-            coroutine=_add_favorite,
-            name="add_favorite",
-            description=(
-                "Marca uma cena/preset existente como favorita (estrela na tela "
-                "Controle). Idempotente."
-            ),
-            args_schema=_FavoriteArgs,
-        ),
-        StructuredTool.from_function(
-            func=_remove_favorite_sync,
-            coroutine=_remove_favorite,
-            name="remove_favorite",
-            description="Remove uma cena dos favoritos. Idempotente.",
-            args_schema=_FavoriteArgs,
         ),
     ]

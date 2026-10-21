@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from marvin_hue.chat import create_hue_agent, HueLightAgent
-from marvin_hue.chat.tools.light_tools import default_favorites_provider
+from marvin_hue.chat.services import ChatServices
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.config import settings
@@ -149,9 +149,7 @@ async def configure_chat(
         room_index: dict[str, list[str]] | None = None
         try:
             from marvin_hue.api.dependencies import get_light_registry_service
-            from marvin_hue.chat.tools.light_tools import (
-                build_room_index_from_registry_rows,
-            )
+            from marvin_hue.chat.tools.rooms import build_room_index_from_registry_rows
 
             reg = get_light_registry_service()
             room_index = build_room_index_from_registry_rows(await reg.list_lights())
@@ -167,7 +165,7 @@ async def configure_chat(
             # Reusa o checkpointer ativo (lifespan) — sob sqlite, não recai p/ memória.
             checkpointer=get_chat_checkpointer(),
             room_index=room_index,
-            favorites_provider=default_favorites_provider,
+            services=ChatServices(),
         )
         set_chat_agent(new_agent)
         return {

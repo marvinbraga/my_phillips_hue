@@ -31,16 +31,14 @@ class _FakeHistory:
 
 
 def _tools(controller, manager, provider, history_provider=lambda: None):
+    from marvin_hue.chat.services import ChatServices
     from marvin_hue.chat.tools.light_tools import build_light_tools
 
+    services = ChatServices(
+        last_applied_provider=provider, history_provider=history_provider
+    )
     return {
-        t.name: t
-        for t in build_light_tools(
-            controller,
-            manager,
-            last_applied_provider=provider,
-            history_provider=history_provider,
-        )
+        t.name: t for t in build_light_tools(controller, manager, services=services)
     }
 
 
@@ -192,7 +190,7 @@ def test_sync_invoke_does_not_record(fake_controller, fake_manager):
 
 def test_default_history_provider_returns_none_without_service():
     from marvin_hue.api import dependencies
-    from marvin_hue.chat.tools.light_tools import default_history_provider
+    from marvin_hue.chat.services import default_history_provider
 
     original = dependencies._scene_history_service
     dependencies.set_scene_history_service(None)
@@ -204,7 +202,7 @@ def test_default_history_provider_returns_none_without_service():
 
 def test_default_provider_returns_none_without_service():
     from marvin_hue.api import dependencies
-    from marvin_hue.chat.tools.light_tools import default_last_applied_provider
+    from marvin_hue.chat.services import default_last_applied_provider
 
     original = dependencies.get_last_applied_scene_service_optional()
     dependencies.set_last_applied_scene_service(None)
