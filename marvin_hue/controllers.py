@@ -12,6 +12,27 @@ from marvin_hue.utils import ColorConverter
 logger = get_logger("controllers")
 
 
+def _bridge_error_descriptions(reply: Any) -> list[str]:
+    """Extract ``error.description`` entries from a phue ``set_light`` reply."""
+    errors: list[str] = []
+    if not isinstance(reply, list):
+        return errors
+    for request_result in reply:
+        items = request_result if isinstance(request_result, list) else [request_result]
+        for item in items:
+            if isinstance(item, dict) and isinstance(item.get("error"), dict):
+                errors.append(str(item["error"].get("description", "erro da bridge")))
+    return errors
+
+
+def _uncached_light_name(light: Any) -> str:
+    """Name for a light missing from the cache (rare: one GET, never raises)."""
+    try:
+        return str(light.name)
+    except Exception:  # noqa: BLE001 — bridge down: fall back to the id
+        return str(getattr(light, "light_id", "?"))
+
+
 class HueController:
     """
     Controlador para interação com Philips Hue Bridge.
@@ -231,6 +252,35 @@ class HueController:
         light.on = False
         return True
 
+    def turn_off_with_transition(self, light_name: str, tenths: int) -> bool:
+        """Desliga com transição one-shot (``set_light(..., transitiontime=)``).
+
+        Não altera ``Light.transitiontime`` (persistente no phue: vazaria para
+        todo comando seguinte daquela lâmpada). ``tenths == 0`` omite o campo.
+        Retorna False se a lâmpada não existir ou estiver desabilitada no app;
+        levanta ``RuntimeError`` se a bridge responder com erro.
+        """
+        if tenths < 0:
+            raise ValueError(f"Transition time negativo: {tenths}")
+        if not is_enabled_for_app(light_name):
+            logger.debug(f"turn_off skipped: '{light_name}' desabilitada no app")
+            return False
+        light = self._get_light_by_name(light_name)
+        if light is None:
+            return False
+        kwargs: dict[str, Any] = {"transitiontime": int(tenths)} if tenths else {}
+        reply = self.bridge.set_light(light.light_id, "on", False, **kwargs)
+        errors = _bridge_error_descriptions(reply)
+        if errors:
+            raise RuntimeError("; ".join(errors))
+        if tenths:
+            # Espelha o workaround do setter ``Light.on`` do phue (desligar com
+            # transição faz a lâmpada voltar com bri=1): o próximo
+            # ``light.on = True`` reaplica o brilho guardado.
+            light._on = False
+            light._reset_bri_after_on = True
+        return True
+
     def set_brightness(self, light_name: str, hue_brightness: int) -> bool:
         """Define o brilho (0-254) de uma lâmpada, clampado pelo invariante ocular.
 
@@ -309,9 +359,11 @@ class HueController:
         Lista nomes de todas as lâmpadas.
 
         Returns:
-            list[str]: Lista de nomes das lâmpadas
+            list[str]: Lista de nomes das lâmpadas (do cache; sem GET na bridge —
+            cada ``Light.name`` do phue é um GET). Use ``refresh_lights()`` se a
+            topologia mudou.
         """
-        return [light.name for light in self.lights]
+        return list(self._light_cache)
 
     def list_bridge_lights(self) -> list[dict[str, Any]]:
         """Inventory for catalog sync: name + optional stable bridge light id.
@@ -340,38 +392,51 @@ class HueController:
         return inventory
 
     def get_lights_status(self) -> list[dict[str, Any]]:
-        """
-        Retorna o estado atual de todas as lâmpadas com cores RGB.
+        """Estado atual de todas as lâmpadas (cores RGB) com UM ``GET /lights/``.
 
-        Returns:
-            list[dict[str, Any]]: Lista de dicionários com status de cada lâmpada
+        Cada propriedade de ``phue.Light`` é um GET na bridge (~5 por lâmpada);
+        aqui lemos o inventário completo uma vez e montamos a mesma forma de
+        saída, na ordem de ``self.lights``. Lâmpada ausente da resposta ou com
+        chave de estado faltando vira linha de erro (como antes). Falha do GET
+        único propaga — quem chama decide (ex.: ``LightsOffService``).
         """
+        bridge_lights = self.bridge.get_light()
+        cached_names = {id(light): name for name, light in self._light_cache.items()}
         lights_status: list[dict[str, Any]] = []
         for light in self.lights:
+            name = cached_names.get(id(light))
             try:
+                entry = bridge_lights[str(light.light_id)]
+                state = entry["state"]
+                if name is None:
+                    name = str(entry["name"])
+                is_on = state["on"]
+                # Hidrata o cache interno do phue como as leituras por
+                # propriedade faziam: o workaround do setter ``Light.on``
+                # (bri=1 após desligar com transição) reaplica ``_brightness``.
+                light._on = is_on
+                if "bri" in state:
+                    light._brightness = state["bri"]
+                brightness = state["bri"] if is_on else 0
                 status: dict[str, Any] = {
-                    "name": light.name,
-                    "on": light.on,
-                    "brightness": light.brightness if light.on else 0,
-                    "reachable": light.reachable,
+                    "name": str(entry.get("name", name)),
+                    "on": is_on,
+                    "brightness": brightness,
+                    "reachable": state["reachable"],
                 }
-                # Converter XY para RGB se a lâmpada estiver ligada e tiver cor
-                if light.on and hasattr(light, "xy") and light.xy:
-                    rgb = ColorConverter.xy_to_rgb(light.xy, light.brightness)
+                xy = state.get("xy")
+                if is_on and xy:
+                    rgb = ColorConverter.xy_to_rgb(xy, brightness)
                     status["color"] = {"r": rgb[0], "g": rgb[1], "b": rgb[2]}
                 else:
-                    status["color"] = {
-                        "r": 50,
-                        "g": 50,
-                        "b": 50,
-                    }  # Cinza quando desligada
+                    status["color"] = {"r": 50, "g": 50, "b": 50}  # Cinza quando desligada
                 lights_status.append(status)
-            except Exception as e:
-                logger.warning(f"Error getting status for light '{light.name}': {e!s}")
-                # Adiciona status mínimo para lâmpadas com erro
+            except Exception as e:  # noqa: BLE001 — uma lâmpada não derruba o status
+                display = name if name is not None else _uncached_light_name(light)
+                logger.warning(f"Error getting status for light '{display}': {e!s}")
                 lights_status.append(
                     {
-                        "name": light.name,
+                        "name": display,
                         "on": False,
                         "brightness": 0,
                         "reachable": False,
