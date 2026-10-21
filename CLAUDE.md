@@ -87,6 +87,7 @@ Web screens: Controle, Lâmpadas, Grupos, Agendamentos, Posicionamento, Espelham
 
 - `GET /configurations` (`?include_settings=true` adds per-light `color` + eye-safety-clamped `preview`)
 - `GET /configurations/favorites`, `PUT /configurations/favorites/{name}`, `DELETE /configurations/favorites/{name}` — favorites stored in SQLite (`scene_favorites`, schema v5); orphans hidden, kept
+- `GET /configurations/last-applied` — `{name, source, applied_at}` of the last scene applied with ≥1 light (`last_applied_scene`, schema v6; source `apply` / `group` / `schedule` / `chat`); all `null` when never set, orphaned, or cleared (`POST /lights/off`, undo restoring ≥1 light, whole-house schedule `power_off`, mirror start). Recording/clearing is best-effort inside `LastAppliedSceneService` (`marvin_hue/services/last_applied_scene.py` owns ports, provider and source constants). Controle pre-selects it without preview
 - `POST /apply` — `ApplyResult` → HTTP **200** (all ok), **207** (partial), **500** (all failed). `duration_minutes` is accepted and **ignored** (not a restore timer)
 - `POST /lights/off` — snapshot (for undo) + turn off every enabled light; `ApplyResult` → 200 / 207 / 500
 - `GET /positions`, `POST /positions`, `POST /positions/reset`
