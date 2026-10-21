@@ -182,6 +182,38 @@ async def test_flag_off_cancels_stale_pending_from_sqlite(
         assert await off.apending("s1") is None
 
 
+@pytest.mark.asyncio
+async def test_flag_off_cancels_stale_subagent_pending(
+    monkeypatch, fake_controller, fake_manager, tmp_path
+):
+    """Pendência que nasceu num subagent (task) também some com a flag desligada."""
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    async with AsyncSqliteSaver.from_conn_string(str(tmp_path / "chat.sqlite")) as saver:
+        on = hitl_agent(
+            monkeypatch, fake_controller, fake_manager,
+            HitlRouter([task_call("sala_calma")], sub_call=_sub_create_config),
+            checkpointer=saver,
+        )
+        out = await on.ainvoke("cria uma cena", session_id="s1")
+        assert isinstance(out, ApprovalRequired)
+
+        off = hitl_agent(
+            monkeypatch, fake_controller, fake_manager, HitlRouter(),
+            require_approval=False, checkpointer=saver,
+        )
+        assert await off.apending("s1") is None
+        with pytest.raises(NoPendingApprovalError):
+            await off.aresume("s1", decide_all(out))
+
+        reply = await off.ainvoke("oi", session_id="s1")
+
+        assert reply.startswith("fim:")
+        fake_manager.add_config.assert_not_called()
+        assert [m.content for m in await _tool_messages(off, "s1")] == [CANCELLED_MESSAGE]
+        assert await off.apending("s1") is None
+
+
 def test_flag_off_cancels_stale_pending_sync(monkeypatch, fake_controller, fake_manager):
     from langgraph.checkpoint.memory import InMemorySaver
 
