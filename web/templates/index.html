@@ -109,12 +109,21 @@
         /* Lista filtrável de configurações */
         .config-picker-toolbar {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 0.5rem;
         }
         .config-picker-toolbar .form-control {
-            flex: 1 1 auto;
+            /* Wraps the button/counter to a second line on narrow screens */
+            flex: 1 1 12rem;
             min-width: 0;
+        }
+        .config-picker-toolbar .btn {
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+        .config-picker-feedback {
+            margin-top: 0.35rem;
         }
         .config-picker-count {
             font-size: 0.8rem;
@@ -208,6 +217,47 @@
         .config-picker-item .item-dot.is-disabled {
             opacity: 0.35;
         }
+        .config-picker-item .config-fav-btn {
+            flex: 0 0 auto;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            margin: -0.25rem -0.4rem -0.25rem -0.25rem;
+            padding: 0;
+            border: 0;
+            border-radius: 50%;
+            background: transparent;
+            color: var(--bs-secondary-color, var(--bs-secondary));
+            font-size: 1rem;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .config-picker-item .config-fav-btn:hover {
+            color: var(--bs-warning, #ffc107);
+            background: var(--bs-secondary-bg, rgba(127, 127, 127, 0.15));
+        }
+        .config-picker-item .config-fav-btn:focus-visible {
+            outline: 2px solid var(--bs-primary);
+            outline-offset: -2px;
+        }
+        .config-picker-item .config-fav-btn.is-favorite {
+            color: var(--bs-warning, #ffc107);
+        }
+        .config-picker-section {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            padding: 0.3rem 0.75rem;
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--bs-secondary-color, var(--bs-secondary));
+            background: var(--bs-tertiary-bg, var(--bs-body-bg));
+            border-bottom: 1px solid var(--bs-border-color-translucent, var(--bs-border-color));
+        }
         .config-picker-empty {
             padding: 0.75rem;
             color: var(--bs-secondary-color, var(--bs-secondary));
@@ -280,8 +330,14 @@
                                 aria-controls="configurations-list"
                                 aria-describedby="configurations-help"
                             >
+                            <button type="button" id="favorites-filter-btn" class="btn btn-sm btn-outline-warning"
+                                    aria-pressed="false" title="Mostrar só as cenas favoritas">
+                                <i class="bi bi-star" aria-hidden="true"></i> Favoritos
+                            </button>
                             <span class="config-picker-count" id="configurations-count" aria-live="polite"></span>
                         </div>
+                        <div class="config-picker-feedback small text-danger d-none" id="favorites-feedback"
+                             role="status" aria-live="polite"></div>
                         <div class="config-picker-chip d-none" id="configurations-selected-chip">
                             <i class="bi bi-check2-circle"></i>
                             <span>Selecionada:</span>
@@ -290,7 +346,7 @@
                         <div class="config-picker-list" id="configurations-list" role="listbox"
                              aria-label="Configurações de iluminação"></div>
                         <div class="form-text" id="configurations-help">
-                            Passe o mouse ou use ↑/↓ para pré-visualizar; clique ou Enter seleciona; Esc volta ao estado real
+                            Passe o mouse ou use ↑/↓ para pré-visualizar; clique ou Enter seleciona; Esc volta ao estado real; Ctrl+D favorita
                         </div>
                     </div>
                     <div class="col-md-6 mb-3">
@@ -328,6 +384,6 @@
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-<script src="/static/index.js?v=picker-3"></script>
+<script src="/static/index.js?v=fav-2"></script>
 </body>
 </html>

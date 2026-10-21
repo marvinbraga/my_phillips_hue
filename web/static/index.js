@@ -34,9 +34,25 @@ let hoverPreviewTimer = null;
 /** @type {ConfigItem|null} item under the mouse (pending or shown) */
 let hoverCandidate = null;
 let lastTouchAt = 0;
+// After a mouse star toggle the list re-renders under a still pointer; the browser
+// then fires mouseover on whatever row slid under it. Hover previews stay off until
+// the pointer really moves. Holds the click's {x, y} while active.
+let suppressHoverUntilMove = null;
+
+// Favorites: names marked on the server; toggles are optimistic and re-synced on error
+/** @type {Set<string>} */
+let favoriteNames = new Set();
+let favoritesOnly = false;
+// Per scene name: at most one PUT/DELETE in flight; `desired` is the latest wanted state
+/** @type {Object<string, {inFlight: boolean, desired: boolean}>} */
+const favoriteSync = {};
+let favoriteFeedbackTimer = null;
 
 const HOVER_PREVIEW_DELAY_MS = 80;
+const HOVER_RESUME_MOVE_PX = 2;
 const TOUCH_MOUSE_GUARD_MS = 800;
+const FAVORITES_ONLY_STORAGE_KEY = 'controle.favoritesOnly';
+const FAVORITE_FEEDBACK_MS = 4000;
 
 function loadLightsStatus() {
     // Evita requisições simultâneas
@@ -312,6 +328,27 @@ function getFilteredConfigurations(query) {
     });
 }
 
+function isFavorite(item) {
+    return Boolean(item) && favoriteNames.has(item.name);
+}
+
+function countFavorites() {
+    return configurationsCache.filter(isFavorite).length;
+}
+
+// Visual order: favorites first, then the rest (each keeps the cache's pt-BR order).
+// With the favorites filter on, only favorites.
+function orderByFavorites(items) {
+    const favorites = items.filter(isFavorite);
+    if (favoritesOnly) {
+        return { favorites: favorites, others: [] };
+    }
+    const others = items.filter(function (item) {
+        return !isFavorite(item);
+    });
+    return { favorites: favorites, others: others };
+}
+
 function configOptionId(item) {
     // Stable id: position in the sorted cache, not in the filtered list
     return 'config-opt-' + configurationsCache.indexOf(item);
@@ -346,16 +383,84 @@ function buildColorDots(item) {
     return $dots;
 }
 
-function renderConfigList() {
+function buildFavoriteButton(item) {
+    const favorite = isFavorite(item);
+    const $btn = $('<button>', {
+        type: 'button',
+        class: 'config-fav-btn' + (favorite ? ' is-favorite' : ''),
+        tabindex: '-1',
+        'aria-label': 'Favoritar ' + item.name,
+        'aria-pressed': favorite ? 'true' : 'false',
+        title: favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'
+    });
+    $btn.append($('<i>', {
+        class: favorite ? 'bi bi-star-fill' : 'bi bi-star',
+        'aria-hidden': 'true'
+    }));
+    return $btn;
+}
+
+function buildConfigOption(item) {
+    const $option = $('<div>', {
+        id: configOptionId(item),
+        class: 'config-picker-item',
+        role: 'option',
+        'aria-selected': 'false',
+        title: item.description || item.name
+    });
+    $option.data('config', item);
+    const $text = $('<span>', { class: 'item-text' });
+    $text.append($('<span>', { class: 'item-name', text: item.name }));
+    $text.append($('<span>', {
+        class: 'item-desc',
+        text: truncateDescription(item.description, 90)
+    }));
+    $option.append($text).append(buildColorDots(item)).append(buildFavoriteButton(item));
+    return $option;
+}
+
+function buildSectionHeader(text) {
+    return $('<div>', {
+        class: 'config-picker-section',
+        role: 'presentation',
+        text: text
+    });
+}
+
+/**
+ * Rebuilds the list. options.keepActive keeps the active item (and the scroll
+ * position, unless options.scrollToActive) across the re-render, e.g. after a
+ * favorite toggle; otherwise the active item is reset as on a new filter.
+ */
+function renderConfigList(options) {
+    const opts = options || {};
     const $list = $('#configurations-list');
     const query = $('#configurations-filter').val();
-    filteredConfigurations = getFilteredConfigurations(query);
-    pickerActiveIndex = -1;
+    const previousActive = opts.keepActive ? (filteredConfigurations[pickerActiveIndex] || null) : null;
+    const previousScrollTop = $list.scrollTop();
 
-    $('#configurations-count').text(filteredConfigurations.length + ' de ' + configurationsCache.length);
+    const sections = orderByFavorites(getFilteredConfigurations(query));
+    filteredConfigurations = sections.favorites.concat(sections.others);
+    pickerActiveIndex = previousActive ? filteredConfigurations.indexOf(previousActive) : -1;
+
+    // A preview of an item that is no longer listed would be orphaned
+    if (hoverConfig && filteredConfigurations.indexOf(hoverConfig) === -1) {
+        setHoverPreview(null);
+    }
+
+    const favoriteTotal = countFavorites();
+    $('#configurations-count').text(favoritesOnly
+        ? filteredConfigurations.length + ' de ' + favoriteTotal + ' favoritas'
+        : filteredConfigurations.length + ' de ' + configurationsCache.length);
 
     if (!configurationsCache.length) {
         setPickerMessage('Nenhuma configuração disponível');
+        updateSelectedChip();
+        return;
+    }
+
+    if (favoritesOnly && favoriteTotal === 0) {
+        setPickerMessage('Nenhuma favorita ainda — clique na ☆ de uma cena');
         updateSelectedChip();
         return;
     }
@@ -367,29 +472,28 @@ function renderConfigList() {
     }
 
     $list.empty();
-    filteredConfigurations.forEach(function (item) {
-        const $option = $('<div>', {
-            id: configOptionId(item),
-            class: 'config-picker-item',
-            role: 'option',
-            'aria-selected': 'false',
-            title: item.description || item.name
-        });
-        $option.data('config', item);
-        const $text = $('<span>', { class: 'item-text' });
-        $text.append($('<span>', { class: 'item-name', text: item.name }));
-        $text.append($('<span>', {
-            class: 'item-desc',
-            text: truncateDescription(item.description, 90)
-        }));
-        $option.append($text).append(buildColorDots(item));
-        $list.append($option);
+    // Headers only when the list really has two groups to tell apart
+    const showSections = !favoritesOnly && sections.favorites.length > 0;
+    if (showSections) {
+        $list.append(buildSectionHeader('Favoritas'));
+    }
+    sections.favorites.forEach(function (item) {
+        $list.append(buildConfigOption(item));
+    });
+    if (showSections && sections.others.length) {
+        $list.append(buildSectionHeader('Todas as cenas'));
+    }
+    sections.others.forEach(function (item) {
+        $list.append(buildConfigOption(item));
     });
 
-    updatePickerStates();
+    if (opts.keepActive) {
+        $list.scrollTop(previousScrollTop);
+    }
+    updatePickerStates(opts.keepActive && !opts.scrollToActive);
 }
 
-function updatePickerStates() {
+function updatePickerStates(skipScroll) {
     const $list = $('#configurations-list');
     const $filter = $('#configurations-filter');
     const $items = $list.find('.config-picker-item');
@@ -406,7 +510,7 @@ function updatePickerStates() {
         $list.attr('aria-activedescendant', $active.attr('id'));
         $filter.attr('aria-activedescendant', $active.attr('id'));
         const el = $active.get(0);
-        if (el && typeof el.scrollIntoView === 'function') {
+        if (!skipScroll && el && typeof el.scrollIntoView === 'function') {
             el.scrollIntoView({ block: 'nearest' });
         }
     } else {
@@ -483,14 +587,152 @@ function moveActiveItem(step) {
     setHoverPreview(filteredConfigurations[pickerActiveIndex], true);
 }
 
+function showFavoriteFeedback(text) {
+    const $feedback = $('#favorites-feedback');
+    clearTimeout(favoriteFeedbackTimer);
+    $feedback.text(text).removeClass('d-none');
+    favoriteFeedbackTimer = setTimeout(function () {
+        $feedback.text('').addClass('d-none');
+    }, FAVORITE_FEEDBACK_MS);
+}
+
+function setFavoriteLocal(name, favorite) {
+    if (favorite) {
+        favoriteNames.add(name);
+    } else {
+        favoriteNames.delete(name);
+    }
+}
+
+// Optimistic toggle: update the list now; the server is synced per name in order.
+// pointer ({x, y}) is the click position for mouse toggles, null for keyboard.
+function toggleFavorite(item, fromKeyboard, pointer) {
+    if (!item) {
+        return;
+    }
+    const name = item.name;
+    const favorite = !favoriteNames.has(name);
+    setFavoriteLocal(name, favorite);
+
+    if (!fromKeyboard) {
+        // The user clicked the star, not asked for a preview
+        suppressHoverUntilMove = pointer || { x: NaN, y: NaN };
+        clearHoverPreview();
+    }
+    renderConfigList({ keepActive: true, scrollToActive: Boolean(fromKeyboard) });
+
+    const state = favoriteSync[name] || (favoriteSync[name] = { inFlight: false, desired: favorite });
+    state.desired = favorite;
+    sendFavoriteSync(name);
+}
+
+function sendFavoriteSync(name) {
+    const state = favoriteSync[name];
+    if (!state || state.inFlight) {
+        return;
+    }
+    const sent = state.desired;
+    state.inFlight = true;
+    $.ajax({
+        type: sent ? 'PUT' : 'DELETE',
+        url: '/configurations/favorites/' + encodeURIComponent(name)
+    }).done(function () {
+        state.inFlight = false;
+        if (state.desired !== sent) {
+            sendFavoriteSync(name);
+            return;
+        }
+        delete favoriteSync[name];
+    }).fail(function () {
+        state.inFlight = false;
+        if (state.desired !== sent) {
+            // A newer toggle supersedes this one; its own outcome decides
+            sendFavoriteSync(name);
+            return;
+        }
+        delete favoriteSync[name];
+        resyncFavoritesAfterFailure(name, sent);
+    });
+}
+
+// The server's list is the truth after a failure (the failed request may still
+// have been applied); names with a sync still pending keep their local state.
+function resyncFavoritesAfterFailure(name, wanted) {
+    const message = wanted
+        ? 'Não foi possível favoritar “' + name + '”.'
+        : 'Não foi possível remover “' + name + '” dos favoritos.';
+    $.getJSON('/configurations/favorites').done(function (data) {
+        const serverNames = (data && Array.isArray(data.favorites)) ? data.favorites.map(String) : [];
+        const next = new Set(serverNames);
+        Object.keys(favoriteSync).forEach(function (pendingName) {
+            if (favoriteSync[pendingName].desired) {
+                next.add(pendingName);
+            } else {
+                next.delete(pendingName);
+            }
+        });
+        favoriteNames = next;
+    }).fail(function () {
+        // Server unreachable: best guess is that the failed change didn't happen
+        if (!favoriteSync[name]) {
+            setFavoriteLocal(name, !wanted);
+        }
+    }).always(function () {
+        renderConfigList({ keepActive: true });
+        showFavoriteFeedback(message);
+    });
+}
+
+function readFavoritesOnly() {
+    try {
+        return window.localStorage.getItem(FAVORITES_ONLY_STORAGE_KEY) === '1';
+    } catch (e) {
+        return false;
+    }
+}
+
+function writeFavoritesOnly(value) {
+    try {
+        window.localStorage.setItem(FAVORITES_ONLY_STORAGE_KEY, value ? '1' : '0');
+    } catch (e) { /* storage unavailable: the toggle just isn't remembered */ }
+}
+
+function updateFavoritesFilterButton() {
+    const $btn = $('#favorites-filter-btn');
+    $btn.toggleClass('active', favoritesOnly).attr('aria-pressed', favoritesOnly ? 'true' : 'false');
+    $btn.find('i').toggleClass('bi-star-fill', favoritesOnly).toggleClass('bi-star', !favoritesOnly);
+}
+
+function setFavoritesOnly(value) {
+    favoritesOnly = Boolean(value);
+    writeFavoritesOnly(favoritesOnly);
+    updateFavoritesFilterButton();
+    clearHoverPreview();
+    renderConfigList();
+}
+
+// Favorites never block the picker: any failure (e.g. older backend) means "no favorites"
+function fetchFavoriteNames() {
+    return $.getJSON('/configurations/favorites').then(function (data) {
+        return (data && Array.isArray(data.favorites)) ? data.favorites : [];
+    }, function () {
+        return [];
+    });
+}
+
 function loadConfigurations() {
     const $filter = $('#configurations-filter');
     $filter.prop('disabled', true).attr('placeholder', 'Carregando configurações...');
     $('#configurations-count').text('');
     setPickerMessage('Carregando configurações...');
 
-    $.getJSON('/configurations?include_settings=true', function (data) {
+    $.when(
+        $.getJSON('/configurations?include_settings=true'),
+        fetchFavoriteNames()
+    ).done(function (configResult, favorites) {
+        const data = configResult[0];
         configurationsCache = Array.isArray(data) ? data.slice() : [];
+        favoriteNames = new Set(Array.isArray(favorites) ? favorites.map(String) : []);
         // Re-sort client-side: pt-BR collation orders accented names correctly,
         // unlike the server's codepoint sort.
         configurationsCache.sort(function (a, b) {
@@ -508,6 +750,35 @@ function loadConfigurations() {
     });
 }
 
+// Mouse hover over an element of the list: schedule a preview of its row
+function handleHoverTarget(target) {
+    const $row = $(target).closest('.config-picker-item');
+    if (!$row.length) {
+        return;
+    }
+    const item = $row.data('config');
+    if ($(target).closest('.config-fav-btn').length) {
+        // The star neither starts nor replaces a preview; it only cancels a
+        // pending one for another item (pointer reached this star from it)
+        if (hoverCandidate && hoverCandidate !== item && hoverCandidate !== hoverConfig) {
+            clearTimeout(hoverPreviewTimer);
+            hoverCandidate = null;
+        }
+        return;
+    }
+    if (!item || item === hoverCandidate) {
+        // mouseover also fires when crossing child elements of the same item
+        return;
+    }
+    hoverCandidate = item;
+    clearTimeout(hoverPreviewTimer);
+    hoverPreviewTimer = setTimeout(function () {
+        if (hoverCandidate === item) {
+            setHoverPreview(item, false);
+        }
+    }, HOVER_PREVIEW_DELAY_MS);
+}
+
 function initConfigurationsPicker() {
     const $filter = $('#configurations-filter');
     const $list = $('#configurations-list');
@@ -518,7 +789,22 @@ function initConfigurationsPicker() {
         renderConfigList();
     });
 
+    favoritesOnly = readFavoritesOnly();
+    updateFavoritesFilterButton();
+    $('#favorites-filter-btn').on('click', function () {
+        setFavoritesOnly(!favoritesOnly);
+    });
+
     $filter.on('keydown', function (event) {
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && String(event.key).toLowerCase() === 'd') {
+            // Ctrl+D / Cmd+D favorites the active item instead of bookmarking the page
+            event.preventDefault();
+            if (pickerActiveIndex >= 0 && pickerActiveIndex < filteredConfigurations.length) {
+                toggleFavorite(filteredConfigurations[pickerActiveIndex], true);
+            }
+            return;
+        }
+
         if (event.key === 'ArrowDown') {
             event.preventDefault();
             moveActiveItem(1);
@@ -553,7 +839,23 @@ function initConfigurationsPicker() {
         }
     });
 
-    $list.on('click', '.config-picker-item', function () {
+    // Star: never selects or previews. Delegated handlers run deepest first, so
+    // stopPropagation here keeps the item's click handler from firing.
+    $list.on('mousedown', '.config-fav-btn', function (event) {
+        // Keep focus where it was (usually the filter) so Ctrl+D / ↑↓ keep working
+        event.preventDefault();
+    });
+    $list.on('click', '.config-fav-btn', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleFavorite($(this).closest('.config-picker-item').data('config'), false,
+            { x: event.clientX, y: event.clientY });
+    });
+
+    $list.on('click', '.config-picker-item', function (event) {
+        if ($(event.target).closest('.config-fav-btn').length) {
+            return;
+        }
         const item = $(this).data('config');
         pickerActiveIndex = filteredConfigurations.indexOf(item);
         selectConfiguration(item);
@@ -568,25 +870,32 @@ function initConfigurationsPicker() {
         }, { passive: true });
     }
 
-    $list.on('mouseover', '.config-picker-item', function () {
-        if (Date.now() - lastTouchAt < TOUCH_MOUSE_GUARD_MS) {
+    $list.on('mouseover', '.config-picker-item', function (event) {
+        if (Date.now() - lastTouchAt < TOUCH_MOUSE_GUARD_MS || suppressHoverUntilMove) {
             return;
         }
-        const item = $(this).data('config');
-        if (!item || item === hoverCandidate) {
-            // mouseover also fires when crossing child elements of the same item
+        handleHoverTarget(event.target);
+    });
+
+    $list.on('mousemove', function (event) {
+        if (!suppressHoverUntilMove) {
             return;
         }
-        hoverCandidate = item;
-        clearTimeout(hoverPreviewTimer);
-        hoverPreviewTimer = setTimeout(function () {
-            if (hoverCandidate === item) {
-                setHoverPreview(item, false);
-            }
-        }, HOVER_PREVIEW_DELAY_MS);
+        const origin = suppressHoverUntilMove;
+        const moved = !(Math.abs(event.clientX - origin.x) <= HOVER_RESUME_MOVE_PX
+            && Math.abs(event.clientY - origin.y) <= HOVER_RESUME_MOVE_PX);
+        if (!moved) {
+            return;
+        }
+        suppressHoverUntilMove = null;
+        // No new mouseover comes while staying on the same row: resume from here
+        if (Date.now() - lastTouchAt >= TOUCH_MOUSE_GUARD_MS) {
+            handleHoverTarget(event.target);
+        }
     });
 
     $list.on('mouseleave', function () {
+        suppressHoverUntilMove = null;
         hoverCandidate = null;
         clearTimeout(hoverPreviewTimer);
         if (hoverConfig && !hoverFromKeyboard) {
