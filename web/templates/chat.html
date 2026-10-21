@@ -262,6 +262,62 @@
             border-color: #6a2f2f;
         }
 
+        .approval-card {
+            border: 1px solid var(--bs-warning-border-subtle, #ffc107);
+            background: var(--bs-warning-bg-subtle, #fff3cd);
+            color: var(--bs-body-color);
+        }
+
+        .approval-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .approval-item + .approval-item {
+            border-top: 1px solid var(--bs-border-color);
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+        }
+
+        .approval-tool {
+            font-weight: 500;
+        }
+
+        .approval-args {
+            display: grid;
+            grid-template-columns: max-content 1fr;
+            gap: 0.15rem 0.75rem;
+            margin: 0.35rem 0;
+            font-size: 0.875rem;
+        }
+
+        .approval-args dt {
+            font-weight: 500;
+            opacity: 0.75;
+        }
+
+        .approval-args dd {
+            margin: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .approval-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.35rem;
+        }
+
+        .approval-outcome.approved {
+            color: var(--bs-success);
+            font-weight: 500;
+        }
+
+        .approval-outcome.rejected {
+            color: var(--bs-danger);
+            font-weight: 500;
+        }
+
         .message.system {
             align-self: center;
             background: transparent;
@@ -593,6 +649,6 @@
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.16/dist/purify.min.js"
             integrity="sha384-a7SzOxErzJ3ZpQz0zJ32d67dSitNzPcbfybc/ykU9KJhMgZkwqfSxlhhdJRS+XGL" crossorigin="anonymous"></script>
     <script type="application/json" id="chat-page-config">{"statusUrl":"/api/chat/status","wsPath":"/ws/chat","lightsStatusUrl":"/api/lights/status"}</script>
-    <script src="/static/chat.js?v=xss-1"></script>
+    <script src="/static/chat.js?v=hitl-1"></script>
 </body>
 </html>

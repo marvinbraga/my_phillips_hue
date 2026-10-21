@@ -48,3 +48,22 @@ def test_chat_js_sanitizes_markdown_and_never_injects_raw_html(
     assert "innerHTML = marked.parse(" not in body
     assert "textContent = text" in body
     assert "${light.name}" not in body
+
+
+def test_chat_js_renders_approval_card_without_html_injection(
+    fastapi_test_client: TestClient,
+) -> None:
+    body = fastapi_test_client.get("/static/chat.js").text
+    assert "case 'approval_required'" in body
+    assert "action: 'resume'" in body
+    assert "action: 'pending'" in body
+    assert "'Aprovar'" in body and "'Rejeitar'" in body
+    start = body.index("function renderApprovalCard")
+    end = body.index("function sendResume")
+    card_code = body[start:end]
+    assert "innerHTML" not in card_code
+    assert "dd.textContent = summarizeArg(" in card_code
+
+
+def test_chat_page_busts_cache_for_hitl_js(fastapi_test_client: TestClient) -> None:
+    assert 'src="/static/chat.js?v=hitl-1"' in fastapi_test_client.get("/chat").text
