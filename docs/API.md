@@ -579,6 +579,53 @@ O backup (`GET /api/backup/export`) inclui o membro `favorites.json` com todos o
 
 Nomes de cena com `/` funcionam em `PUT`/`DELETE` (a rota usa `{name:path}`).
 
+### GET /configurations/last-applied
+
+Devolve a última cena aplicada. A tela Controle (`/`) usa esta rota para já abrir com a cena selecionada, sem prévia, e com o selo "Última aplicada · há X".
+
+O registro fica no SQLite do app (tabela `last_applied_scene`, migração v6, uma linha só). Ele é gravado pelo `ApplyConfigService` sempre que ao menos uma lâmpada aplica (HTTP 200 ou 207). O `source` diz quem aplicou:
+
+| `source` | Origem |
+|----------|--------|
+| `apply` | `POST /apply` (tela Controle) |
+| `group` | `POST /api/groups/{id}/apply` e agendamentos `apply_group` |
+| `schedule` | agendamentos `apply_config` |
+| `chat` | tool `apply_config` do chat (REST e WebSocket); passa pelo mesmo `ApplyConfigService`, então também grava o snapshot "before apply" para o undo |
+
+Uma aplicação em que todas as lâmpadas falham (500) não muda o registro.
+
+O registro é limpo (`name` volta a `null`) quando as lâmpadas deixam de mostrar a cena:
+
+| Gatilho | `source` gravado |
+|---------|------------------|
+| `POST /lights/off` com ao menos uma lâmpada desligada | `lights_off` |
+| `POST /api/history/undo` que restaurou ao menos uma lâmpada (`restored_count > 0`) | `undo` |
+| Agendamento `power_off` sem `group_id` (casa inteira) com ao menos uma lâmpada afetada | `schedule_off` |
+| Início do espelhamento de tela ou de música (`POST /mirror/start`) | `mirror` |
+
+O `power_off` de um grupo não limpa o registro, porque as outras lâmpadas continuam na cena. Gravar e limpar são best-effort: falhas só geram log e nunca afetam a ação que as disparou.
+
+Os três campos vêm `null` quando nada foi aplicado ainda, quando o registro foi limpo ou quando a cena não existe mais em `.res/setups.json`. Nesse último caso o nome continua no banco e volta a aparecer se a cena voltar.
+
+`/configurations/last-applied` não exige `API_KEY`, por decisão de projeto: a tela Controle na LAN precisa dela sem chave, como `/configurations`. Isso expõe na LAN o nome da última cena e o horário da última atividade de iluminação. O alias `/api/configurations/last-applied` fica sujeito a `API_KEY` quando configurada.
+
+A tela Controle consulta esta rota de novo quando a aba volta a ficar visível: só o selo é atualizado, e a seleção feita pelo usuário não muda.
+
+**Response 200:**
+```json
+{
+  "name": "relax",
+  "source": "apply",
+  "applied_at": "2026-10-21T10:34:29.119451+00:00"
+}
+```
+
+`applied_at` é ISO 8601 em UTC.
+
+```bash
+curl http://localhost:5081/configurations/last-applied
+```
+
 ---
 
 ### POST /apply
@@ -708,6 +755,9 @@ O snapshot é idempotente: se todas as lâmpadas habilitadas já estão apagadas
 nenhum snapshot é gravado. Apertar **Desligar Todas** duas vezes não faz o
 **Desfazer** restaurar "tudo apagado". Se gravar o snapshot falhar, o
 desligamento continua (fail-open).
+
+Com ao menos uma lâmpada desligada, a última cena aplicada é limpa
+(`GET /configurations/last-applied` passa a devolver `null`).
 
 Não exige `API_KEY`. O alias `POST /api/lights/off` tem o mesmo comportamento e
 exige a chave quando ela está configurada.
