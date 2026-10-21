@@ -108,9 +108,9 @@ def build_subagents(
         # contornaria a aprovação das tools de mutação.
         stack = list(safety)
         if prompt_caching:
-            from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+            from marvin_hue.chat.middleware.caching import prompt_caching_middleware
 
-            stack.append(AnthropicPromptCachingMiddleware(ttl="5m"))
+            stack.append(prompt_caching_middleware())
         interrupt_on = interrupt_on_for(names) if require_approval else {}
         if interrupt_on:
             from langchain.agents.middleware import HumanInTheLoopMiddleware

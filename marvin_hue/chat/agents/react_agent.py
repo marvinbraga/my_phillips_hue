@@ -286,8 +286,8 @@ class HueLightAgent(BaseAgent):
         ]
         # PromptCaching só faz sentido com Anthropic.
         if self._config.provider == "anthropic":
-            from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
-            stack.append(AnthropicPromptCachingMiddleware(ttl="5m"))
+            from marvin_hue.chat.middleware.caching import prompt_caching_middleware
+            stack.append(prompt_caching_middleware())
         # HITL opcional para tools de mutação ampla (aprovação humana).
         if self._config.require_approval:
             from langchain.agents.middleware import HumanInTheLoopMiddleware
