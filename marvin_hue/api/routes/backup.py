@@ -27,6 +27,14 @@ class BackupImportResponse(BaseModel):
     lights: dict[str, int]
     groups: dict[str, int]
     schedules: dict[str, int]
+    favorites: dict[str, int | bool] | None = Field(
+        default=None,
+        description=(
+            "Scene favorites summary: {added, removed, total} computed from the "
+            "before/after sets, plus skipped=true when the bundle has no "
+            "favorites.json member (older export) or no favorites repo is wired."
+        ),
+    )
     files_written: list[str] = Field(default_factory=list)
 
 

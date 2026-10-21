@@ -9,6 +9,8 @@ ZIP layout (format version 1)::
     setups.json
     light_positions.json
     light_physical_locations.json   # optional; omitted when path unset/missing
+    favorites.json                  # favorite scene names (incl. orphans);
+                                    # omitted when no favorites repo is wired
 
 Import strategies
 -----------------
@@ -16,6 +18,10 @@ Import strategies
   schedules (id); never deletes existing rows.
 - ``replace``: same upserts, then soft-delete lights/groups not in the bundle
   and hard-delete schedules not in the bundle.
+
+Scene favorites (``favorites.json``): ``merge`` adds the union, ``replace``
+substitutes the whole set. Bundles without the member (older exports) leave
+local favorites untouched; a present member must be a JSON array of strings.
 
 JSON config files (setups / positions / physical locations) are always
 overwritten after writing a ``.bak`` sibling when the target already exists.
@@ -36,6 +42,7 @@ from marvin_hue.domain.groups import GroupNotFoundError, LightGroup
 from marvin_hue.domain.lights import LightNotFoundError, RegisteredLight
 from marvin_hue.domain.schedules import Schedule, ScheduleNotFoundError
 from marvin_hue.logging_config import get_logger
+from marvin_hue.persistence.favorites_repository import SceneFavoritesRepository
 from marvin_hue.persistence.group_repository import GroupRepository
 from marvin_hue.persistence.light_repository import LightRegistryRepository
 from marvin_hue.persistence.schedule_repository import ScheduleRepository
@@ -51,6 +58,9 @@ _SCHEDULES_NAME = "schedules.json"
 _SETUPS_NAME = "setups.json"
 _POSITIONS_NAME = "light_positions.json"
 _PHYSICAL_NAME = "light_physical_locations.json"
+_FAVORITES_NAME = "favorites.json"
+_FAVORITES_MAX_ENTRIES = 1000
+_FAVORITES_MAX_NAME_LEN = 200
 _MANIFEST_NAME = "manifest.json"
 
 
@@ -155,6 +165,7 @@ class BackupService:
         *,
         group_repo: Optional[GroupRepository] = None,
         schedule_repo: Optional[ScheduleRepository] = None,
+        favorites_repo: Optional[SceneFavoritesRepository] = None,
         setups_path: str | Path = ".res/setups.json",
         positions_path: str | Path = ".res/light_positions.json",
         physical_locations_path: Optional[str | Path] = (
@@ -166,6 +177,7 @@ class BackupService:
         self._lights = light_repo
         self._groups = group_repo
         self._schedules = schedule_repo
+        self._favorites = favorites_repo
         self._setups_path = Path(setups_path)
         self._positions_path = Path(positions_path)
         self._physical_path = (
@@ -183,7 +195,6 @@ class BackupService:
         schedules: list[Schedule] = []
         if self._schedules is not None:
             schedules = await self._schedules.list_all()
-
         payload: dict[str, Any] = {
             _MANIFEST_NAME: {
                 "format_version": BUNDLE_FORMAT_VERSION,
@@ -198,6 +209,8 @@ class BackupService:
         }
         if self._physical_path is not None and self._physical_path.exists():
             payload[_PHYSICAL_NAME] = _read_json_file(self._physical_path)
+        if self._favorites is not None:
+            payload[_FAVORITES_NAME] = await self._favorites.list_names()
         return payload
 
     async def export_zip(self) -> bytes:
@@ -256,9 +269,16 @@ class BackupService:
         if not isinstance(schedules_raw, list):
             raise BackupValidationError("schedules.json must be a JSON array")
 
+        favorites_names: Optional[list[str]] = None
+        if _FAVORITES_NAME in members:
+            favorites_names = self._validate_favorites(members[_FAVORITES_NAME])
+
         light_stats = await self._import_lights(lights_raw, strategy=strategy)
         group_stats = await self._import_groups(groups_raw, strategy=strategy)
         schedule_stats = await self._import_schedules(schedules_raw, strategy=strategy)
+        favorite_stats = await self._import_favorites(
+            favorites_names, strategy=strategy
+        )
 
         files_written: list[str] = []
         if _SETUPS_NAME in members:
@@ -281,6 +301,7 @@ class BackupService:
             "lights": light_stats,
             "groups": group_stats,
             "schedules": schedule_stats,
+            "favorites": favorite_stats,
             "files_written": files_written,
         }
         logger.info("backup_import_complete summary={}", summary)
@@ -325,6 +346,58 @@ class BackupService:
                 f"Unsupported backup format_version {version_int}; "
                 f"supported: {BUNDLE_FORMAT_VERSION}"
             )
+
+    @staticmethod
+    def _validate_favorites(raw: Any) -> list[str]:
+        """Valida e normaliza ``favorites.json`` (strip, sem vazios, sem duplicatas).
+
+        Só é chamado quando o membro está presente: ``null`` ou qualquer
+        não-lista é erro (ausência do membro é que significa bundle antigo).
+        """
+        if not isinstance(raw, list):
+            raise BackupValidationError("favorites.json must be a JSON array")
+        if len(raw) > _FAVORITES_MAX_ENTRIES:
+            raise BackupValidationError(
+                f"favorites.json has more than {_FAVORITES_MAX_ENTRIES} entries"
+            )
+        stripped: list[str] = []
+        for item in raw:
+            if not isinstance(item, str):
+                raise BackupValidationError(
+                    "favorites.json entries must be scene name strings"
+                )
+            name = item.strip()
+            if len(name) > _FAVORITES_MAX_NAME_LEN:
+                raise BackupValidationError(
+                    "favorites.json entries must be at most "
+                    f"{_FAVORITES_MAX_NAME_LEN} characters"
+                )
+            if name:
+                stripped.append(name)
+        return list(dict.fromkeys(stripped))
+
+    async def _import_favorites(
+        self, names: Optional[list[str]], *, strategy: ImportStrategy
+    ) -> dict[str, int | bool]:
+        """Resumo ``{added, removed, total}`` (+ ``skipped: True`` se não aplicado).
+
+        ``added``/``removed`` vêm da diferença entre os conjuntos antes/depois.
+        """
+        if self._favorites is None:
+            return {"added": 0, "removed": 0, "total": 0, "skipped": True}
+        before = set(await self._favorites.list_names())
+        if names is None:
+            return {"added": 0, "removed": 0, "total": len(before), "skipped": True}
+        if strategy == "replace":
+            await self._favorites.replace_all(names)
+        else:
+            await self._favorites.add_many(names)
+        after = set(await self._favorites.list_names())
+        return {
+            "added": len(after - before),
+            "removed": len(before - after),
+            "total": len(after),
+        }
 
     async def _import_lights(
         self, rows: list[Any], *, strategy: ImportStrategy
