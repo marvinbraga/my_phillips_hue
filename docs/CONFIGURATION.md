@@ -155,6 +155,22 @@ Necessária se `CHAT_PROVIDER=groq`.
 GROQ_API_KEY="gsk-..."
 ```
 
+#### `CHAT_REQUIRE_APPROVAL`
+
+Exige aprovação humana antes das ações de mutação ampla do chat: aplicar,
+criar ou salvar cena, aplicar cena a um grupo, criar ou ativar agendamento,
+iniciar ou parar espelhamento e desfazer a última cena. Mudanças pontuais de
+lâmpada (cor, brilho, ligar/desligar, Kelvin) não pedem aprovação.
+
+```bash
+CHAT_REQUIRE_APPROVAL=false  # padrão: o agente executa direto
+CHAT_REQUIRE_APPROVAL=true   # cartão Aprovar/Rejeitar na tela Chat
+```
+
+Clientes de API recebem `approval_required` em `POST /api/chat/message` e
+respondem em `POST /api/chat/resume` (veja `docs/API.md`). Use
+`CHAT_CHECKPOINT=sqlite` se o pedido pendente deve sobreviver a um restart.
+
 ---
 
 ### Configuração de Logging (Opcional)
