@@ -10,7 +10,6 @@ from uuid import uuid4
 from marvin_hue.basics import LightConfig, LightSetupsManager
 from marvin_hue.domain.schedules import (
     Schedule,
-    ScheduleNotFoundError,
     ScheduleValidationError,
 )
 from marvin_hue.logging_config import get_logger

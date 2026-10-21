@@ -55,7 +55,7 @@ async def test_get_by_id_missing(repo):
 
 @pytest.mark.asyncio
 async def test_list_excludes_deleted_by_default(repo):
-    a = await repo.create(_make_light(name="A", bridge_light_id="id-a"))
+    await repo.create(_make_light(name="A", bridge_light_id="id-a"))
     b = await repo.create(_make_light(name="B", bridge_light_id="id-b"))
     await repo.soft_delete(b.id)
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi.testclient import TestClient
 
 from marvin_hue.audio_mirror import AUDIO_MIRROR_PROFILES, AudioMirror
