@@ -231,3 +231,24 @@ def services(**providers: Any):
     }
     defaults.update(kwargs)
     return ChatServices(**defaults)
+
+
+def scripted_model(router):
+    """Chat model fake que decide a resposta pelo conteúdo das mensagens.
+
+    O mesmo ``self._llm`` serve orquestrador, subagents e SummarizationMiddleware;
+    uma lista fixa de respostas seria consumida fora de ordem (e reciclada).
+    ``router(messages) -> AIMessage`` torna o roteiro determinístico.
+    """
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    class _Scripted(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            return ChatResult(generations=[ChatGeneration(message=router(messages))])
+
+    return _Scripted(responses=[AIMessage(content="unused")])

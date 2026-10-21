@@ -262,6 +262,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 provider=settings.chat_provider,
                 model=settings.chat_model,
                 temperature=settings.chat_temperature,
+                require_approval=settings.chat_require_approval,
                 checkpointer=checkpointer,
                 room_index=room_index,
                 # Lazy: as tools resolvem os serviços do app a cada chamada.

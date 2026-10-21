@@ -11,7 +11,7 @@ from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
 from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
-from marvin_hue.chat.hitl import interrupt_on_for
+from marvin_hue.chat.hitl import HITL_DESCRIPTION_PREFIX, interrupt_on_for
 from marvin_hue.chat.services import ChatServices
 from marvin_hue.chat.tools import build_all_tools
 
@@ -105,7 +105,10 @@ def build_subagents(
 
     def _middleware(names: list[str]) -> list:
         # Mesma política HITL do orquestrador: sem isso a delegação via `task`
-        # contornaria a aprovação das tools de mutação.
+        # contornaria a aprovação das tools de mutação. O interrupt do subagent
+        # sobe até o orquestrador e é retomado de lá (ver marvin_hue.chat.hitl):
+        # NÃO dê checkpointer próprio ao subagent nem um config desligado do
+        # pai em task.py, senão a retomada recomeça o subagent do zero.
         stack = list(safety)
         if prompt_caching:
             from marvin_hue.chat.middleware.caching import prompt_caching_middleware
@@ -115,7 +118,10 @@ def build_subagents(
         if interrupt_on:
             from langchain.agents.middleware import HumanInTheLoopMiddleware
 
-            stack.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
+            stack.append(HumanInTheLoopMiddleware(
+                interrupt_on=interrupt_on,
+                description_prefix=HITL_DESCRIPTION_PREFIX,
+            ))
         return stack
 
     scene = create_agent(

@@ -35,6 +35,7 @@ class Settings(BaseSettings):
         anthropic_api_key: API key para Anthropic
         xai_api_key: API key para xAI
         groq_api_key: API key para Groq
+        chat_require_approval: Exigir aprovação humana para tools de mutação
 
         setups_file: Caminho para o arquivo JSON de configurações de iluminação
         positions_file: Caminho para o arquivo JSON de posições das lâmpadas
@@ -110,6 +111,13 @@ class Settings(BaseSettings):
     )
     xai_api_key: str | None = Field(default=None, description="API key para xAI")
     groq_api_key: str | None = Field(default=None, description="API key para Groq")
+    # HITL: o agente pede aprovação (cartão Aprovar/Rejeitar na tela Chat,
+    # POST /api/chat/resume ou action "resume" no /ws/chat) antes das tools de
+    # mutação ampla (cenas, agendamentos, espelhamento; ver marvin_hue.chat.hitl).
+    chat_require_approval: bool = Field(
+        default=False,
+        description="Exigir aprovação humana antes das tools de mutação do chat",
+    )
 
     # Persistência do histórico do chat. "memory" (default) é volátil (perde no
     # restart); "sqlite" persiste. O ciclo de vida do checkpointer é do

@@ -5,6 +5,7 @@ Utiliza LangGraph para implementar o padrão ReAct (Reason + Act)
 para interação inteligente com as lâmpadas.
 """
 
+import asyncio
 import time
 from typing import Optional, Any
 from collections.abc import Iterator, AsyncIterator
@@ -18,6 +19,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import TodoListMiddleware, SummarizationMiddleware
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
@@ -25,7 +27,13 @@ from marvin_hue.chat.providers import LLMProviderFactory
 from marvin_hue.chat.messages import message_text as _message_text
 from marvin_hue.chat.services import ChatServices
 from marvin_hue.chat.tools import build_all_tools
-from marvin_hue.chat.hitl import HITL_INTERRUPT_ON
+from marvin_hue.chat.hitl import (
+    HITL_DESCRIPTION_PREFIX,
+    HITL_INTERRUPT_ON,
+    ApprovalRequired,
+    approval_from_interrupts,
+    build_resume_map,
+)
 from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
 from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
 
@@ -112,9 +120,10 @@ class AgentConfig:
     streaming: bool = True
     system_prompt: str = SYSTEM_PROMPT
     extra_params: dict[str, Any] = field(default_factory=dict)
-    # HITL opcional: exige aprovação humana para tools de mutação ampla.
-    # Default False — a rota HTTP atual não trata interrupts (resume via Command
-    # é follow-up). Requer checkpointer (já temos).
+    # HITL opcional (env CHAT_REQUIRE_APPROVAL): exige aprovação humana para as
+    # tools de mutação ampla (marvin_hue.chat.hitl). Com ele ligado, ainvoke/
+    # astream podem devolver ApprovalRequired; retome com aresume(). Requer
+    # checkpointer (sempre há um: InMemorySaver ou o do lifespan).
     require_approval: bool = False
 
 
@@ -125,7 +134,7 @@ class BaseAgent(ABC):
     """
 
     @abstractmethod
-    def invoke(self, message: str, session_id: str = "default") -> str:
+    def invoke(self, message: str, session_id: str = "default") -> "str | ApprovalRequired":
         """Processa uma mensagem e retorna a resposta.
 
         Args:
@@ -138,7 +147,9 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    async def ainvoke(self, message: str, session_id: str = "default") -> str:
+    async def ainvoke(
+        self, message: str, session_id: str = "default"
+    ) -> "str | ApprovalRequired":
         """Processa uma mensagem de forma assíncrona.
 
         Args:
@@ -151,7 +162,9 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    def stream(self, message: str, session_id: str = "default") -> Iterator[str]:
+    def stream(
+        self, message: str, session_id: str = "default"
+    ) -> "Iterator[str | ApprovalRequired]":
         """Processa uma mensagem com streaming.
 
         Args:
@@ -164,7 +177,9 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    def astream(self, message: str, session_id: str = "default") -> AsyncIterator[str]:
+    def astream(
+        self, message: str, session_id: str = "default"
+    ) -> "AsyncIterator[str | ApprovalRequired]":
         """Processa uma mensagem com streaming assíncrono.
 
         Declarada como `def` (não `async def`) retornando AsyncIterator: é o
@@ -242,6 +257,9 @@ class HueLightAgent(BaseAgent):
         self._checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
         self._session_last_access: dict[str, float] = {}
         self._max_sessions = MAX_SESSIONS
+        # Um turno por sessão de cada vez (async): impede que dois cliques/abas
+        # retomem o mesmo checkpoint e executem a ação aprovada duas vezes.
+        self._session_locks: dict[str, asyncio.Lock] = {}
 
         # Cria o modelo LLM
         self._llm = self._create_llm()
@@ -291,7 +309,10 @@ class HueLightAgent(BaseAgent):
         # HITL opcional para tools de mutação ampla (aprovação humana).
         if self._config.require_approval:
             from langchain.agents.middleware import HumanInTheLoopMiddleware
-            stack.append(HumanInTheLoopMiddleware(interrupt_on=dict(HITL_INTERRUPT_ON)))
+            stack.append(HumanInTheLoopMiddleware(
+                interrupt_on=dict(HITL_INTERRUPT_ON),
+                description_prefix=HITL_DESCRIPTION_PREFIX,
+            ))
         return stack
 
     def _create_agent(self) -> CompiledStateGraph:
@@ -383,7 +404,67 @@ class HueLightAgent(BaseAgent):
         else:
             self._checkpointer.delete_thread(session_id)
 
-    def invoke(self, message: str, session_id: str = "default") -> str:
+    def _outcome(self, result: dict) -> "str | ApprovalRequired":
+        """Texto final do turno, ou ApprovalRequired se o grafo parou num HITL."""
+        pending = approval_from_interrupts(result.get("__interrupt__"))
+        if pending is not None:
+            return pending
+        return self._extract_response(result)
+
+    def _stream_item(self, chunk: dict) -> "str | ApprovalRequired | None":
+        """Um chunk ``stream_mode="values"`` → texto visível, interrupt ou nada."""
+        pending = approval_from_interrupts(chunk.get("__interrupt__"))
+        if pending is not None:
+            return pending
+        messages = chunk.get("messages", [])
+        if messages:
+            last = messages[-1]
+            if isinstance(last, AIMessage) and last.content and not last.tool_calls:
+                text = _message_text(last.content)
+                if text:
+                    return text
+        return None
+
+    def _lock_for(self, session_id: str) -> asyncio.Lock:
+        lock = self._session_locks.get(session_id)
+        if lock is None:
+            lock = self._session_locks[session_id] = asyncio.Lock()
+        return lock
+
+    async def _aevict(self, session_id: str) -> None:
+        for tid in self._touch_session(session_id):
+            self._session_locks.pop(tid, None)
+            await self._adelete_thread(tid)
+
+    def _evict(self, session_id: str) -> None:
+        for tid in self._touch_session(session_id):
+            self._session_locks.pop(tid, None)
+            self._checkpointer.delete_thread(tid)
+
+    async def _apending_interrupts(self, session_id: str) -> tuple:
+        state = await self._agent.aget_state(self._config_for(session_id))
+        return tuple(getattr(state, "interrupts", ()) or ())
+
+    def _pending_interrupts(self, session_id: str) -> tuple:
+        state = self._agent.get_state(self._config_for(session_id))
+        return tuple(getattr(state, "interrupts", ()) or ())
+
+    async def apending(self, session_id: str = "default") -> Optional[ApprovalRequired]:
+        """Aprovações pendentes da sessão (ex.: a página recarregou), ou None."""
+        return approval_from_interrupts(await self._apending_interrupts(session_id))
+
+    # Sem HITL nenhum interrupt nasce: pula a leitura de estado por turno.
+    def _pending_before_turn(self, session_id: str) -> Optional[ApprovalRequired]:
+        if not self._config.require_approval:
+            return None
+        return approval_from_interrupts(self._pending_interrupts(session_id))
+
+    async def _apending_before_turn(self, session_id: str) -> Optional[ApprovalRequired]:
+        if not self._config.require_approval:
+            return None
+        return await self.apending(session_id)
+
+    def invoke(self, message: str, session_id: str = "default") -> "str | ApprovalRequired":
         """Processa uma mensagem do usuário.
 
         Args:
@@ -393,17 +474,25 @@ class HueLightAgent(BaseAgent):
                 enviar ids distintos e estáveis.
 
         Returns:
-            Resposta do agente
+            Resposta do agente, ou ``ApprovalRequired`` quando o turno parou
+            pedindo aprovação (só com ``require_approval``). Se já houver
+            aprovação pendente, a mensagem NÃO é processada e o pedido
+            pendente volta: uma tool call sem ToolMessage quebraria a thread
+            nos provedores reais.
         """
-        for tid in self._touch_session(session_id):
-            self._checkpointer.delete_thread(tid)
+        self._evict(session_id)
+        pending = self._pending_before_turn(session_id)
+        if pending is not None:
+            return pending
         result = self._agent.invoke(
             {"messages": [HumanMessage(content=message)]},
             config=self._config_for(session_id),
         )
-        return self._extract_response(result)
+        return self._outcome(result)
 
-    async def ainvoke(self, message: str, session_id: str = "default") -> str:
+    async def ainvoke(
+        self, message: str, session_id: str = "default"
+    ) -> "str | ApprovalRequired":
         """Processa uma mensagem de forma assíncrona.
 
         Args:
@@ -411,17 +500,55 @@ class HueLightAgent(BaseAgent):
             session_id: Id da sessão (thread_id do checkpointer).
 
         Returns:
-            Resposta do agente
+            Resposta do agente, ou ``ApprovalRequired`` (ver ``invoke``).
         """
-        for tid in self._touch_session(session_id):
-            await self._adelete_thread(tid)
-        result = await self._agent.ainvoke(
-            {"messages": [HumanMessage(content=message)]},
-            config=self._config_for(session_id),
-        )
-        return self._extract_response(result)
+        async with self._lock_for(session_id):
+            await self._aevict(session_id)
+            pending = await self._apending_before_turn(session_id)
+            if pending is not None:
+                return pending
+            result = await self._agent.ainvoke(
+                {"messages": [HumanMessage(content=message)]},
+                config=self._config_for(session_id),
+            )
+            return self._outcome(result)
 
-    def stream(self, message: str, session_id: str = "default") -> Iterator[str]:
+    async def aresume(
+        self, session_id: str, decisions: list[dict[str, Any]]
+    ) -> "str | ApprovalRequired":
+        """Retoma o turno interrompido com as decisões humanas.
+
+        Args:
+            session_id: Id da sessão (thread_id) que está aguardando.
+            decisions: Uma decisão por pedido pendente, na MESMA ordem de
+                ``ApprovalRequired.requests``: ``{"type": "approve"}`` ou
+                ``{"type": "reject", "message"?: str}``.
+
+        Returns:
+            Resposta final, ou outro ``ApprovalRequired`` (ex.: o subagent
+            pediu uma segunda aprovação).
+
+        Raises:
+            NoPendingApprovalError: nada pendente (já retomado, limpo ou
+                despejado pelo LRU).
+            InvalidDecisionError: contagem ou tipo de decisão inválidos.
+
+        A tool aprovada roda pelo caminho normal do grafo: schema Pydantic e
+        EyeSafetyMiddleware revalidam os args — aprovar não contorna nada.
+        """
+        async with self._lock_for(session_id):
+            await self._aevict(session_id)
+            resume = build_resume_map(
+                await self._apending_interrupts(session_id), decisions
+            )
+            result = await self._agent.ainvoke(
+                Command(resume=resume), config=self._config_for(session_id)
+            )
+            return self._outcome(result)
+
+    def stream(
+        self, message: str, session_id: str = "default"
+    ) -> "Iterator[str | ApprovalRequired]":
         """Processa uma mensagem com streaming.
 
         Args:
@@ -429,25 +556,26 @@ class HueLightAgent(BaseAgent):
             session_id: Id da sessão (thread_id do checkpointer).
 
         Yields:
-            Chunks da resposta
+            Chunks da resposta; um ``ApprovalRequired`` se o turno parar num HITL.
         """
-        for tid in self._touch_session(session_id):
-            self._checkpointer.delete_thread(tid)
+        self._evict(session_id)
+        pending = self._pending_before_turn(session_id)
+        if pending is not None:
+            yield pending
+            return
         for chunk in self._agent.stream(
             {"messages": [HumanMessage(content=message)]},
             config=self._config_for(session_id),
             stream_mode="values",
         ):
-            messages = chunk.get("messages", [])
-            if messages:
-                last = messages[-1]
-                if isinstance(last, AIMessage) and last.content and not last.tool_calls:
-                    text = _message_text(last.content)
-                    if text:
-                        yield text
+            item = self._stream_item(chunk)
+            if item is not None:
+                yield item
         # NÃO re-invocar: o checkpointer já persistiu o histórico (corrige bug #1).
 
-    async def astream(self, message: str, session_id: str = "default") -> AsyncIterator[str]:
+    async def astream(
+        self, message: str, session_id: str = "default"
+    ) -> "AsyncIterator[str | ApprovalRequired]":
         """Processa uma mensagem com streaming assíncrono.
 
         Args:
@@ -455,22 +583,22 @@ class HueLightAgent(BaseAgent):
             session_id: Id da sessão (thread_id do checkpointer).
 
         Yields:
-            Chunks da resposta
+            Chunks da resposta; um ``ApprovalRequired`` se o turno parar num HITL.
         """
-        for tid in self._touch_session(session_id):
-            await self._adelete_thread(tid)
-        async for chunk in self._agent.astream(
-            {"messages": [HumanMessage(content=message)]},
-            config=self._config_for(session_id),
-            stream_mode="values",
-        ):
-            messages = chunk.get("messages", [])
-            if messages:
-                last = messages[-1]
-                if isinstance(last, AIMessage) and last.content and not last.tool_calls:
-                    text = _message_text(last.content)
-                    if text:
-                        yield text
+        async with self._lock_for(session_id):
+            await self._aevict(session_id)
+            pending = await self._apending_before_turn(session_id)
+            if pending is not None:
+                yield pending
+                return
+            async for chunk in self._agent.astream(
+                {"messages": [HumanMessage(content=message)]},
+                config=self._config_for(session_id),
+                stream_mode="values",
+            ):
+                item = self._stream_item(chunk)
+                if item is not None:
+                    yield item
 
     def clear_history(self, session_id: str = "default") -> None:
         """Limpa o histórico de uma sessão (caminho SÍNCRONO — CLI/InMemory).
@@ -480,6 +608,7 @@ class HueLightAgent(BaseAgent):
         """
         self._checkpointer.delete_thread(session_id)
         self._session_last_access.pop(session_id, None)
+        self._session_locks.pop(session_id, None)
 
     async def aclear_history(self, session_id: str = "default") -> None:
         """Limpa o histórico de uma sessão (caminho ASYNC — rotas/WS)."""
