@@ -1,6 +1,6 @@
 """Tools de favoritos do chat (list_favorites / add_favorite / remove_favorite).
 
-Usa um serviço fake (sem SQLite) injetado via ``favorites_provider``.
+Usa um serviço fake (sem SQLite) injetado via ``ChatServices.favorites_provider``.
 """
 from __future__ import annotations
 
@@ -50,15 +50,18 @@ def manager(fake_manager):
 
 
 def _tools(controller, manager, provider):
-    from marvin_hue.chat.tools.light_tools import build_light_tools
+    from marvin_hue.chat.services import ChatServices
+    from marvin_hue.chat.tools import build_all_tools
 
     return {
         t.name: t
-        for t in build_light_tools(controller, manager, favorites_provider=provider)
+        for t in build_all_tools(
+            controller, manager, services=ChatServices(favorites_provider=provider)
+        )
     }
 
 
-def test_build_light_tools_exposes_favorite_tools(fake_controller, manager):
+def test_build_all_tools_exposes_favorite_tools(fake_controller, manager):
     names = set(_tools(fake_controller, manager, lambda: None))
     assert FAVORITE_TOOLS <= names
 
@@ -222,7 +225,7 @@ def test_sync_path_unavailable(fake_controller, manager):
 
 def test_default_provider_returns_none_when_unset(monkeypatch):
     from marvin_hue.api import dependencies
-    from marvin_hue.chat.tools.light_tools import default_favorites_provider
+    from marvin_hue.chat.services import default_favorites_provider
 
     monkeypatch.setattr(dependencies, "_scene_favorites_service", None)
     assert default_favorites_provider() is None
@@ -230,7 +233,7 @@ def test_default_provider_returns_none_when_unset(monkeypatch):
 
 def test_default_provider_returns_registered_service(monkeypatch):
     from marvin_hue.api import dependencies
-    from marvin_hue.chat.tools.light_tools import default_favorites_provider
+    from marvin_hue.chat.services import default_favorites_provider
 
     sentinel = object()
     monkeypatch.setattr(dependencies, "_scene_favorites_service", sentinel)
@@ -246,25 +249,30 @@ def test_config_librarian_has_favorite_tools():
 def test_agent_threads_favorites_provider(
     fake_controller, fake_manager, monkeypatch, bindable_model_factory
 ):
-    """create_hue_agent repassa favorites_provider a build_light_tools (orquestrador e subagents)."""
+    """create_hue_agent repassa o ChatServices (favoritos) ao orquestrador e
+    aos subagents."""
     from marvin_hue.chat.agents import react_agent as ra
     from marvin_hue.chat.subagents import definitions as d
 
     seen: list[object] = []
-    real_build = ra.build_light_tools
+    real_build = ra.build_all_tools
 
     def spy(*a, **k):
-        seen.append(k.get("favorites_provider"))
+        seen.append(k["services"].favorites_provider)
         return real_build(*a, **k)
 
-    monkeypatch.setattr(ra, "build_light_tools", spy)
-    monkeypatch.setattr(d, "build_light_tools", spy)
+    monkeypatch.setattr(ra, "build_all_tools", spy)
+    monkeypatch.setattr(d, "build_all_tools", spy)
     monkeypatch.setattr(ra.HueLightAgent, "_create_llm", lambda self: bindable_model_factory())
 
     def provider():
         return None
 
-    ra.create_hue_agent(fake_controller, fake_manager, favorites_provider=provider)
+    from marvin_hue.chat.services import ChatServices
+
+    ra.create_hue_agent(
+        fake_controller, fake_manager, services=ChatServices(favorites_provider=provider)
+    )
     assert seen and all(p is provider for p in seen)
 
 
@@ -281,7 +289,8 @@ def test_configure_chat_wires_favorites_provider(fastapi_test_client, monkeypatc
     """
     from marvin_hue.api import dependencies
     from marvin_hue.api.routes import chat as chat_routes
-    from marvin_hue.chat.tools.light_tools import default_favorites_provider
+    from marvin_hue.chat.services import ChatServices
+    from marvin_hue.chat.services import default_favorites_provider
 
     captured: dict = {}
     original_agent = dependencies._chat_agent
@@ -296,7 +305,8 @@ def test_configure_chat_wires_favorites_provider(fastapi_test_client, monkeypatc
     )
     dependencies._chat_agent = original_agent
     assert resp.status_code == 200, resp.text
-    assert captured["favorites_provider"] is default_favorites_provider
+    assert isinstance(captured["services"], ChatServices)
+    assert captured["services"].favorites_provider is default_favorites_provider
 
 
 async def test_add_favorite_through_compiled_graph_uses_async_path(
@@ -331,8 +341,12 @@ async def test_add_favorite_through_compiled_graph_uses_async_path(
         ra.LLMProviderFactory, "create", classmethod(lambda cls, **kw: _FakeProvider())
     )
     svc = _FakeFavorites(manager)
+    from marvin_hue.chat.services import ChatServices
+
     agent = ra.create_hue_agent(
-        controller=fake_controller, manager=manager, favorites_provider=lambda: svc
+        controller=fake_controller,
+        manager=manager,
+        services=ChatServices(favorites_provider=lambda: svc),
     )
 
     await agent.ainvoke("marca noite_relaxante como favorita", session_id="fav")

@@ -99,3 +99,37 @@ async def test_awrap_tool_call_clamps_fita_led():
     req = _make_request("set_brightness", {"light_name": "Fita Led", "brightness": 100})
     await mw.awrap_tool_call(req, handler)
     assert captured["brightness"] == 25
+
+
+def test_clamp_set_color_temperature_single_light_pct():
+    from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
+
+    mw = EyeSafetyMiddleware()
+    captured = {}
+
+    def handler(request):
+        captured.update(request.tool_call["args"])
+        return "ok"
+
+    req = _make_request(
+        "set_color_temperature", {"target": "Fita Led", "kelvin": 3000, "brightness_pct": 90}
+    )
+    mw.wrap_tool_call(req, handler)
+    assert captured["brightness_pct"] == 25
+
+
+def test_set_color_temperature_room_target_untouched():
+    from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
+
+    mw = EyeSafetyMiddleware()
+    captured = {}
+
+    def handler(request):
+        captured.update(request.tool_call["args"])
+        return "ok"
+
+    req = _make_request(
+        "set_color_temperature", {"target": "teto", "kelvin": 3000, "brightness_pct": 90}
+    )
+    mw.wrap_tool_call(req, handler)
+    assert captured["brightness_pct"] == 90  # controller garante por lâmpada

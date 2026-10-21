@@ -110,10 +110,8 @@ def test_get_light_locations_all_specific_and_missing(fake_controller, fake_mana
 
 def test_get_light_locations_prefers_registry_over_json(fake_controller, fake_manager):
     """room_index from registry is source of truth; JSON is fallback only."""
-    from marvin_hue.chat.tools.light_tools import (
-        build_light_tools,
-        build_room_index_from_registry_rows,
-    )
+    from marvin_hue.chat.tools.light_tools import build_light_tools
+    from marvin_hue.chat.tools.rooms import build_room_index_from_registry_rows
 
     class _Row:
         def __init__(

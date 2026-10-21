@@ -11,6 +11,8 @@ from langchain_core.tools import StructuredTool  # StructuredTool mora em langch
 from langchain.tools import ToolRuntime          # ToolRuntime mora em langchain.tools
 from langgraph.types import Command
 
+from marvin_hue.chat.messages import message_text
+
 
 # Teto de recursão dos subagents (grafos com efeito colateral físico): bound
 # explícito contra loop/cost runaway (LLM04). Menor que o default do create_agent.
@@ -21,9 +23,13 @@ _SUBAGENT_HELP = "Qual subagent usar"
 
 
 def _last_ai_text(result: dict) -> str:
+    # Conteúdo em blocos (modelos com raciocínio): só o texto visível; mensagens
+    # só com "thinking" são puladas (P17).
     for msg in reversed(result.get("messages", [])):
         if isinstance(msg, AIMessage) and msg.content:
-            return msg.content if isinstance(msg.content, str) else str(msg.content)
+            text = message_text(msg.content)
+            if text:
+                return text
     return "Tarefa concluída."
 
 

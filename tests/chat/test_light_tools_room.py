@@ -7,10 +7,8 @@ from pathlib import Path
 import pytest
 
 from marvin_hue import eye_safety as es
-from marvin_hue.chat.tools.light_tools import (
-    build_light_tools,
-    build_room_index_from_registry_rows,
-)
+from marvin_hue.chat.tools.light_tools import build_light_tools
+from marvin_hue.chat.tools.rooms import build_room_index_from_registry_rows
 
 
 @dataclass

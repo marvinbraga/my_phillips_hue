@@ -22,6 +22,7 @@ VALID_SCENE_SOURCES = frozenset(
         "manual",
         "group_apply",
         "lights_off",
+        "chat",  # apply_config pelo chat (ApplyConfigService, source="chat")
     }
 )
 

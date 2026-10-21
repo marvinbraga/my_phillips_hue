@@ -239,10 +239,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             # Room snapshot at agent build time (tools stay sync). Room edits
             # in the registry need agent rebuild (reconfigure / restart).
-            from marvin_hue.chat.tools.light_tools import (
-                build_room_index_from_registry_rows,
-                default_favorites_provider,
-            )
+            from marvin_hue.chat.services import ChatServices
+            from marvin_hue.chat.tools.rooms import build_room_index_from_registry_rows
 
             room_index: dict[str, list[str]] | None = None
             try:
@@ -266,8 +264,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 temperature=settings.chat_temperature,
                 checkpointer=checkpointer,
                 room_index=room_index,
-                # Lazy: resolve o SceneFavoritesService a cada tool call.
-                favorites_provider=default_favorites_provider,
+                # Lazy: as tools resolvem os serviços do app a cada chamada.
+                services=ChatServices(),
             )
             dependencies.set_chat_agent(chat_agent)
             logger.info("Chat agent initialized successfully")

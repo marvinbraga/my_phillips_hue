@@ -22,8 +22,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 from marvin_hue.controllers import HueController
 from marvin_hue.basics import LightSetupsManager
 from marvin_hue.chat.providers import LLMProviderFactory
-from marvin_hue.chat.tools import build_light_tools
-from marvin_hue.chat.tools.light_tools import FavoritesProvider
+from marvin_hue.chat.messages import message_text as _message_text
+from marvin_hue.chat.services import ChatServices
+from marvin_hue.chat.tools import build_all_tools
+from marvin_hue.chat.hitl import HITL_INTERRUPT_ON
 from marvin_hue.chat.middleware.eye_safety import EyeSafetyMiddleware
 from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
 
@@ -34,23 +36,15 @@ from marvin_hue.chat.middleware.hue_context import HueContextMiddleware
 MAX_SESSIONS = 100
 
 
-def _message_text(content: Any) -> str:
-    """Texto visível de uma AIMessage.
+# Versão da superfície de prompt (system prompt + prompts dos subagents +
+# nome/descrição/schema das tools). Qualquer mudança nela é eval-gated: bump
+# aqui, rode tests/eval/run_tool_selection.py e atualize
+# tests/eval/prompt_version.json (o hash é conferido no CI).
+PROMPT_VERSION = "hue.chat.prompt@2"
 
-    Modelos com raciocínio (ex.: Claude 5) devolvem `content` como lista de
-    blocos (`thinking`, `text`, ...). Só os blocos `text` vão para o usuário.
-    """
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and block.get("type") == "text":
-                parts.append(str(block.get("text", "")))
-        return "".join(parts)
-    return str(content) if content else ""
+# Teto de passos do grafo do orquestrador por turno (LLM04: loop/custo
+# runaway). Cada tool call custa ~2 passos; 25 cobre pedidos compostos.
+AGENT_RECURSION_LIMIT = 25
 
 
 # System prompt para o agente.
@@ -63,15 +57,25 @@ SYSTEM_PROMPT = """Você é Marvin, um assistente inteligente especializado em c
 
 Você controla as lâmpadas via ferramentas: listar/ver status, mudar cor (RGB),
 ajustar brilho, ligar/desligar, aplicar e salvar presets, e consultar a
-localização física das lâmpadas.
-Também lista, marca e desmarca cenas favoritas (aparecem com estrela na tela Controle).
+localização física das lâmpadas. Além disso:
+- Cenas: buscar (search_configs), detalhar (describe_config), criar
+  (create_config), desfazer a última mudança (undo_last_scene) e favoritas
+  (list/add/remove_favorite, estrela na tela Controle).
+- create_config grava uma cena nova pela especificação de cada lâmpada, sem
+  aplicar; save_current_config salva o estado atual "como está agora".
+- Grupos: listar e aplicar uma cena só a um grupo (apply_config_to_group).
+- Agendamentos: listar, criar (dias 0=segunda … 6=domingo; vazio = todo dia)
+  e ativar/desativar.
+- Espelhamento de tela/música: status, iniciar e parar.
+- Temperatura de cor em Kelvin (set_color_temperature, 2000–6500 K) e saúde
+  do sistema (get_system_health).
 
 Diretrizes:
 1. Seja prestativo, amigável e responda sempre em português brasileiro.
 2. As lâmpadas frontais "Fita Led" e "Led cima" ficam muito próximas aos olhos:
    prefira intensidades baixas. O sistema impõe um teto de segurança por código,
    mas evite pedir brilho alto para elas mesmo assim.
-3. Para um tema/ambiente (ex: "relaxante", "festa"), procure um preset adequado
+3. Para um tema/ambiente (ex: "aconchegante", "festa"), procure um preset adequado
    antes de montar a cena manualmente.
 4. Use o status e as localizações que você recebe no contexto para fazer
    sugestões inteligentes (teto para ambiente, atrás do monitor para atmosfera).
@@ -206,7 +210,7 @@ class HueLightAgent(BaseAgent):
         *,
         checkpointer: Optional[Any] = None,
         room_index: Optional[dict[str, list[str]]] = None,
-        favorites_provider: Optional[FavoritesProvider] = None,
+        services: Optional[ChatServices] = None,
     ):
         """Inicializa o agente.
 
@@ -221,14 +225,15 @@ class HueLightAgent(BaseAgent):
             room_index: Snapshot sala → nomes (registry). None → tools usam
                 fallback de localizações físicas. Mudanças de room no registry
                 exigem rebuild do agente (lifespan / reconfigure).
-            favorites_provider: Resolve o SceneFavoritesService a cada chamada
-                das tools de favoritos. None → provider padrão (dependencies).
+            services: Providers preguiçosos dos serviços do app usados pelas
+                tools (favoritos, histórico, grupos, agendamentos,
+                espelhamento, saúde). None → padrão (dependencies, fail-open).
         """
         self._controller = controller
         self._manager = manager
         self._config = config or AgentConfig()
         self._room_index = room_index
-        self._favorites_provider = favorites_provider
+        self._services = services or ChatServices()
 
         # Memória por sessão via checkpointer (thread_id = session_id).
         # Substitui o antigo _conversation_history de instância (bug #2: estado
@@ -286,10 +291,7 @@ class HueLightAgent(BaseAgent):
         # HITL opcional para tools de mutação ampla (aprovação humana).
         if self._config.require_approval:
             from langchain.agents.middleware import HumanInTheLoopMiddleware
-            stack.append(HumanInTheLoopMiddleware(interrupt_on={
-                "apply_config": {"allowed_decisions": ["approve", "reject"]},
-                "save_current_config": {"allowed_decisions": ["approve", "edit", "reject"]},
-            }))
+            stack.append(HumanInTheLoopMiddleware(interrupt_on=dict(HITL_INTERRUPT_ON)))
         return stack
 
     def _create_agent(self) -> CompiledStateGraph:
@@ -301,21 +303,22 @@ class HueLightAgent(BaseAgent):
         from marvin_hue.chat.subagents.definitions import build_subagents
         from marvin_hue.chat.subagents.task import build_task_tool
 
-        light_tools = build_light_tools(
+        tools = build_all_tools(
             self._controller, self._manager, room_index=self._room_index,
-            favorites_provider=self._favorites_provider,
+            services=self._services,
         )
         middleware = self._build_middleware()  # cria self._hue_context (cache compartilhado)
         subagents = build_subagents(
             self._llm, self._controller, self._manager,
             context_middleware=self._hue_context,  # MESMA instância -> mesmo cache TTL
             room_index=self._room_index,
-            favorites_provider=self._favorites_provider,
+            services=self._services,
+            require_approval=self._config.require_approval,
         )
         task_tool = build_task_tool(subagents)
         return create_agent(
             model=self._llm,
-            tools=[*light_tools, task_tool],
+            tools=[*tools, task_tool],
             system_prompt=self._config.system_prompt,
             middleware=middleware,
             checkpointer=self._checkpointer,
@@ -347,8 +350,11 @@ class HueLightAgent(BaseAgent):
 
     @staticmethod
     def _config_for(session_id: str) -> RunnableConfig:
-        """Config do checkpointer: thread_id isola o histórico por sessão."""
-        return {"configurable": {"thread_id": session_id}}
+        """thread_id isola o histórico por sessão; recursion_limit limita o turno."""
+        return {
+            "configurable": {"thread_id": session_id},
+            "recursion_limit": AGENT_RECURSION_LIMIT,
+        }
 
     def _touch_session(self, session_id: str) -> list[str]:
         """Marca a sessão como acessada e RETORNA as threads a despejar (LRU).
@@ -500,7 +506,7 @@ class HueLightAgentBuilder:
         self._controller: Optional[HueController] = None
         self._manager: Optional[LightSetupsManager] = None
         self._config = AgentConfig()
-        self._favorites_provider: Optional[FavoritesProvider] = None
+        self._services: Optional[ChatServices] = None
 
     def with_controller(self, controller: HueController) -> "HueLightAgentBuilder":
         """Define o controlador Hue.
@@ -598,18 +604,16 @@ class HueLightAgentBuilder:
         self._config.system_prompt = prompt
         return self
 
-    def with_favorites_provider(
-        self, provider: FavoritesProvider
-    ) -> "HueLightAgentBuilder":
-        """Define o provider do SceneFavoritesService (tools de favoritos).
+    def with_services(self, services: ChatServices) -> "HueLightAgentBuilder":
+        """Define os providers dos serviços do app usados pelas tools.
 
         Args:
-            provider: Callable que retorna o serviço ou None
+            services: Container ChatServices
 
         Returns:
             Self para encadeamento
         """
-        self._favorites_provider = provider
+        self._services = services
         return self
 
     def with_extra_params(self, **params) -> "HueLightAgentBuilder":
@@ -640,7 +644,7 @@ class HueLightAgentBuilder:
 
         return HueLightAgent(
             controller=self._controller, manager=self._manager, config=self._config,
-            favorites_provider=self._favorites_provider,
+            services=self._services,
         )
 
 
@@ -653,7 +657,7 @@ def create_hue_agent(
     *,
     checkpointer: Optional[Any] = None,
     room_index: Optional[dict[str, list[str]]] = None,
-    favorites_provider: Optional[FavoritesProvider] = None,
+    services: Optional[ChatServices] = None,
     **kwargs,
 ) -> HueLightAgent:
     """Factory function para criar um agente de iluminação.
@@ -668,7 +672,7 @@ def create_hue_agent(
         temperature: Temperatura para geração
         checkpointer: Checkpointer LangGraph opcional
         room_index: Snapshot sala → lâmpadas do registry (opcional)
-        favorites_provider: Provider do SceneFavoritesService (opcional)
+        services: Providers dos serviços do app para as tools (opcional)
         **kwargs: Parâmetros adicionais para o AgentConfig
 
     Returns:
@@ -692,5 +696,5 @@ def create_hue_agent(
         config=config,
         checkpointer=checkpointer,
         room_index=room_index,
-        favorites_provider=favorites_provider,
+        services=services,
     )

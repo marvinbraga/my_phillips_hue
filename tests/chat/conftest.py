@@ -58,4 +58,20 @@ def fake_manager() -> MagicMock:
     manager.get_config.side_effect = lambda n: next(
         (c for c in manager.configs if c.name == n), None
     )
+
+    def _add_config(cfg: LightConfig) -> None:
+        # Mesmo contrato de LightSetupsManager.add_config: duplicata (sem
+        # diferenciar maiúsculas) levanta; falha no save desfaz e propaga.
+        from marvin_hue.basics import DuplicateConfigError
+
+        if any(c.name.casefold() == cfg.name.casefold() for c in manager.configs):
+            raise DuplicateConfigError(cfg.name)
+        manager.configs.append(cfg)
+        try:
+            manager.save()
+        except Exception:
+            manager.configs.remove(cfg)
+            raise
+
+    manager.add_config.side_effect = _add_config
     return manager
