@@ -116,6 +116,10 @@ class TestBackupAPI:
         unfav = fastapi_test_client.delete("/configurations/favorites/relax")
         assert unfav.status_code == 204
 
+        # A stale .bak may exist on a dev machine; the import must not touch it.
+        real_bak = _REAL_PHYSICAL.parent / "light_physical_locations.json.bak"
+        real_bak_before = real_bak.stat().st_mtime_ns if real_bak.exists() else None
+
         files = {
             "file": ("backup.zip", exported.content, "application/zip"),
         }
@@ -128,7 +132,8 @@ class TestBackupAPI:
         assert body["favorites"] == {"added": 1, "removed": 0, "total": 1}
         # Import rewrote the isolated copies, never the repo's .res
         assert (_isolate_res_files_dir(tmp_path) / "light_physical_locations.json.bak").exists()
-        assert not (_REAL_PHYSICAL.parent / "light_physical_locations.json.bak").exists()
+        real_bak_after = real_bak.stat().st_mtime_ns if real_bak.exists() else None
+        assert real_bak_after == real_bak_before
         active = fastapi_test_client.get("/api/lights").json()
         names = {x["name"] for x in active}
         assert "Roundtrip" in names
