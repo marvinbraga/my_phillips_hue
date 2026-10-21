@@ -6,6 +6,18 @@ from unittest.mock import MagicMock
 import pytest
 
 
+class _NoState:
+    """Thread sem checkpoint: o agente lê o estado antes de cada turno (HITL)."""
+
+    _empty = type("S", (), {"values": {}, "interrupts": ()})()
+
+    def get_state(self, config):
+        return self._empty
+
+    async def aget_state(self, config):
+        return self._empty
+
+
 @pytest.fixture
 def patched_agent(monkeypatch, fake_controller, fake_manager, bindable_model_factory):
     import marvin_hue.chat.agents.react_agent as ra
@@ -22,7 +34,7 @@ def patched_agent(monkeypatch, fake_controller, fake_manager, bindable_model_fac
     )
 
     # Agente fake compilado que ecoa thread_id no estado.
-    class _FakeCompiled:
+    class _FakeCompiled(_NoState):
         def __init__(self):
             self.calls = []
 
@@ -140,7 +152,7 @@ def test_stream_does_not_reinvoke(monkeypatch, fake_controller, fake_manager, bi
     import marvin_hue.chat.agents.react_agent as ra
     from langchain_core.messages import AIMessage
 
-    class _Recorder:
+    class _Recorder(_NoState):
         def __init__(self):
             self.invoked = 0
             self.streamed = 0

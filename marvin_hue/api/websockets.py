@@ -16,7 +16,7 @@ from marvin_hue.api.dependencies import (
     get_mirror_control_service,
 )
 from marvin_hue.api.models import ChatResumeRequest
-from marvin_hue.chat.hitl import ApprovalError, ApprovalRequired
+from marvin_hue.chat.hitl import APPROVAL_REQUIRED, ApprovalError, ApprovalRequired
 from marvin_hue.logging_config import get_logger
 from marvin_hue.services.mirror_control import (
     MirrorAlreadyActiveError,
@@ -124,6 +124,10 @@ async def dispatch_ws_mirror_action(
         return None
 
     return None
+
+
+# Resposta a "pending" quando não há nada a aprovar.
+NO_PENDING_FRAME: dict[str, Any] = {"type": APPROVAL_REQUIRED, "requests": []}
 
 
 def chat_turn_frame(result: Any) -> dict[str, Any]:
@@ -239,13 +243,17 @@ def setup_websockets(app: FastAPI) -> None:
         try:
             while True:
                 data = await websocket.receive_json()
+                if not isinstance(data, dict):
+                    continue
 
                 chat_agent = get_chat_agent()
                 if chat_agent is None:
                     # "pending" é enviado a cada conexão da tela Chat: sem
-                    # agente não há o que reapresentar, e o aviso já vem do
-                    # /api/chat/status (evita um erro por (re)conexão).
+                    # agente não há o que reapresentar; responde "nada
+                    # pendente" (o aviso de indisponível vem de
+                    # /api/chat/status, sem um erro por (re)conexão).
                     if data.get("action") == "pending":
+                        await websocket.send_json(NO_PENDING_FRAME)
                         continue
                     reason = (
                         get_chat_unavailable_reason()
@@ -300,13 +308,16 @@ def setup_websockets(app: FastAPI) -> None:
 
                 elif action == "pending":
                     # Página recarregada: reapresenta o cartão de aprovação.
+                    # Sempre responde (lista vazia = nada pendente) para o
+                    # cliente sair do estado "aguardando".
                     try:
                         pending = await chat_agent.apending(session_id)
                     except Exception as e:
                         logger.warning(f"/ws/chat pending falhou: {e}")
                         pending = None
-                    if pending is not None:
-                        await websocket.send_json(pending.to_dict())
+                    await websocket.send_json(
+                        pending.to_dict() if pending is not None else NO_PENDING_FRAME
+                    )
 
                 elif action == "clear":
                     await chat_agent.aclear_history(session_id=session_id)
