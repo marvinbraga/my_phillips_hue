@@ -18,6 +18,12 @@ from marvin_hue.services.apply_config import (
     ApplyConfigNotFoundError,
     ApplyConfigService,
 )
+from marvin_hue.services.last_applied_scene import (
+    SOURCE_SCHEDULE,
+    SOURCE_SCHEDULE_OFF,
+    LastAppliedProvider,
+    resolve_last_applied,
+)
 from marvin_hue.services.group_service import GroupService
 
 logger = get_logger("services.schedule")
@@ -47,11 +53,14 @@ class ScheduleService:
         hue: Optional[HueScheduleController] = None,
         manager: Optional[LightSetupsManager] = None,
         group_service: Optional[GroupService] = None,
+        last_applied_provider: Optional[LastAppliedProvider] = None,
     ) -> None:
         self._repo = repo
         self._hue = hue
         self._manager = manager
         self._group_service = group_service
+        # Lazy: resolved on every apply (fail-open when missing/broken).
+        self._last_applied_provider = last_applied_provider
 
     def bind(
         self,
@@ -263,10 +272,14 @@ class ScheduleService:
             raise ScheduleValidationError("Hue controller is not configured")
 
         try:
-            await ApplyConfigService(self._manager, hue).apply(
+            await ApplyConfigService(
+                self._manager,
+                hue,
+                last_applied=resolve_last_applied(self._last_applied_provider),
+            ).apply(
                 config_name,
                 transition_time=transition,
-                source="schedule",
+                source=SOURCE_SCHEDULE,
             )
         except ApplyConfigNotFoundError as exc:
             raise ScheduleValidationError(
@@ -300,6 +313,12 @@ class ScheduleService:
             return affected
 
         affected = await asyncio.to_thread(_all_power)
+        if not on and affected:
+            # Whole-house off: the lights no longer show the last scene.
+            # (Group power off does not clear: other lights may still show it.)
+            last_applied = resolve_last_applied(self._last_applied_provider)
+            if last_applied is not None:
+                await last_applied.clear(source=SOURCE_SCHEDULE_OFF)
         return {
             "action": "power_on" if on else "power_off",
             "affected": affected,

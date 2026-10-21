@@ -158,3 +158,92 @@ async def test_does_not_mutate_original_config_when_filtering() -> None:
     svc, _, _, _, _ = _build(config=cfg)
     await svc.apply("concentration", light_names={"Hue Iris"})
     assert [s.light_name for s in cfg.settings] == original_names
+
+
+# --- last applied scene (issue #14) -------------------------------------
+
+
+def _recorder(error: BaseException | None = None) -> MagicMock:
+    rec = MagicMock()
+    rec.record = AsyncMock(side_effect=error)
+    return rec
+
+
+def _with_recorder(
+    recorder: MagicMock, apply_result: ApplyResult | None = None
+) -> tuple[ApplyConfigService, MagicMock]:
+    _, manager, hue, hist, _ = _build(apply_result=apply_result)
+    return ApplyConfigService(manager, hue, hist, last_applied=recorder), hue
+
+
+@pytest.mark.asyncio
+async def test_records_last_applied_when_all_ok() -> None:
+    rec = _recorder()
+    svc, _ = _with_recorder(rec)
+    await svc.apply("concentration", source="apply")
+    rec.record.assert_awaited_once_with("concentration", source="apply")
+
+
+@pytest.mark.asyncio
+async def test_records_last_applied_on_partial_with_source() -> None:
+    rec = _recorder()
+    svc, _ = _with_recorder(
+        rec,
+        ApplyResult(applied=("Lâmpada 1",), failed=(("Hue Iris", "timeout"),)),
+    )
+    result = await svc.apply("concentration", source="schedule")
+    assert result.partial
+    rec.record.assert_awaited_once_with("concentration", source="schedule")
+
+
+@pytest.mark.asyncio
+async def test_records_group_source_for_filtered_apply() -> None:
+    rec = _recorder()
+    svc, _ = _with_recorder(rec)
+    await svc.apply("concentration", source="group", light_names={"Lâmpada 1"})
+    rec.record.assert_awaited_once_with("concentration", source="group")
+
+
+@pytest.mark.asyncio
+async def test_does_not_record_when_all_failed() -> None:
+    rec = _recorder()
+    svc, _ = _with_recorder(
+        rec,
+        ApplyResult(applied=(), failed=(("Lâmpada 1", "x"), ("Hue Iris", "y"))),
+    )
+    result = await svc.apply("concentration")
+    assert not result.applied
+    rec.record.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_does_not_record_when_nothing_applied() -> None:
+    rec = _recorder()
+    svc, _ = _with_recorder(rec, ApplyResult(applied=(), failed=()))
+    await svc.apply("concentration")
+    rec.record.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_does_not_record_missing_config() -> None:
+    rec = _recorder()
+    svc, _ = _with_recorder(rec)
+    with pytest.raises(ApplyConfigNotFoundError):
+        await svc.apply("ghost")
+    rec.record.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_last_applied_storage_failure_does_not_break_apply() -> None:
+    """The real service swallows storage errors (best-effort UI marker)."""
+    from marvin_hue.services.last_applied_scene import LastAppliedSceneService
+
+    repo = MagicMock()
+    repo.record = AsyncMock(side_effect=RuntimeError("db locked"))
+    service = LastAppliedSceneService(repo, MagicMock)
+    _, manager, hue, hist, _ = _build()
+    svc = ApplyConfigService(manager, hue, hist, last_applied=service)
+    result = await svc.apply("concentration", source="apply")
+    assert result.ok
+    hue.apply_light_config.assert_called_once()
+    repo.record.assert_awaited_once()

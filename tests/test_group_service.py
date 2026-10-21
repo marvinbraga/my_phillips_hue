@@ -98,3 +98,66 @@ async def test_delete_soft(group_svc):
     assert deleted.deleted_at is not None
     with pytest.raises(GroupNotFoundError):
         await svc.get_group(g.id)
+
+
+# --- last applied scene (issue #14) -------------------------------------
+
+
+def _relax_config() -> LightConfig:
+    return LightConfig(
+        name="relax",
+        settings=[LightSetting("Lâmpada 1", Color(255, 0, 0, 200))],
+        description="",
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_config_records_last_applied_with_group_source(group_svc):
+    from unittest.mock import AsyncMock
+
+    from marvin_hue.apply_result import ApplyResult
+
+    svc, lights = group_svc
+    l1 = await _seed_light(lights, "Lâmpada 1")
+    g = await svc.create_group(name="Sala LA", room="Living", light_ids=[l1.id])
+
+    recorder = MagicMock()
+    recorder.record = AsyncMock()
+    svc_with = GroupService(svc._repo, last_applied_provider=lambda: recorder)
+    hue = MagicMock()
+    hue.apply_light_config.return_value = ApplyResult(applied=("Lâmpada 1",), failed=())
+    await svc_with.apply_config(g.id, _relax_config(), hue)
+    recorder.record.assert_awaited_once_with("relax", source="group")
+
+
+@pytest.mark.asyncio
+async def test_apply_config_provider_returning_none_is_ok(group_svc):
+    from marvin_hue.apply_result import ApplyResult
+
+    svc, lights = group_svc
+    l1 = await _seed_light(lights, "Lâmpada 1")
+    g = await svc.create_group(name="Sala LA2", room="Living", light_ids=[l1.id])
+    svc_with = GroupService(svc._repo, last_applied_provider=lambda: None)
+    hue = MagicMock()
+    hue.apply_light_config.return_value = ApplyResult(applied=("Lâmpada 1",), failed=())
+    result = await svc_with.apply_config(g.id, _relax_config(), hue)
+    assert result["config_name"] == "relax"
+
+
+@pytest.mark.asyncio
+async def test_apply_config_provider_raising_still_applies(group_svc):
+    from marvin_hue.apply_result import ApplyResult
+
+    svc, lights = group_svc
+    l1 = await _seed_light(lights, "Lâmpada 1")
+    g = await svc.create_group(name="Sala LA3", room="Living", light_ids=[l1.id])
+
+    def broken():
+        raise RuntimeError("not initialized")
+
+    svc_with = GroupService(svc._repo, last_applied_provider=broken)
+    hue = MagicMock()
+    hue.apply_light_config.return_value = ApplyResult(applied=("Lâmpada 1",), failed=())
+    result = await svc_with.apply_config(g.id, _relax_config(), hue)
+    assert result["config_name"] == "relax"
+    hue.apply_light_config.assert_called_once()

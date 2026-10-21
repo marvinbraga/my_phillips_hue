@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from marvin_hue.api.dependencies import (
     get_hue_controller,
+    get_last_applied_scene_service_optional,
     get_manager,
     get_mirror_control_service,
     get_scene_favorites_service,
@@ -27,6 +28,7 @@ from marvin_hue.api.models import (
     ConfigurationWithSettings,
     FavoritesListResponse,
     FavoriteStatusResponse,
+    LastAppliedSceneResponse,
     LightsOffRequest,
 )
 from marvin_hue.apply_result import ApplyResult
@@ -37,6 +39,7 @@ from marvin_hue.services.apply_config import (
     ApplyConfigNotFoundError,
     ApplyConfigService,
 )
+from marvin_hue.services.last_applied_scene import LastAppliedSceneService
 from marvin_hue.services.lights_off import (
     LIGHTS_OFF_SOURCE,
     LightsOffBridgeError,
@@ -147,22 +150,30 @@ def get_sorted_configs_with_settings(
     ]
 
 
+OptionalLastApplied = Annotated[
+    LastAppliedSceneService | None,
+    Depends(get_last_applied_scene_service_optional),
+]
+
+
 def get_apply_config_service(
     hue: Annotated[HueController, Depends(get_hue_controller)],
     manager: Annotated[LightSetupsManager, Depends(get_manager)],
     history: Annotated[SceneHistoryService, Depends(get_scene_history_service)],
+    last_applied: OptionalLastApplied,
 ) -> ApplyConfigService:
     """Compose ApplyConfigService at the HTTP edge (not a module locator)."""
-    return ApplyConfigService(manager, hue, history)
+    return ApplyConfigService(manager, hue, history, last_applied=last_applied)
 
 
 def get_lights_off_service(
     hue: Annotated[HueController, Depends(get_hue_controller)],
     history: Annotated[SceneHistoryService, Depends(get_scene_history_service)],
     mirror: Annotated[MirrorControlService, Depends(get_mirror_control_service)],
+    last_applied: OptionalLastApplied,
 ) -> LightsOffService:
     """Compose LightsOffService at the HTTP edge (not a module locator)."""
-    return LightsOffService(hue, history, mirror=mirror)
+    return LightsOffService(hue, history, mirror=mirror, last_applied=last_applied)
 
 
 @router.get("/configurations")
@@ -191,6 +202,27 @@ async def list_favorite_configurations(
     Favoritos de cenas removidas/renomeadas ficam no banco, mas não aparecem.
     """
     return FavoritesListResponse(favorites=await service.list_existing())
+
+
+@router.get("/configurations/last-applied", response_model=LastAppliedSceneResponse)
+async def get_last_applied_configuration(
+    service: OptionalLastApplied,
+) -> LastAppliedSceneResponse:
+    """Última cena aplicada com ao menos uma lâmpada (qualquer origem).
+
+    Tudo null quando nada foi aplicado, depois de "Desligar todas" / undo, ou
+    se a cena não existe mais em ``setups.json``.
+    """
+    if service is None:
+        return LastAppliedSceneResponse()
+    scene = await service.get()
+    if scene is None:
+        return LastAppliedSceneResponse()
+    return LastAppliedSceneResponse(
+        name=scene.config_name,
+        source=scene.source,
+        applied_at=scene.applied_at.isoformat(),
+    )
 
 
 @router.put(

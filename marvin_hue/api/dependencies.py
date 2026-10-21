@@ -20,6 +20,7 @@ from marvin_hue.persistence.schedule_repository import ScheduleRepository
 from marvin_hue.screen_mirror import ScreenMirror
 from marvin_hue.services.backup import BackupService
 from marvin_hue.services.group_service import GroupService
+from marvin_hue.services.last_applied_scene import LastAppliedSceneService
 from marvin_hue.services.light_registry import LightRegistryService
 from marvin_hue.services.mirror_control import MirrorControlService
 from marvin_hue.services.scene_favorites import SceneFavoritesService
@@ -50,6 +51,7 @@ _schedule_runner: ScheduleRunner | None = None
 _mirror_control_service: MirrorControlService | None = None
 _backup_service: BackupService | None = None
 _scene_favorites_service: SceneFavoritesService | None = None
+_last_applied_scene_service: LastAppliedSceneService | None = None
 _bound_app: FastAPI | None = None
 
 _DEFAULT_PHYSICAL_LOCATIONS = ".res/light_physical_locations.json"
@@ -85,6 +87,7 @@ def populate_app_state(app: FastAPI) -> None:
     app.state.mirror_control_service = _mirror_control_service
     app.state.backup_service = _backup_service
     app.state.scene_favorites_service = _scene_favorites_service
+    app.state.last_applied_scene_service = _last_applied_scene_service
 
 
 # Mapa provider → (nome da env var, atributo em settings)
@@ -314,6 +317,18 @@ def get_scene_favorites_service() -> SceneFavoritesService:
     return _scene_favorites_service
 
 
+def set_last_applied_scene_service(service: LastAppliedSceneService | None) -> None:
+    """Define (ou limpa) a instância global do LastAppliedSceneService."""
+    global _last_applied_scene_service
+    _last_applied_scene_service = service
+    _sync_app_state("last_applied_scene_service", service)
+
+
+def get_last_applied_scene_service_optional() -> LastAppliedSceneService | None:
+    """LastAppliedSceneService ou None (apply/off/undo seguem sem registrar)."""
+    return _last_applied_scene_service
+
+
 def set_mirror_control_service(service: MirrorControlService | None) -> None:
     """Define (ou limpa) a instância do MirrorControlService."""
     global _mirror_control_service
@@ -339,6 +354,7 @@ def get_mirror_control_service() -> MirrorControlService:
             get_manager=get_manager,
             get_entertainment=get_entertainment_client,
             get_history=_history,
+            get_last_applied=get_last_applied_scene_service_optional,
         )
     return _mirror_control_service
 

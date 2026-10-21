@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from marvin_hue.apply_result import ApplyResult
 from marvin_hue.basics import LightConfig
 from marvin_hue.logging_config import get_logger
+from marvin_hue.services.last_applied_scene import LastAppliedRecorderPort
 
 logger = get_logger("services.apply_config")
 
@@ -62,17 +63,24 @@ def _filter_config(config: LightConfig, light_names: set[str] | None) -> LightCo
 
 
 class ApplyConfigService:
-    """Load a named scene, optional fail-open snapshot, apply via Hue."""
+    """Load a named scene, optional fail-open snapshot, apply via Hue.
+
+    When ``last_applied`` is given, a result with at least one applied light
+    is recorded as the last applied scene (the service never raises).
+    """
 
     def __init__(
         self,
         manager: LightConfigLookup,
         hue: HueApplyPort,
         history: SceneSnapshotPort | None = None,
+        *,
+        last_applied: LastAppliedRecorderPort | None = None,
     ) -> None:
         self._manager = manager
         self._hue = hue
         self._history = history
+        self._last_applied = last_applied
 
     async def apply(
         self,
@@ -96,6 +104,8 @@ class ApplyConfigService:
                 f"Apply '{name}' source={source!r} "
                 f"applied={len(raw.applied)} failed={len(raw.failed)}"
             )
+            if raw.applied and self._last_applied is not None:
+                await self._last_applied.record(name, source=source)
             return raw
         logger.info(f"Apply '{name}' source={source!r}")
         return ApplyResult(applied=(), failed=())

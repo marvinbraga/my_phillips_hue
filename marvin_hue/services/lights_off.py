@@ -16,6 +16,8 @@ Focused application service — not a Facade. Order of operations:
    persistence is fail-open.
 5. One offloaded pass of one-shot transitions; per-light errors never abort
    the rest.
+6. At least one light turned off → forget the last applied scene (best-effort),
+   since the lights no longer show it.
 """
 
 from __future__ import annotations
@@ -26,11 +28,15 @@ from typing import Any, Protocol
 from marvin_hue.apply_result import ApplyResult
 from marvin_hue.eye_safety import is_enabled_for_app
 from marvin_hue.logging_config import get_logger
+from marvin_hue.services.last_applied_scene import (
+    SOURCE_LIGHTS_OFF,
+    LastAppliedClearPort,
+)
 from marvin_hue.services.mirror_control import MirrorNotActiveError
 
 logger = get_logger("services.lights_off")
 
-LIGHTS_OFF_SOURCE = "lights_off"
+LIGHTS_OFF_SOURCE = SOURCE_LIGHTS_OFF
 LIGHTS_OFF_LABEL = "before lights off"
 
 
@@ -103,10 +109,12 @@ class LightsOffService:
         history: LightsOffHistoryPort | None = None,
         *,
         mirror: MirrorStopPort | None = None,
+        last_applied: LastAppliedClearPort | None = None,
     ) -> None:
         self._hue = hue
         self._history = history
         self._mirror = mirror
+        self._last_applied = last_applied
 
     async def turn_off_all(self, *, transition_time: float = 0) -> ApplyResult:
         """Turn off every enabled light; ``transition_time`` in seconds (>= 0).
@@ -141,6 +149,8 @@ class LightsOffService:
         logger.info(
             f"Lights off: applied={len(result.applied)} failed={len(result.failed)}"
         )
+        if result.applied and self._last_applied is not None:
+            await self._last_applied.clear(source=SOURCE_LIGHTS_OFF)
         return result
 
     async def _stop_mirror_fail_open(self) -> None:

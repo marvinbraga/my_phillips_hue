@@ -117,3 +117,91 @@ async def test_run_now(schedule_svc):
     result = await svc.run_now(s.id)
     assert result["status"] == "ok"
     assert hue.turn_on.called
+
+
+# --- last applied scene (issue #14) -------------------------------------
+
+
+class _FakeLastApplied:
+    def __init__(self) -> None:
+        self.recorded: list[tuple[str, str]] = []
+        self.cleared: list[str] = []
+
+    async def record(self, name: str, *, source: str) -> None:
+        self.recorded.append((name, source))
+
+    async def clear(self, *, source: str) -> None:
+        self.cleared.append(source)
+
+
+@pytest.fixture
+async def schedule_with_last_applied(schedule_svc):
+    base, hue, manager = schedule_svc
+    fake = _FakeLastApplied()
+    svc = ScheduleService(
+        base._repo, hue=hue, manager=manager, last_applied_provider=lambda: fake
+    )
+    return svc, hue, fake
+
+
+async def _run(svc: ScheduleService, action_type: str, payload: dict) -> dict:
+    sched = await svc.create_schedule(
+        name=f"LA {action_type}",
+        time_hhmm="19:00",
+        action_type=action_type,
+        action_payload=payload,
+    )
+    return await svc.execute(sched)
+
+
+@pytest.mark.asyncio
+async def test_apply_config_schedule_records_last_applied(schedule_with_last_applied):
+    from marvin_hue.apply_result import ApplyResult
+
+    svc, hue, fake = schedule_with_last_applied
+    hue.apply_light_config.return_value = ApplyResult(applied=("Lâmpada 1",), failed=())
+    await _run(svc, "apply_config", {"config_name": "concentration"})
+    assert fake.recorded == [("concentration", "schedule")]
+
+
+@pytest.mark.asyncio
+async def test_apply_config_schedule_all_failed_does_not_record(
+    schedule_with_last_applied,
+):
+    from marvin_hue.apply_result import ApplyResult
+
+    svc, hue, fake = schedule_with_last_applied
+    hue.apply_light_config.return_value = ApplyResult(
+        applied=(), failed=(("Lâmpada 1", "timeout"),)
+    )
+    await _run(svc, "apply_config", {"config_name": "concentration"})
+    assert fake.recorded == []
+
+
+@pytest.mark.asyncio
+async def test_whole_house_power_off_clears_last_applied(schedule_with_last_applied):
+    svc, _hue, fake = schedule_with_last_applied
+    result = await _run(svc, "power_off", {})
+    assert result["scope"] == "all"
+    assert fake.cleared == ["schedule_off"]
+
+
+@pytest.mark.asyncio
+async def test_power_on_does_not_clear_last_applied(schedule_with_last_applied):
+    svc, _hue, fake = schedule_with_last_applied
+    await _run(svc, "power_on", {})
+    assert fake.cleared == []
+
+
+@pytest.mark.asyncio
+async def test_group_power_off_does_not_clear_last_applied(schedule_with_last_applied):
+    svc, hue, fake = schedule_with_last_applied
+    group_service = MagicMock()
+
+    async def set_power(group_id, on, hue):
+        return {"group_id": group_id, "on": on, "affected": ["Lâmpada 1"]}
+
+    group_service.set_power = set_power
+    svc._group_service = group_service
+    await _run(svc, "power_off", {"group_id": "g-1"})
+    assert fake.cleared == []
