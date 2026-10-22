@@ -114,6 +114,13 @@ class FavoriteStatusResponse(BaseModel):
     favorite: bool
 
 
+class ConfigurationDeletedResponse(BaseModel):
+    """DELETE /configurations/{name}."""
+
+    name: str
+    deleted: bool
+
+
 class LastAppliedSceneResponse(BaseModel):
     """GET /configurations/last-applied.
 

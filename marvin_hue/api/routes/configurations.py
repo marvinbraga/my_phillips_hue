@@ -5,6 +5,7 @@ Endpoints para gerenciar configurações de iluminação.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -23,6 +24,7 @@ from marvin_hue.api.models import (
     ApplyConfigResponse,
     ApplyFailedLight,
     ConfigurationColor,
+    ConfigurationDeletedResponse,
     ConfigurationPreview,
     ConfigurationSetting,
     ConfigurationWithSettings,
@@ -32,7 +34,7 @@ from marvin_hue.api.models import (
     LightsOffRequest,
 )
 from marvin_hue.apply_result import ApplyResult
-from marvin_hue.basics import LightConfig, LightSetupsManager
+from marvin_hue.basics import ConfigNotFoundError, LightConfig, LightSetupsManager
 from marvin_hue.controllers import HueController
 from marvin_hue.logging_config import get_logger
 from marvin_hue.services.apply_config import (
@@ -252,6 +254,44 @@ async def remove_favorite_configuration(
 ) -> None:
     """Desmarca a cena (idempotente; nome desconhecido também devolve 204)."""
     await service.remove(name)
+
+
+# Registrada depois das rotas /configurations/favorites/{name:path}: o Starlette
+# casa na ordem de registro, e "{name:path}" engoliria "favorites/<nome>".
+@router.delete(
+    "/configurations/{name:path}",
+    response_model=ConfigurationDeletedResponse,
+    responses={
+        404: {"description": "Configuração não encontrada"},
+        500: {"description": "Falha ao gravar setups.json"},
+    },
+)
+async def delete_configuration(
+    name: str,
+    manager: Annotated[LightSetupsManager, Depends(get_manager)],
+) -> ConfigurationDeletedResponse:
+    """Exclui a cena de ``setups.json`` (todas as entradas com o nome exato).
+
+    Favoritos e "última aplicada" que apontam para ela ficam órfãos (ocultos);
+    agendamentos ``apply_config``/``apply_group`` com esse nome passam a falhar
+    na execução. A resposta 500 é genérica: o detalhe (caminho do arquivo)
+    fica só no log.
+    """
+    try:
+        # Escrita em disco sob threading.RLock: fora do event loop.
+        await asyncio.to_thread(manager.remove_config, name)
+    except ConfigNotFoundError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"Configuração '{name}' não encontrada"
+        ) from exc
+    except OSError as exc:
+        logger.error(f"Delete config '{name}': falha ao gravar setups: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Não foi possível excluir a configuração '{name}'.",
+        ) from exc
+    logger.info(f"Configuração '{name}' excluída")
+    return ConfigurationDeletedResponse(name=name, deleted=True)
 
 
 @router.post(

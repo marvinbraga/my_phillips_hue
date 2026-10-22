@@ -60,10 +60,17 @@ def fake_manager() -> MagicMock:
     )
 
     def _add_config(cfg: LightConfig) -> None:
-        # Mesmo contrato de LightSetupsManager.add_config: duplicata (sem
-        # diferenciar maiúsculas) levanta; falha no save desfaz e propaga.
-        from marvin_hue.basics import DuplicateConfigError
+        # Mesmo contrato de LightSetupsManager.add_config: nome reservado ou
+        # duplicata (sem diferenciar maiúsculas) levanta; falha no save desfaz
+        # e propaga.
+        from marvin_hue.basics import (
+            DuplicateConfigError,
+            ReservedConfigNameError,
+            is_reserved_config_name,
+        )
 
+        if is_reserved_config_name(cfg.name):
+            raise ReservedConfigNameError(cfg.name)
         if any(c.name.casefold() == cfg.name.casefold() for c in manager.configs):
             raise DuplicateConfigError(cfg.name)
         manager.configs.append(cfg)

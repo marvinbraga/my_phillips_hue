@@ -23,12 +23,15 @@ from marvin_hue.basics import (
     LightConfig,
     LightSetting,
     LightSetupsManager,
+    ReservedConfigNameError,
+    is_reserved_config_name,
 )
 from marvin_hue.chat.services import ChatServices
 from marvin_hue.chat.tools._common import (
     SINGLE_LINE,
     hue_to_pct,
     pct_to_hue,
+    reserved_scene_name,
     resolve_scene,
     service_tool,
     unavailable,
@@ -177,6 +180,8 @@ def build_scene_tools(
     def _create_config(
         name: str, description: str, settings: list[_SceneLightSpec | dict[str, Any]]
     ) -> str:
+        if is_reserved_config_name(name):
+            return reserved_scene_name(name)
         existing = {c.name.casefold(): c.name for c in manager.configs}
         duplicate = "Já existe uma cena com o nome '{name}'. Escolha outro nome."
         if name.casefold() in existing:
@@ -209,6 +214,8 @@ def build_scene_tools(
         try:
             # Check-append-save sob lock; falha na escrita desfaz e levanta.
             manager.add_config(new_config)
+        except ReservedConfigNameError:
+            return reserved_scene_name(name)
         except DuplicateConfigError:
             return duplicate.format(name=name)
         except Exception as e:  # noqa: BLE001

@@ -264,3 +264,36 @@ def test_provider_raising_fails_open(fake_controller, manager):
 def test_search_query_max_length(fake_controller, manager):
     with pytest.raises(ValidationError):
         _tools(fake_controller, manager)["search_configs"].invoke({"query": "x" * 101})
+
+
+# ----- nomes reservados (favorites/...) -----
+
+
+def test_create_config_schema_rejects_slash_name(fake_controller, manager):
+    tool = _tools(fake_controller, manager)["create_config"]
+    with pytest.raises(ValidationError):
+        tool.invoke({"name": "favorites/x", "description": "x", "settings": [_spec()]})
+    manager.save.assert_not_called()
+
+
+def test_create_config_reserved_name_friendly_message(fake_controller, manager):
+    """Defesa em profundidade: mesmo sem o schema, o nome reservado é recusado."""
+    tool = _tools(fake_controller, manager)["create_config"]
+    out = tool.func("Favorites/x", "x", [_spec()])
+    assert out == (
+        "O nome 'Favorites/x' não pode ser usado: nomes de cena não podem começar "
+        "com 'favorites/'. Escolha outro nome."
+    )
+    assert manager.get_config("Favorites/x") is None
+    manager.save.assert_not_called()
+
+
+def test_create_config_maps_reserved_error_from_manager(fake_controller, manager):
+    from marvin_hue.basics import ReservedConfigNameError
+
+    manager.add_config.side_effect = ReservedConfigNameError("cena")
+    out = _tools(fake_controller, manager)["create_config"].invoke(
+        {"name": "cena", "description": "x", "settings": [_spec()]}
+    )
+    assert "não pode ser usado" in out
+    assert not out.startswith("Erro ao salvar")

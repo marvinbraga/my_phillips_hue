@@ -127,6 +127,21 @@ class TestSettingsDefaults:
         settings = create_test_settings(bridge_ip="192.168.1.100")
         assert settings.cors_origins == ["*"]
 
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("*", ["*"]),
+            ("http://a:1, https://b.example", ["http://a:1", "https://b.example"]),
+            ('["http://a:1"]', ["http://a:1"]),
+            ("", []),
+        ],
+    )
+    def test_cors_origins_from_env(self, monkeypatch, raw, expected):
+        """CORS_ORIGINS do .env.example ("*" ou "a,b") não derruba o startup."""
+        monkeypatch.setenv("CORS_ORIGINS", raw)
+        settings = create_test_settings(bridge_ip="192.168.1.100")
+        assert settings.cors_origins == expected
+
 
 class TestSettingsValidation:
     """Testes para validação de configurações."""

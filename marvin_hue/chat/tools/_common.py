@@ -15,7 +15,7 @@ from typing import Any, TypeVar
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
 
-from marvin_hue.basics import LightSetupsManager
+from marvin_hue.basics import RESERVED_CONFIG_NAME_PREFIX, LightSetupsManager
 from marvin_hue.logging_config import get_logger
 
 T = TypeVar("T")
@@ -49,6 +49,14 @@ def unexpected_error(action: str, exc: BaseException, *, verb: str = "Erro inesp
 
 class NoArgs(BaseModel):
     """Schema vazio para tools sem argumentos."""
+
+
+def reserved_scene_name(name: str) -> str:
+    """Mensagem para nome de cena reservado (``favorites/...``)."""
+    return (
+        f"O nome '{name}' não pode ser usado: nomes de cena não podem começar "
+        f"com '{RESERVED_CONFIG_NAME_PREFIX}'. Escolha outro nome."
+    )
 
 
 def unavailable(label: str) -> str:

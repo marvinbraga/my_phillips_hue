@@ -48,11 +48,17 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
 from marvin_hue.apply_result import ApplyResult
-from marvin_hue.basics import DuplicateConfigError, LightSetupsManager
+from marvin_hue.basics import (
+    DuplicateConfigError,
+    LightSetupsManager,
+    ReservedConfigNameError,
+    is_reserved_config_name,
+)
 from marvin_hue.chat.services import ChatServices
 from marvin_hue.chat.tools._common import (
     SINGLE_LINE,
     pct_to_hue,
+    reserved_scene_name,
     unexpected_error,
 )
 from marvin_hue.chat.tools.rooms import (
@@ -436,6 +442,8 @@ def build_light_tools(
             "Já existe uma configuração com o nome '{name}'. "
             "Escolha outro nome ou delete a existente primeiro."
         )
+        if is_reserved_config_name(config_name):
+            return reserved_scene_name(config_name)
         if manager.get_config(config_name):
             return duplicate.format(name=config_name)
         from marvin_hue.basics import LightSetting, LightConfig
@@ -462,6 +470,8 @@ def build_light_tools(
         )
         try:
             manager.add_config(new_config)
+        except ReservedConfigNameError:
+            return reserved_scene_name(config_name)
         except DuplicateConfigError:
             return duplicate.format(name=config_name)
         except Exception as e:  # noqa: BLE001

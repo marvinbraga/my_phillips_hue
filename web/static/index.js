@@ -46,7 +46,6 @@ let favoritesOnly = false;
 // Per scene name: at most one PUT/DELETE in flight; `desired` is the latest wanted state
 /** @type {Object<string, {inFlight: boolean, desired: boolean}>} */
 const favoriteSync = {};
-let favoriteFeedbackTimer = null;
 
 // Last applied scene (recorded by the server on any apply); null = none or cleared
 // by Desligar/Desfazer. Only its badge is shown: it is selected without preview.
@@ -56,11 +55,18 @@ let lastApplied = null;
 // started before the bump answers with older data and is ignored
 let lastAppliedLocalSeq = 0;
 
+// Scene deletion: name awaiting confirmation in the modal; one DELETE at a time
+let deleteConfigModal = null;
+/** @type {string|null} */
+let deleteConfigTarget = null;
+let deleteConfigInFlight = false;
+
 const HOVER_PREVIEW_DELAY_MS = 80;
 const HOVER_RESUME_MOVE_PX = 2;
 const TOUCH_MOUSE_GUARD_MS = 800;
 const FAVORITES_ONLY_STORAGE_KEY = 'controle.favoritesOnly';
 const FAVORITE_FEEDBACK_MS = 4000;
+const CONFIG_FEEDBACK_MS = 5000;
 const LAST_APPLIED_REFRESH_MS = 30000;
 
 function loadLightsStatus() {
@@ -584,7 +590,19 @@ function updatePickerStates(skipScroll) {
     updateSelectedChip();
 }
 
+function updateDeleteButton() {
+    const $btn = $('#delete-config-btn');
+    const enabled = Boolean(selectedConfig) && !deleteConfigInFlight;
+    $btn.prop('disabled', !enabled)
+        .toggleClass('btn-outline-danger', enabled)
+        .toggleClass('btn-outline-secondary', !enabled)
+        .attr('title', selectedConfig
+            ? 'Excluir “' + selectedConfig.name + '”'
+            : 'Selecione uma configuração para excluir');
+}
+
 function updateSelectedChip() {
+    updateDeleteButton();
     const $chip = $('#configurations-selected-chip');
     const hidden = !selectedConfig || filteredConfigurations.indexOf(selectedConfig) !== -1;
     if (hidden) {
@@ -672,13 +690,18 @@ function moveActiveItem(step) {
     setHoverPreview(filteredConfigurations[pickerActiveIndex], true);
 }
 
-function showFavoriteFeedback(text) {
-    const $feedback = $('#favorites-feedback');
-    clearTimeout(favoriteFeedbackTimer);
+// Shows text in a feedback element and hides it after durationMs; the timer
+// lives on the element, so each feedback area resets only its own
+function showTimedFeedback($feedback, text, durationMs) {
+    clearTimeout($feedback.data('feedbackTimer'));
     $feedback.text(text).removeClass('d-none');
-    favoriteFeedbackTimer = setTimeout(function () {
+    $feedback.data('feedbackTimer', setTimeout(function () {
         $feedback.text('').addClass('d-none');
-    }, FAVORITE_FEEDBACK_MS);
+    }, durationMs));
+}
+
+function showFavoriteFeedback(text) {
+    showTimedFeedback($('#favorites-feedback'), text, FAVORITE_FEEDBACK_MS);
 }
 
 function setFavoriteLocal(name, favorite) {
@@ -893,6 +916,162 @@ function loadConfigurations() {
         setPickerMessage('Erro ao carregar configurações', 'text-danger');
         selectConfiguration(null);
     });
+}
+
+function showConfigFeedback(text, isError) {
+    const $feedback = $('#configurations-feedback');
+    $feedback.toggleClass('text-danger', Boolean(isError))
+        .toggleClass('text-success', !isError);
+    showTimedFeedback($feedback, text, CONFIG_FEEDBACK_MS);
+}
+
+// Drops a deleted scene from everything this page holds (list, favorites, badge,
+// selection and preview). The objects of the other scenes are kept, so the
+// keyboard-active item and in-flight favorite toggles stay valid.
+function removeConfigurationLocally(name) {
+    const activeItem = filteredConfigurations[pickerActiveIndex] || null;
+    const activeWasDeleted = Boolean(activeItem) && activeItem.name === name;
+    const previousActiveIndex = pickerActiveIndex;
+
+    configurationsCache = configurationsCache.filter(function (item) {
+        return item.name !== name;
+    });
+    favoriteNames.delete(name);
+    if (lastApplied && lastApplied.name === name) {
+        // The server reports an orphaned last-applied scene as null too
+        setLastAppliedLocally(null);
+    }
+    if (awaitingStatusFor && awaitingStatusFor.name === name) {
+        awaitingStatusFor = null;
+    }
+    if (hoverConfig && hoverConfig.name === name) {
+        setHoverPreview(null);
+    }
+    if (selectedConfig && selectedConfig.name === name) {
+        selectConfiguration(null);
+    }
+    renderConfigList({ keepActive: true });
+
+    // The active row itself was deleted: keep the keyboard cursor in place
+    // (clamped to the shorter list) instead of dropping it
+    if (activeWasDeleted && pickerActiveIndex < 0 && filteredConfigurations.length) {
+        pickerActiveIndex = Math.min(previousActiveIndex, filteredConfigurations.length - 1);
+        updatePickerStates(true);
+    }
+}
+
+function isDeleteConfigModalShown() {
+    const modalEl = document.getElementById('deleteConfigModal');
+    return Boolean(modalEl) && modalEl.classList.contains('show');
+}
+
+function setDeleteConfirmBusy(busy) {
+    $('#delete-config-confirm-btn').prop('disabled', busy).html(busy
+        ? '<i class="bi bi-hourglass-split" aria-hidden="true"></i> Excluindo...'
+        : '<i class="bi bi-trash" aria-hidden="true"></i> Excluir');
+    // Cancel and × stay disabled while the DELETE is in flight (Esc and the
+    // backdrop are blocked in the hide.bs.modal handler)
+    $('#deleteConfigModal [data-bs-dismiss="modal"]').prop('disabled', busy);
+}
+
+function openDeleteConfigModal() {
+    if (!selectedConfig || deleteConfigInFlight || !deleteConfigModal) {
+        return;
+    }
+    deleteConfigTarget = selectedConfig.name;
+    $('#delete-config-name').text('“' + deleteConfigTarget + '”');
+    $('#delete-config-error').text('').addClass('d-none');
+    setDeleteConfirmBusy(false);
+    deleteConfigModal.show();
+}
+
+function errorDetail(jqXHR, fallback) {
+    const body = jqXHR && jqXHR.responseJSON;
+    if (body && body.detail) {
+        return typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+    }
+    if (body && body.message) {
+        return String(body.message);
+    }
+    return fallback || 'erro desconhecido';
+}
+
+function showDeleteConfigError(text) {
+    if (isDeleteConfigModalShown()) {
+        $('#delete-config-error').text(text).removeClass('d-none');
+    } else {
+        showConfigFeedback(text, true);
+    }
+}
+
+function finishDeleteConfigRequest() {
+    deleteConfigInFlight = false;
+    setDeleteConfirmBusy(false);
+    updateDeleteButton();
+}
+
+function confirmDeleteConfig() {
+    const name = deleteConfigTarget;
+    if (!name || deleteConfigInFlight) {
+        return;
+    }
+    deleteConfigInFlight = true;
+    setDeleteConfirmBusy(true);
+    updateDeleteButton();
+    $('#delete-config-error').text('').addClass('d-none');
+
+    $.ajax({
+        type: 'DELETE',
+        url: '/configurations/' + encodeURIComponent(name)
+    }).done(function (data) {
+        // Released before hide(): the hide.bs.modal guard blocks it otherwise
+        finishDeleteConfigRequest();
+        // Only an explicit {deleted: true} counts: e.g. a name starting with
+        // "favorites/" hits the favorites route and gets an empty 204
+        if (!data || typeof data !== 'object' || data.deleted !== true) {
+            showDeleteConfigError('Não foi possível excluir: resposta inesperada do servidor.');
+            return;
+        }
+        deleteConfigModal.hide();
+        removeConfigurationLocally(name);
+        showConfigFeedback('Configuração “' + name + '” excluída.', false);
+    }).fail(function (jqXHR, textStatus, errorThrown) {
+        finishDeleteConfigRequest();
+        if (jqXHR.status === 404) {
+            // Already gone (another tab or the chat): the list just catches up
+            deleteConfigModal.hide();
+            removeConfigurationLocally(name);
+            showConfigFeedback('A configuração “' + name + '” já tinha sido excluída.', true);
+            return;
+        }
+        if (jqXHR.status === 403) {
+            showDeleteConfigError('Requisição recusada: origem não permitida.');
+            return;
+        }
+        showDeleteConfigError('Não foi possível excluir: ' + errorDetail(jqXHR, errorThrown));
+    });
+}
+
+function initDeleteConfig() {
+    const modalEl = document.getElementById('deleteConfigModal');
+    if (!modalEl || typeof bootstrap === 'undefined') {
+        return;
+    }
+    deleteConfigModal = new bootstrap.Modal(modalEl);
+    $('#delete-config-btn').on('click', openDeleteConfigModal);
+    $('#delete-config-confirm-btn').on('click', confirmDeleteConfig);
+    // Esc, backdrop click, Cancel and ×: the modal stays open while the DELETE runs
+    modalEl.addEventListener('hide.bs.modal', function (event) {
+        if (deleteConfigInFlight) {
+            event.preventDefault();
+        }
+    });
+    modalEl.addEventListener('hidden.bs.modal', function () {
+        if (!deleteConfigInFlight) {
+            deleteConfigTarget = null;
+        }
+    });
+    updateDeleteButton();
 }
 
 // Mouse hover over an element of the list: schedule a preview of its row
@@ -1123,14 +1302,7 @@ function turnOffAllLights() {
         },
         error: function (jqXHR, textStatus, errorThrown) {
             btn.html(originalHtml).prop('disabled', false);
-            let detail = errorThrown || 'erro desconhecido';
-            const body = jqXHR.responseJSON;
-            if (body && body.detail) {
-                detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
-            } else if (body && body.message) {
-                detail = body.message;
-            }
-            alert('Erro ao desligar lâmpadas: ' + detail);
+            alert('Erro ao desligar lâmpadas: ' + errorDetail(jqXHR, errorThrown));
         }
     });
 }
@@ -1169,13 +1341,7 @@ function undoLastScene() {
         },
         error: function (jqXHR) {
             btn.html(originalHtml).prop('disabled', false);
-            let detail = 'Erro ao desfazer';
-            try {
-                if (jqXHR.responseJSON && jqXHR.responseJSON.detail) {
-                    detail = jqXHR.responseJSON.detail;
-                }
-            } catch (e) { /* ignore */ }
-            alert(detail);
+            alert(errorDetail(jqXHR, 'Erro ao desfazer'));
         }
     });
 }
@@ -1207,6 +1373,7 @@ $(document).ready(function () {
     initTheme();
     checkBridgeStatus();
     initConfigurationsPicker();
+    initDeleteConfig();
     loadConfigurations();
     loadLightsStatus();
     startLightsAutoRefresh();
