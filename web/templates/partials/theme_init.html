@@ -1,0 +1,14 @@
+<script>
+        // Runs before the stylesheets so the saved theme is applied on the first
+        // paint; page scripts set it only after load, which flashed the light theme.
+        (function () {
+            try {
+                var theme = localStorage.getItem('theme');
+                if (theme === 'dark' || theme === 'light') {
+                    document.documentElement.setAttribute('data-bs-theme', theme);
+                }
+            } catch (e) {
+                // Storage blocked: keep the default from the <html> tag
+            }
+        })();
+    </script>

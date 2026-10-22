@@ -14,6 +14,12 @@
             title="Alternar tema" aria-label="Alternar tema">
       <i id="theme-icon" class="bi bi-moon-fill" aria-hidden="true"></i>
     </button>
+    <script>
+      // Match the icon to the theme set in <head> before the first paint
+      if (document.documentElement.getAttribute('data-bs-theme') === 'dark') {
+        document.getElementById('theme-icon').classList.replace('bi-moon-fill', 'bi-sun-fill');
+      }
+    </script>
     <button class="navbar-toggler" type="button"
             data-bs-toggle="collapse" data-bs-target="#mainNav"
             aria-controls="mainNav" aria-expanded="false"
