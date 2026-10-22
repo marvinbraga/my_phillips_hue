@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -41,7 +42,7 @@ class BackupImportResponse(BaseModel):
 def _reload_setups_manager() -> None:
     """Keep in-memory setups in sync with disk after import."""
     try:
-        get_manager().load().update()
+        get_manager().reload()
     except (RuntimeError, FileNotFoundError, OSError) as exc:
         logger.warning(f"setups_manager_reload_skipped error={exc}")
 
@@ -130,5 +131,6 @@ async def import_backup(
             detail="Failed to import backup archive",
         ) from exc
 
-    _reload_setups_manager()
+    # Leitura de disco + troca sob o lock do manager: fora do event loop.
+    await asyncio.to_thread(_reload_setups_manager)
     return BackupImportResponse.model_validate(summary)

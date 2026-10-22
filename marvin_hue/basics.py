@@ -23,6 +23,19 @@ class ConfigNotFoundError(LookupError):
     """Nenhuma cena com esse nome exato (comparação com maiúsculas)."""
 
 
+# ``DELETE /configurations/favorites/<x>`` é a rota de desfavoritar: uma cena
+# chamada "favorites/<x>" nunca poderia ser excluída pela API.
+RESERVED_CONFIG_NAME_PREFIX = "favorites/"
+
+
+class ReservedConfigNameError(ValueError):
+    """Nome de cena reservado (começa com ``favorites/``, sem maiúsculas)."""
+
+
+def is_reserved_config_name(name: str) -> bool:
+    return name.strip().casefold().startswith(RESERVED_CONFIG_NAME_PREFIX)
+
+
 class LightSetting:
     """
     Classe para guardar a configuração de uma lâmpada.
@@ -146,16 +159,29 @@ class LightSetupsManager:
         return self
 
     def update(self) -> "LightSetupsManager":
-        self._configs = []
+        """Reconstrói as cenas a partir de ``data`` e troca a lista sob lock.
+
+        A lista nova é montada fora do lock; a troca é por slice assignment,
+        então quem guardou ``configs`` continua vendo a mesma lista e nenhum
+        ``add_config``/``remove_config`` concorrente a observa pela metade.
+        """
+        new_configs: list[LightConfig] = []
         for config in self._data.get("setups", []):
             light_settings: list[LightSetting] = [
                 LightSetting(setting["light_name"], Color(**setting["color"]))
                 for setting in config["settings"]
             ]
-            self._configs.append(
+            new_configs.append(
                 LightConfig(config["name"], light_settings, config["description"])
             )
+        with self._lock:
+            self._configs[:] = new_configs
         return self
+
+    def reload(self) -> "LightSetupsManager":
+        """``load().update()`` sob lock (ex.: depois de importar um backup)."""
+        with self._lock:
+            return self.load().update()
 
     def save(self) -> "LightSetupsManager":
         """Salva as configurações no JSON de forma atômica (temp + ``os.replace``).
@@ -181,10 +207,13 @@ class LightSetupsManager:
         """Acrescenta uma cena e persiste, sob lock (check-append-save atômico).
 
         Raises:
+            ReservedConfigNameError: o nome começa com ``favorites/``.
             DuplicateConfigError: já existe cena com o mesmo nome (sem
                 diferenciar maiúsculas).
             OSError: a gravação falhou; a cena é removida da memória.
         """
+        if is_reserved_config_name(config.name):
+            raise ReservedConfigNameError(config.name)
         with self._lock:
             key = config.name.casefold()
             if any(c.name.casefold() == key for c in self._configs):

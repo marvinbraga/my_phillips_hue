@@ -61,7 +61,7 @@ def test_delete_unknown_returns_404(fastapi_test_client: TestClient) -> None:
     manager = dependencies.get_manager()
     r = fastapi_test_client.delete("/configurations/nonexistent_xyz")
     assert r.status_code == 404
-    assert "nonexistent_xyz" in r.json()["detail"]
+    assert r.json() == {"detail": "Configuração 'nonexistent_xyz' não encontrada"}
     assert _names_on_disk(manager) == ["concentration", "relax"]
 
 
@@ -73,17 +73,16 @@ def test_delete_twice_second_is_404(fastapi_test_client: TestClient) -> None:
 def test_delete_save_failure_returns_500_and_keeps_scene(
     fastapi_test_client: TestClient, monkeypatch
 ) -> None:
-    import marvin_hue.atomic_io as aio
-
     manager = dependencies.get_manager()
 
-    def boom(a, b):
-        raise OSError("disk full")
+    def boom(path, payload):
+        raise OSError(f"disk full: {path}")
 
-    monkeypatch.setattr(aio.os, "replace", boom)
+    monkeypatch.setattr("marvin_hue.basics.write_json_atomic", boom)
     r = fastapi_test_client.delete("/configurations/relax")
     assert r.status_code == 500
-    assert "relax" in r.json()["detail"]
+    # Mensagem genérica: o caminho do arquivo fica só no log.
+    assert r.json() == {"detail": "Não foi possível excluir a configuração 'relax'."}
     assert manager.get_config("relax") is not None
     assert _names_on_disk(manager) == ["concentration", "relax"]
 
@@ -100,6 +99,16 @@ def test_delete_accented_and_slash_names(
     assert r.json() == {"name": SLASH_SCENE, "deleted": True}
 
     assert _names_on_disk(accented_manager) == ["relax"]
+
+
+@pytest.mark.parametrize("path", ["/configurations/", "/configurations/%20"])
+def test_delete_empty_or_blank_name_returns_404(
+    fastapi_test_client: TestClient, path: str
+) -> None:
+    manager = dependencies.get_manager()
+    r = fastapi_test_client.delete(path, follow_redirects=False)
+    assert r.status_code == 404, r.text
+    assert _names_on_disk(manager) == ["concentration", "relax"]
 
 
 def test_favorites_delete_route_not_shadowed(fastapi_test_client: TestClient) -> None:
@@ -126,17 +135,26 @@ def test_deleted_scene_disappears_from_favorites_and_last_applied(
     applied = fastapi_test_client.post(
         "/apply", json={"config_name": "relax", "transition_time_secs": 0}
     )
-    assert applied.status_code in (200, 207), applied.text
+    assert applied.status_code == 200, applied.text
     assert fastapi_test_client.get("/configurations/last-applied").json()["name"] == (
         "relax"
     )
 
+    manager = dependencies.get_manager()
+    original = manager.get_config("relax")
+    assert original is not None
     assert fastapi_test_client.delete("/configurations/relax").status_code == 200
 
     assert fastapi_test_client.get("/configurations/favorites").json() == {
         "favorites": []
     }
     assert fastapi_test_client.get("/configurations/last-applied").json()["name"] is None
+
+    # Órfãos são mantidos (só ocultos): recriar a cena traz o favorito de volta.
+    manager.add_config(original)
+    assert fastapi_test_client.get("/configurations/favorites").json() == {
+        "favorites": ["relax"]
+    }
 
 
 def test_api_alias_requires_key(fastapi_test_client: TestClient) -> None:
@@ -198,7 +216,7 @@ def test_schedule_referencing_deleted_scene_fails_cleanly(
 
     run = fastapi_test_client.post(f"/api/schedules/{sid}/run")
     assert run.status_code == 400
-    assert "relax" in run.json()["detail"]
+    assert run.json() == {"detail": "Unknown config_name: 'relax'"}
 
     service = dependencies.get_schedule_service()
     local_now = datetime(2026, 10, 22, 22, 0).astimezone()

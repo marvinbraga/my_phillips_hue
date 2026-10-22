@@ -81,3 +81,26 @@ def test_save_current_config_saves_new(fake_controller, fake_manager):
     )
     assert "salva com sucesso" in out
     fake_manager.save.assert_called_once()
+
+
+def test_save_current_config_reserved_name_friendly_message(fake_controller, fake_manager):
+    tools = _tools(fake_controller, fake_manager)
+    out = tools["save_current_config"].func("favorites/x", "x")
+    assert out == (
+        "O nome 'favorites/x' não pode ser usado: nomes de cena não podem começar "
+        "com 'favorites/'. Escolha outro nome."
+    )
+    fake_manager.save.assert_not_called()
+
+
+def test_save_current_config_maps_reserved_error_from_manager(
+    fake_controller, fake_manager
+):
+    from marvin_hue.basics import ReservedConfigNameError
+
+    fake_manager.add_config.side_effect = ReservedConfigNameError("cena")
+    out = _tools(fake_controller, fake_manager)["save_current_config"].invoke(
+        {"config_name": "cena", "description": "x"}
+    )
+    assert "não pode ser usado" in out
+    assert "Erro ao" not in out

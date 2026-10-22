@@ -273,7 +273,9 @@ async def delete_configuration(
     """Exclui a cena de ``setups.json`` (todas as entradas com o nome exato).
 
     Favoritos e "última aplicada" que apontam para ela ficam órfãos (ocultos);
-    agendamentos ``apply_config`` com esse nome passam a falhar na execução.
+    agendamentos ``apply_config``/``apply_group`` com esse nome passam a falhar
+    na execução. A resposta 500 é genérica: o detalhe (caminho do arquivo)
+    fica só no log.
     """
     try:
         # Escrita em disco sob threading.RLock: fora do event loop.
@@ -286,7 +288,7 @@ async def delete_configuration(
         logger.error(f"Delete config '{name}': falha ao gravar setups: {exc}")
         raise HTTPException(
             status_code=500,
-            detail=f"Não foi possível excluir a configuração '{name}': {exc}",
+            detail=f"Não foi possível excluir a configuração '{name}'.",
         ) from exc
     logger.info(f"Configuração '{name}' excluída")
     return ConfigurationDeletedResponse(name=name, deleted=True)
