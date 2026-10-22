@@ -56,11 +56,19 @@ let lastApplied = null;
 // started before the bump answers with older data and is ignored
 let lastAppliedLocalSeq = 0;
 
+// Scene deletion: name awaiting confirmation in the modal; one DELETE at a time
+let deleteConfigModal = null;
+/** @type {string|null} */
+let deleteConfigTarget = null;
+let deleteConfigInFlight = false;
+let configFeedbackTimer = null;
+
 const HOVER_PREVIEW_DELAY_MS = 80;
 const HOVER_RESUME_MOVE_PX = 2;
 const TOUCH_MOUSE_GUARD_MS = 800;
 const FAVORITES_ONLY_STORAGE_KEY = 'controle.favoritesOnly';
 const FAVORITE_FEEDBACK_MS = 4000;
+const CONFIG_FEEDBACK_MS = 5000;
 const LAST_APPLIED_REFRESH_MS = 30000;
 
 function loadLightsStatus() {
@@ -584,7 +592,19 @@ function updatePickerStates(skipScroll) {
     updateSelectedChip();
 }
 
+function updateDeleteButton() {
+    const $btn = $('#delete-config-btn');
+    const enabled = Boolean(selectedConfig) && !deleteConfigInFlight;
+    $btn.prop('disabled', !enabled)
+        .toggleClass('btn-outline-danger', enabled)
+        .toggleClass('btn-outline-secondary', !enabled)
+        .attr('title', selectedConfig
+            ? 'Excluir “' + selectedConfig.name + '”'
+            : 'Selecione uma configuração para excluir');
+}
+
 function updateSelectedChip() {
+    updateDeleteButton();
     const $chip = $('#configurations-selected-chip');
     const hidden = !selectedConfig || filteredConfigurations.indexOf(selectedConfig) !== -1;
     if (hidden) {
@@ -861,11 +881,17 @@ function refreshLastAppliedBadge() {
     });
 }
 
-function loadConfigurations() {
+// options.reload: refresh after a change on this page (e.g. a deletion). Keeps the
+// list, filter, scroll and selection on screen, never pre-selects the last applied
+// scene, and on failure leaves the current list in place.
+function loadConfigurations(options) {
+    const reload = Boolean(options && options.reload);
     const $filter = $('#configurations-filter');
-    $filter.prop('disabled', true).attr('placeholder', 'Carregando configurações...');
-    $('#configurations-count').text('');
-    setPickerMessage('Carregando configurações...');
+    if (!reload) {
+        $filter.prop('disabled', true).attr('placeholder', 'Carregando configurações...');
+        $('#configurations-count').text('');
+        setPickerMessage('Carregando configurações...');
+    }
 
     // In parallel, but outside $.when: the list never waits for it
     const lastAppliedRequest = requestLastApplied();
@@ -883,9 +909,24 @@ function loadConfigurations() {
             return String(a.name).localeCompare(String(b.name), 'pt-BR');
         });
         $filter.prop('disabled', false).attr('placeholder', 'Filtrar por nome ou descrição...');
+        if (reload) {
+            remapStateToCache();
+            renderConfigList({ keepActive: true });
+            lastAppliedRequest.done(function (info) {
+                if (info !== undefined) {
+                    lastApplied = info;
+                    updateLastAppliedBadges();
+                }
+            });
+            return;
+        }
         renderConfigList();
         lastAppliedRequest.done(applyInitialLastApplied);
     }).fail(function () {
+        if (reload) {
+            showConfigFeedback('Não foi possível recarregar a lista de configurações.', true);
+            return;
+        }
         configurationsCache = [];
         filteredConfigurations = [];
         $filter.prop('disabled', false).attr('placeholder', 'Erro ao carregar configurações');
@@ -893,6 +934,151 @@ function loadConfigurations() {
         setPickerMessage('Erro ao carregar configurações', 'text-danger');
         selectConfiguration(null);
     });
+}
+
+// After a reload the cache holds new objects: point the selection (and the
+// pending post-apply preview) at the fresh item with the same name.
+function remapStateToCache() {
+    function fresh(item) {
+        if (!item) {
+            return null;
+        }
+        return configurationsCache.find(function (config) {
+            return config.name === item.name;
+        }) || null;
+    }
+    const wasAwaitingSelected = Boolean(awaitingStatusFor) && awaitingStatusFor === selectedConfig;
+    if (hoverConfig) {
+        clearTimeout(hoverPreviewTimer);
+        hoverConfig = null;
+        hoverFromKeyboard = false;
+    }
+    hoverCandidate = null;
+    if (selectedConfig) {
+        const item = fresh(selectedConfig);
+        if (item) {
+            selectedConfig = item;
+        } else {
+            selectedConfig = null;
+            selectionPreviewDismissed = false;
+        }
+    }
+    awaitingStatusFor = wasAwaitingSelected ? selectedConfig : fresh(awaitingStatusFor);
+    refreshLightsView();
+}
+
+function showConfigFeedback(text, isError) {
+    const $feedback = $('#configurations-feedback');
+    clearTimeout(configFeedbackTimer);
+    $feedback.text(text)
+        .toggleClass('text-danger', Boolean(isError))
+        .toggleClass('text-success', !isError)
+        .removeClass('d-none');
+    configFeedbackTimer = setTimeout(function () {
+        $feedback.text('').addClass('d-none');
+    }, CONFIG_FEEDBACK_MS);
+}
+
+// Drops a deleted scene from everything this page holds (list, favorites, badge,
+// selection and preview) without waiting for the reload.
+function removeConfigurationLocally(name) {
+    configurationsCache = configurationsCache.filter(function (item) {
+        return item.name !== name;
+    });
+    favoriteNames.delete(name);
+    if (lastApplied && lastApplied.name === name) {
+        // The server reports an orphaned last-applied scene as null too
+        lastApplied = null;
+    }
+    if (awaitingStatusFor && awaitingStatusFor.name === name) {
+        awaitingStatusFor = null;
+    }
+    if (hoverConfig && hoverConfig.name === name) {
+        setHoverPreview(null);
+    }
+    if (selectedConfig && selectedConfig.name === name) {
+        selectConfiguration(null);
+    }
+    renderConfigList({ keepActive: true });
+}
+
+function setDeleteConfirmBusy(busy) {
+    const $btn = $('#delete-config-confirm-btn');
+    $btn.prop('disabled', busy).html(busy
+        ? '<i class="bi bi-hourglass-split" aria-hidden="true"></i> Excluindo...'
+        : '<i class="bi bi-trash" aria-hidden="true"></i> Excluir');
+}
+
+function openDeleteConfigModal() {
+    if (!selectedConfig || deleteConfigInFlight || !deleteConfigModal) {
+        return;
+    }
+    deleteConfigTarget = selectedConfig.name;
+    $('#delete-config-name').text('“' + deleteConfigTarget + '”');
+    $('#delete-config-error').text('').addClass('d-none');
+    setDeleteConfirmBusy(false);
+    deleteConfigModal.show();
+}
+
+function errorDetail(jqXHR, fallback) {
+    const body = jqXHR && jqXHR.responseJSON;
+    if (body && body.detail) {
+        return typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+    }
+    return fallback || 'erro desconhecido';
+}
+
+function confirmDeleteConfig() {
+    const name = deleteConfigTarget;
+    if (!name || deleteConfigInFlight) {
+        return;
+    }
+    deleteConfigInFlight = true;
+    setDeleteConfirmBusy(true);
+    updateDeleteButton();
+    $('#delete-config-error').text('').addClass('d-none');
+
+    $.ajax({
+        type: 'DELETE',
+        url: '/configurations/' + encodeURIComponent(name)
+    }).done(function () {
+        deleteConfigModal.hide();
+        removeConfigurationLocally(name);
+        showConfigFeedback('Configuração “' + name + '” excluída.', false);
+        loadConfigurations({ reload: true });
+    }).fail(function (jqXHR, textStatus, errorThrown) {
+        if (jqXHR.status === 404) {
+            // Already gone (another tab or the chat): the list just catches up
+            deleteConfigModal.hide();
+            removeConfigurationLocally(name);
+            showConfigFeedback('A configuração “' + name + '” já tinha sido excluída.', true);
+            loadConfigurations({ reload: true });
+            return;
+        }
+        $('#delete-config-error')
+            .text('Não foi possível excluir: ' + errorDetail(jqXHR, errorThrown))
+            .removeClass('d-none');
+    }).always(function () {
+        deleteConfigInFlight = false;
+        setDeleteConfirmBusy(false);
+        updateDeleteButton();
+    });
+}
+
+function initDeleteConfig() {
+    const modalEl = document.getElementById('deleteConfigModal');
+    if (!modalEl || typeof bootstrap === 'undefined') {
+        return;
+    }
+    deleteConfigModal = new bootstrap.Modal(modalEl);
+    $('#delete-config-btn').on('click', openDeleteConfigModal);
+    $('#delete-config-confirm-btn').on('click', confirmDeleteConfig);
+    modalEl.addEventListener('hidden.bs.modal', function () {
+        if (!deleteConfigInFlight) {
+            deleteConfigTarget = null;
+        }
+    });
+    updateDeleteButton();
 }
 
 // Mouse hover over an element of the list: schedule a preview of its row
@@ -1207,6 +1393,7 @@ $(document).ready(function () {
     initTheme();
     checkBridgeStatus();
     initConfigurationsPicker();
+    initDeleteConfig();
     loadConfigurations();
     loadLightsStatus();
     startLightsAutoRefresh();

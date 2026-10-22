@@ -353,6 +353,8 @@
                         </div>
                         <div class="config-picker-feedback small text-danger d-none" id="favorites-feedback"
                              role="status" aria-live="polite"></div>
+                        <div class="config-picker-feedback small d-none" id="configurations-feedback"
+                             role="status" aria-live="polite"></div>
                         <div class="config-picker-chip d-none" id="configurations-selected-chip">
                             <i class="bi bi-check2-circle"></i>
                             <span>Selecionada:</span>
@@ -385,6 +387,10 @@
                     <button type="button" id="undo-btn" class="btn btn-outline-warning" title="Restaura o último snapshot de cena">
                         <i class="bi bi-arrow-counterclockwise"></i> Desfazer última cena
                     </button>
+                    <button type="button" id="delete-config-btn" class="btn btn-outline-secondary ms-md-auto" disabled
+                            title="Selecione uma configuração para excluir">
+                        <i class="bi bi-trash" aria-hidden="true"></i> Excluir configuração
+                    </button>
                 </div>
             </form>
         </div>
@@ -397,10 +403,37 @@
     </div>
 </div>
 
+<div class="modal fade" id="deleteConfigModal" tabindex="-1" aria-labelledby="delete-config-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="delete-config-modal-title">
+                    <i class="bi bi-trash text-danger" aria-hidden="true"></i> Excluir configuração
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">Excluir a configuração <strong id="delete-config-name"></strong>?</p>
+                <p class="small text-body-secondary mb-0">
+                    Ela será removida do arquivo de cenas e não poderá ser desfeita por aqui.
+                    Agendamentos que a aplicam passarão a falhar até serem editados.
+                </p>
+                <div class="small text-danger mt-2 d-none" id="delete-config-error" role="alert"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger" id="delete-config-confirm-btn">
+                    <i class="bi bi-trash" aria-hidden="true"></i> Excluir
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"
         integrity="sha384-vtXRMe3mGCbOeY7l30aIg8H9p3GdeSe4IFlP6G8JMa7o7lXvnz3GFKzPxzJdPfGK" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"
         integrity="sha384-w76AqPfDkMBDXo30jS1Sgez6pr3x5MlQ1ZAGC+nuZB+EYdgRZgiwxhTBTkF7CXvN" crossorigin="anonymous"></script>
-<script src="/static/index.js?v=last-applied-2"></script>
+<script src="/static/index.js?v=delete-config-1"></script>
 </body>
 </html>
