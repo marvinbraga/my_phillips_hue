@@ -28,7 +28,7 @@ def test_controle_page_has_delete_button_modal_and_current_script(
     assert 'id="deleteConfigModal"' in html
     version = _script_version(INDEX_TEMPLATE.read_text(encoding="utf-8"))
     assert f'/static/index.js?v={version}"' in html
-    assert version == "delete-config-2"
+    assert version == "light-intensity-1"
 
 
 def test_index_js_deletes_with_encoded_name_and_checks_response() -> None:
@@ -45,3 +45,16 @@ def test_index_js_keeps_modal_open_while_delete_in_flight() -> None:
     js = INDEX_JS.read_text(encoding="utf-8")
     assert "'hide.bs.modal'" in js
     assert "Requisição recusada: origem não permitida." in js
+
+
+def test_index_js_double_click_applies_selected_scene() -> None:
+    js = INDEX_JS.read_text(encoding="utf-8")
+    assert "$list.on('dblclick', '.config-picker-item'" in js
+    assert "applyConfiguration(event);" in js
+
+
+def test_index_js_scales_colors_by_light_brightness() -> None:
+    js = INDEX_JS.read_text(encoding="utf-8")
+    assert "function intensityColor(color, brightness)" in js
+    assert "intensityColor(view.color, view.brightness)" in js
+    assert "intensityColor(p, p.brightness)" in js

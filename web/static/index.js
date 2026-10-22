@@ -182,10 +182,31 @@ function brightnessPercent(value) {
     return Math.round((Number(value || 0) / 254) * 100);
 }
 
+// Lowest intensity for a light that is on, so very dim lights stay visible
+const MIN_DISPLAY_INTENSITY = 0.15;
+
+// Shows a color as bright as the light really is. The server normalizes RGB
+// to the strongest channel (brightness barely changes it), so normalize again
+// and scale by the Hue brightness (0-254), which is roughly perceptual.
+function displayIntensity(brightness) {
+    const level = Math.max(0, Math.min(254, Number(brightness) || 0)) / 254;
+    return MIN_DISPLAY_INTENSITY + (1 - MIN_DISPLAY_INTENSITY) * level;
+}
+
+function intensityColor(color, brightness) {
+    const r = Number(color.r) || 0;
+    const g = Number(color.g) || 0;
+    const b = Number(color.b) || 0;
+    const peak = Math.max(r, g, b, 1);
+    const factor = displayIntensity(brightness) * 255 / peak;
+    return `rgb(${Math.round(r * factor)}, ${Math.round(g * factor)}, ${Math.round(b * factor)})`;
+}
+
 function buildLightView(name, status, setting, hasPreview, statusKnown) {
     const view = {
         name: name,
         color: (status && status.color) || { r: 128, g: 128, b: 128 },
+        brightness: status ? status.brightness : 254,
         bulbClass: 'off',
         circleClass: '',
         tag: '',
@@ -235,6 +256,7 @@ function buildLightView(name, status, setting, hasPreview, statusKnown) {
     }
 
     view.color = { r: preview.r, g: preview.g, b: preview.b };
+    view.brightness = preview.brightness;
     view.bulbClass = 'on';
     view.circleClass = 'preview';
     view.title = `${name}\nPrévia — brilho: ${brightnessPercent(preview.brightness)}%`;
@@ -280,7 +302,10 @@ function renderLights(lights, preview) {
         const view = buildLightView(
             lightName, statusByName[lightName], settingsByName[lightName], Boolean(preview), statusKnown
         );
-        const rgbColor = `rgb(${view.color.r}, ${view.color.g}, ${view.color.b})`;
+        // Lit bulbs follow the light's brightness; off/unreachable keep their own styling
+        const rgbColor = view.bulbClass === 'on'
+            ? intensityColor(view.color, view.brightness)
+            : `rgb(${view.color.r}, ${view.color.g}, ${view.color.b})`;
 
         const lightElement = $('<div>', {
             class: ('light-circle ' + view.circleClass).trim(),
@@ -392,7 +417,7 @@ function buildColorDots(item) {
         $dots.append($('<span>', {
             class: 'item-dot' + (p.enabled === false ? ' is-disabled' : ''),
             title: setting.light_name + ' — ' + detail,
-            css: { backgroundColor: `rgb(${p.r}, ${p.g}, ${p.b})` }
+            css: { backgroundColor: intensityColor(p, p.brightness) }
         }));
     });
     return $dots;
