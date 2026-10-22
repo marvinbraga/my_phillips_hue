@@ -22,6 +22,7 @@ from marvin_hue.api import dependencies
 from marvin_hue.api.exception_handlers import register_exception_handlers
 from marvin_hue.api.middleware.api_key import ApiKeyMiddleware
 from marvin_hue.api.middleware.csp import ContentSecurityPolicyMiddleware
+from marvin_hue.api.middleware.origin import SameOriginMiddleware
 from marvin_hue.api.routes import (
     backup,
     chat,
@@ -339,11 +340,12 @@ app = FastAPI(
 register_exception_handlers(app)
 dependencies.bind_fastapi_app(app)
 
-# Configurar CORS
+# Configurar CORS. A UI é same-origin; a auth é por header (API key), não por
+# cookie. Com "*" não há credenciais: o Starlette deixa de refletir a origem.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_credentials="*" not in settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -354,6 +356,10 @@ app.add_middleware(ApiKeyMiddleware, api_key=settings.api_key)
 
 # CSP img-src 'self' data: nas páginas HTML (anti-exfiltração via imagem, #25).
 app.add_middleware(ContentSecurityPolicyMiddleware)
+
+# Anti-CSRF: POST/PUT/PATCH/DELETE com Origin de outro site → 403 (sem Origin,
+# como curl/CLI, passa). Mais externo: recusa antes de CORS, API key e rotas.
+app.add_middleware(SameOriginMiddleware, allowed_origins=settings.cors_origins)
 
 # Configurar arquivos estáticos e templates
 app.mount("/static", StaticFiles(directory="web/static"), name="static")

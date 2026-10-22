@@ -5,11 +5,12 @@ Este módulo define todas as configurações da aplicação usando Pydantic Sett
 permitindo carregamento a partir de variáveis de ambiente ou arquivo .env.
 """
 
+import json
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -85,7 +86,8 @@ class Settings(BaseSettings):
     api_key: str | None = Field(
         default=None, description="API key opcional para autenticação"
     )
-    cors_origins: list[str] = Field(
+    # NoDecode: o .env usa "a,b" ou "*" (não JSON); o validator abaixo separa.
+    cors_origins: Annotated[list[str], NoDecode] = Field(
         default=["*"],
         description="CORS allowed origins (separados por vírgula em .env)",
     )
@@ -160,6 +162,17 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",  # Ignora variáveis extras não definidas
     )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def split_cors_origins(cls, value: Any) -> Any:
+        """Aceita ``*``, ``a,b`` (separado por vírgula) ou lista JSON ``["a"]``."""
+        if not isinstance(value, str):
+            return value
+        raw = value.strip()
+        if raw.startswith("["):
+            return json.loads(raw)
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
     @model_validator(mode="after")
     def validate_app_db_path_isolation(self) -> "Settings":

@@ -5,7 +5,6 @@ Gerenciamento de conexões WebSocket para espelhamento e chat.
 
 import asyncio
 from typing import Any
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -15,6 +14,7 @@ from marvin_hue.api.dependencies import (
     get_chat_unavailable_reason,
     get_mirror_control_service,
 )
+from marvin_hue.api.middleware.origin import origin_allowed
 from marvin_hue.api.models import ChatResumeRequest
 from marvin_hue.chat.hitl import APPROVAL_REQUIRED, ApprovalError, ApprovalRequired
 from marvin_hue.logging_config import get_logger
@@ -30,21 +30,6 @@ logger = get_logger("websockets")
 
 # Código de fechamento WebSocket "policy violation" (RFC 6455).
 _WS_POLICY_VIOLATION = 1008
-
-
-def origin_allowed(origin: str | None, host: str | None) -> bool:
-    """Same-origin check para WebSockets do navegador (anti-CSWSH).
-
-    Sem ``Origin`` (CLI/scripts, fora do navegador) → permitido: o chat fica
-    aberto na LAN por design. Com ``Origin``, o host:porta tem de bater com o
-    ``Host`` da requisição; ``null`` (iframes sandbox, file://) é recusado.
-    """
-    if origin is None:
-        return True
-    if not host:
-        return False
-    netloc = urlsplit(origin).netloc
-    return bool(netloc) and netloc.casefold() == host.strip().casefold()
 
 
 async def dispatch_ws_mirror_action(
