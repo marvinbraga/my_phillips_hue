@@ -1185,6 +1185,24 @@ function initConfigurationsPicker() {
         selectConfiguration(item);
     });
 
+    // Double click applies. The first click already selected the row; the
+    // star is left out so double-toggling a favorite never applies a scene.
+    $list.on('dblclick', '.config-picker-item', function (event) {
+        if ($(event.target).closest('.config-fav-btn').length) {
+            return;
+        }
+        const item = $(this).data('config');
+        if (selectedConfig !== item) {
+            pickerActiveIndex = filteredConfigurations.indexOf(item);
+            selectConfiguration(item);
+        }
+        // An apply already in flight (button disabled) is not repeated
+        if ($('#apply-btn').prop('disabled')) {
+            return;
+        }
+        applyConfiguration(event);
+    });
+
     // Hover preview: mouse only (touch relies on click). Emulated mouse events
     // that follow a touch are ignored via lastTouchAt.
     const listEl = $list.get(0);
