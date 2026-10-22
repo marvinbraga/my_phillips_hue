@@ -19,6 +19,10 @@ class DuplicateConfigError(ValueError):
     """Já existe uma cena com esse nome (comparação sem maiúsculas)."""
 
 
+class ConfigNotFoundError(LookupError):
+    """Nenhuma cena com esse nome exato (comparação com maiúsculas)."""
+
+
 class LightSetting:
     """
     Classe para guardar a configuração de uma lâmpada.
@@ -192,6 +196,32 @@ class LightSetupsManager:
                 self._configs.remove(config)
                 raise
         return self
+
+    def remove_config(self, name: str) -> int:
+        """Remove todas as cenas com o nome exato e persiste, sob lock.
+
+        Returns:
+            Quantas entradas foram removidas (duplicatas legadas contam).
+
+        Raises:
+            ConfigNotFoundError: nenhuma cena com esse nome exato.
+            OSError: a gravação falhou; a lista anterior é restaurada.
+        """
+        with self._lock:
+            previous = list(self._configs)
+            remaining = [c for c in previous if c.name != name]
+            removed = len(previous) - len(remaining)
+            if removed == 0:
+                raise ConfigNotFoundError(name)
+            # Slice assignment: quem guardou ``configs`` continua vendo a lista.
+            self._configs[:] = remaining
+            try:
+                self.save()
+            except Exception:
+                self._configs[:] = previous
+                raise
+        logger.info(f"Removed configuration {name!r} (entries={removed})")
+        return removed
 
     async def load_async(self) -> "LightSetupsManager":
         """

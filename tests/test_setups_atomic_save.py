@@ -6,7 +6,13 @@ import threading
 
 import pytest
 
-from marvin_hue.basics import DuplicateConfigError, LightConfig, LightSetting, LightSetupsManager
+from marvin_hue.basics import (
+    ConfigNotFoundError,
+    DuplicateConfigError,
+    LightConfig,
+    LightSetting,
+    LightSetupsManager,
+)
 from marvin_hue.colors import Color
 
 
@@ -101,3 +107,48 @@ def test_backup_json_writer_is_atomic(tmp_path, monkeypatch):
     assert calls == [str(target)]
     assert json.loads(target.read_text("utf-8")) == {"setups": [1]}
     assert (tmp_path / "setups.json.bak").exists()
+
+
+def _names_on_disk(path) -> list[str]:
+    return [s["name"] for s in json.loads(path.read_text("utf-8"))["setups"]]
+
+
+def test_remove_config_removes_and_persists(sample_setups_json):
+    manager = LightSetupsManager(str(sample_setups_json))
+    configs_ref = manager.configs
+    assert manager.remove_config("relax") == 1
+    assert manager.get_config("relax") is None
+    assert configs_ref is manager.configs  # mesma lista (referências continuam válidas)
+    assert _names_on_disk(sample_setups_json) == ["concentration"]
+
+
+def test_remove_config_removes_every_exact_duplicate(sample_setups_json):
+    manager = LightSetupsManager(str(sample_setups_json))
+    manager.configs.append(_cfg("relax"))  # duplicata legada vinda do JSON
+    manager.configs.append(_cfg("Relax"))  # outro nome (comparação exata)
+    assert manager.remove_config("relax") == 2
+    assert [c.name for c in manager.configs] == ["concentration", "Relax"]
+    assert _names_on_disk(sample_setups_json) == ["concentration", "Relax"]
+
+
+def test_remove_config_unknown_raises_and_keeps_file(sample_setups_json):
+    original = sample_setups_json.read_text("utf-8")
+    manager = LightSetupsManager(str(sample_setups_json))
+    with pytest.raises(ConfigNotFoundError):
+        manager.remove_config("RELAX")  # nome exato: maiúsculas não casam
+    assert len(manager.configs) == 2
+    assert sample_setups_json.read_text("utf-8") == original
+
+
+def test_remove_config_restores_on_save_failure(sample_setups_json, monkeypatch):
+    import marvin_hue.atomic_io as aio
+
+    original = sample_setups_json.read_text("utf-8")
+    manager = LightSetupsManager(str(sample_setups_json))
+    before = list(manager.configs)
+    monkeypatch.setattr(aio.os, "replace", lambda a, b: (_ for _ in ()).throw(OSError("ro")))
+    with pytest.raises(OSError):
+        manager.remove_config("relax")
+    assert manager.configs == before
+    assert manager.get_config("relax") is not None
+    assert sample_setups_json.read_text("utf-8") == original
